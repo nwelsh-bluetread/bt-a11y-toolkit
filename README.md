@@ -11,7 +11,9 @@ npm install @bluetread/accessibility-toolkit
 
 > This repo backs all work for the Accessibility Product: unit tests, scripts,
 > and the shared toolkit. See [`docs/DEVELOPMENT_CHECKLISTS.md`](docs/DEVELOPMENT_CHECKLISTS.md)
-> for the full Phase 1–4 engagement checklists.
+> for the full Phase 1–4 engagement checklists, and
+> [`docs/MANUAL_TESTING.md`](docs/MANUAL_TESTING.md) for what to test by hand
+> (by WCAG level) after the automated scans run.
 
 ## Why
 
@@ -29,6 +31,56 @@ into `A11yNode`s, then the shared rules evaluate them identically.
 ```
 A11yNode tree ──► rules ──► findings ──► scoring ──► report / Jira tickets
 ```
+
+## Auditing mobile-only apps (no web)
+
+WAVE, Lighthouse, and axe DevTools all require a **web DOM**, so they do **not**
+apply to native mobile apps. For a mobile-only project, ignore those tools and
+use the mobile toolchain below. The audit is inherently **more manual** than web
+— there is no DOM-style automated scanner for native mobile — so budget extra
+time for VoiceOver/TalkBack testing.
+
+### Pick the toolchain by stack
+
+| Stack | Static / source | On-device automated | Manual (required) |
+| --- | --- | --- | --- |
+| **React Native** | `eslint-plugin-react-native-a11y` + this toolkit's RN adapter → rules | iOS Accessibility Inspector, Android Accessibility Scanner | VoiceOver + TalkBack |
+| **Native iOS** (Swift/UIKit/SwiftUI) | — | Xcode Accessibility Inspector Audit, XCUITest `performAccessibilityAudit()` | VoiceOver |
+| **Native Android** (Kotlin/Java/Compose) | — | Accessibility Scanner, Espresso `AccessibilityChecks.enable()` | TalkBack |
+| **Flutter** | Flutter a11y lints | Semantics debugger + native tools | VoiceOver + TalkBack |
+
+### Three-layer workflow
+
+1. **Static / source analysis** (automated, no device) — for React Native,
+   `eslint-plugin-react-native-a11y` flags missing `accessibilityLabel`,
+   `accessibilityRole`, and `accessibilityState` in source, and this toolkit's
+   RN adapter serializes the element tree into `A11yNode`s so the existing
+   [baseline rules](#baseline-automated-rules) run on mobile.
+2. **On-device automated scans** — Xcode Accessibility Inspector / XCUITest on
+   iOS; Accessibility Scanner / Espresso on Android. These catch labels,
+   contrast, touch-target size, and traits per screen.
+3. **Manual assistive-tech testing** (catches what automation can't) — walk every
+   primary flow with **VoiceOver** (iOS) and **TalkBack** (Android): focus order,
+   announcements, form errors, modal focus, dynamic content.
+
+### Example: React Native app, no web access
+
+```
+Discovery ─► confirm RN version, screens, flows, test accounts
+
+Phase 1 Assessment:
+  1. Static   → eslint-plugin-react-native-a11y (CI)
+  2. Toolkit  → RN adapter → A11yNode → baseline rules → Finding[] → report + Jira
+  3. iOS      → Accessibility Inspector Audit + XCUITest performAccessibilityAudit
+  4. Android  → Accessibility Scanner + Espresso checks
+  5. Manual   → VoiceOver + TalkBack through all flows
+  6. Consolidate all Finding[] → scorecard + executive report
+```
+
+Every layer normalizes into the same `Finding` model, so a mobile-only
+engagement still produces one unified scorecard, WCAG rollup, and Jira tickets —
+no web tooling involved. (The React Native adapter and native result-import
+modules are on the [roadmap](#roadmap).)
 
 ## Quick start (library)
 
@@ -64,7 +116,7 @@ Options:
 | `--level` | Target WCAG level `A` \| `AA` \| `AAA` | `AA` |
 | `--format` | `console` \| `json` \| `markdown` | `console` |
 | `--out` | Write report to a file | stdout |
-| `--min-target` | Minimum touch target size (px/dp) | `44` |
+| `--min-target` | Minimum touch target size (px/dp) | `24` (AA) / `44` (AAA) |
 | `--jira` | Create Jira tickets from findings | off |
 | `--min-severity` | Only ticket findings at/above this severity | all |
 
@@ -77,7 +129,7 @@ Each rule maps to WCAG success criteria and is a pure function over the node tre
 | `interactive-accessible-name` | Interactive elements have an accessible name | 4.1.2 |
 | `button-role` | Buttons expose `role="button"` | 4.1.2 |
 | `image-accessibility` | Images/icons have alt text or are hidden | 1.1.1 |
-| `touch-target-size` | Touch targets meet minimum size (44×44) | 2.5.8 |
+| `touch-target-size` | Touch targets meet minimum size (24px AA / 44px AAA) | 2.5.8 / 2.5.5 |
 | `input-label` | Inputs have labels | 3.3.2, 1.3.1 |
 | `required-state` | Required fields expose their state | 3.3.2 |
 | `disabled-state` | Disabled controls expose disabled state | 4.1.2 |
@@ -282,6 +334,7 @@ docs/                Engagement checklists
 ## Roadmap
 
 - Platform adapters (`@bluetread/accessibility-toolkit/adapters/react-native`, `/web`)
+- Native mobile result imports (XCUITest `performAccessibilityAudit`, Android Espresso/ATF)
 - Integrations with WAVE / axe / Lighthouse result imports for consolidation
 - CI reporter (GitHub Actions annotations)
 - Before/after comparison for Phase 3 verification

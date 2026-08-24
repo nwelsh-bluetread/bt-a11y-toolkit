@@ -145,7 +145,7 @@ export interface Rule {
 /** Shared options/configuration passed to rules at evaluation time. */
 export interface RuleContext {
   platform: Platform;
-  /** Minimum touch-target size in dp/px. Defaults to 44. */
+  /** Minimum touch-target size in dp/px. 24 for AA (2.5.8), 44 for AAA (2.5.5). */
   minTouchTargetSize: number;
   /** Target WCAG conformance level. Defaults to "AA". */
   targetLevel: WcagLevel;

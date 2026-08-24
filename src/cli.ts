@@ -27,7 +27,7 @@ interface ParsedArgs {
   level: WcagLevel;
   format: "console" | "json" | "markdown";
   out?: string;
-  minTarget: number;
+  minTarget?: number;
   jira: boolean;
   minSeverity?: Severity;
 }
@@ -37,7 +37,6 @@ function parseArgs(argv: string[]): ParsedArgs {
     platform: "web",
     level: "AA",
     format: "console",
-    minTarget: 44,
     jira: false,
   };
   args.command = argv[0];
@@ -83,7 +82,7 @@ Options:
   --level <A|AA|AAA>                           Target WCAG level (default: AA)
   --format <console|json|markdown>             Report format (default: console)
   --out <file>                                 Write report to a file
-  --min-target <px>                            Minimum touch target size (default: 44)
+  --min-target <px>                            Minimum touch target size (default: 24 for AA, 44 for AAA)
   --jira                                       Create Jira tickets from findings
   --min-severity <critical|high|medium|low>    Only ticket findings at/above this severity
   -h, --help                                   Show this help

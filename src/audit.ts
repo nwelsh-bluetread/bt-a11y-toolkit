@@ -40,7 +40,9 @@ export function runAudit(tree: A11yNode | A11yNode[], options: AuditOptions = {}
   const ctx: RuleContext = {
     platform,
     targetLevel,
-    minTouchTargetSize: options.minTouchTargetSize ?? 44,
+    // WCAG target size: 24px is the AA minimum (2.5.8), 44px the AAA target
+    // (2.5.5). An explicit option always wins.
+    minTouchTargetSize: options.minTouchTargetSize ?? (targetLevel === "AAA" ? 44 : 24),
   };
   const rules = options.rules ?? defaultRules;
   const nodes = flatten(tree);

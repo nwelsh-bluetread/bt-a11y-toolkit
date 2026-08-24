@@ -48,6 +48,18 @@ describe("touchTargetRule", () => {
     const strict = touchTargetRule.evaluate(nodes, { ...ctx, minTouchTargetSize: 60 });
     expect(strict.findings.map((f) => f.nodeId)).toContain("btn-good");
   });
+
+  it("maps to WCAG 2.5.8 (AA) at the 24px threshold", () => {
+    const aa = touchTargetRule.evaluate(nodes, { ...ctx, minTouchTargetSize: 24 });
+    const finding = aa.findings.find((f) => f.nodeId === "btn-bad");
+    expect(finding?.wcag.map((c) => c.id)).toEqual(["2.5.8"]);
+  });
+
+  it("maps to WCAG 2.5.5 (AAA) at the 44px threshold", () => {
+    const aaa = touchTargetRule.evaluate(nodes, { ...ctx, minTouchTargetSize: 44 });
+    const finding = aaa.findings.find((f) => f.nodeId === "btn-bad");
+    expect(finding?.wcag.map((c) => c.id)).toEqual(["2.5.5"]);
+  });
 });
 
 describe("inputLabelRule", () => {

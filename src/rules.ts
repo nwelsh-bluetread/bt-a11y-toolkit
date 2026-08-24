@@ -129,23 +129,45 @@ export const imageAccessibilityRule = defineNodeRule({
       : { remediation: "Provide descriptive alt text via accessibilityLabel / alt, or mark the image decorative if it conveys no meaning." },
 });
 
-/** 4. Touch targets meet the minimum size (default 44x44). */
-export const touchTargetRule = defineNodeRule({
+/** 4. Touch targets meet the minimum size (level-aware: 24px AA, 44px AAA). */
+export const touchTargetRule: CategorizedRule = {
   id: "touch-target-size",
   title: "Touch targets must meet minimum size",
   description:
-    "Interactive elements must be large enough to activate reliably (default minimum 44x44).",
+    "Interactive elements must be large enough to activate reliably (24x24 for WCAG AA 2.5.8, 44x44 for WCAG AAA 2.5.5).",
   severity: "medium",
   category: "Touch Targets",
-  wcagIds: ["2.5.8"],
-  applies: (n) => isInteractive(n) && !isHiddenFromAT(n) && Boolean(n.size),
-  passes: (n, ctx) =>
-    !n.size || (n.size.width >= ctx.minTouchTargetSize && n.size.height >= ctx.minTouchTargetSize),
-  fail: (n, ctx) => ({
-    remediation: `Increase the target to at least ${ctx.minTouchTargetSize}x${ctx.minTouchTargetSize} using minWidth/minHeight, padding, or hitSlop.`,
-    evidence: { size: n.size, minimum: ctx.minTouchTargetSize },
-  }),
-});
+  wcag: wcag("2.5.8"),
+  evaluate(nodes, ctx): RuleResult {
+    // 24px is the AA minimum (2.5.8); 44px is the AAA target (2.5.5). Honor an
+    // explicit override, otherwise derive the threshold from the target level.
+    const threshold = ctx.minTouchTargetSize;
+    const criterion = threshold >= 44 ? "2.5.5" : "2.5.8";
+    const findings: Finding[] = [];
+    let evaluated = 0;
+    let passed = 0;
+    for (const node of nodes) {
+      if (!isInteractive(node) || isHiddenFromAT(node) || !node.size) continue;
+      evaluated++;
+      if (node.size.width >= threshold && node.size.height >= threshold) {
+        passed++;
+        continue;
+      }
+      findings.push({
+        ruleId: "touch-target-size",
+        title: this.title,
+        description: this.description,
+        severity: "medium",
+        wcag: wcag(criterion),
+        nodeId: node.id,
+        nodeType: node.type,
+        remediation: `Increase the target to at least ${threshold}x${threshold} using minWidth/minHeight, padding, or hitSlop.`,
+        evidence: { size: node.size, minimum: threshold, wcag: criterion },
+      });
+    }
+    return { ruleId: "touch-target-size", findings, evaluated, passed };
+  },
+};
 
 /** 5. Inputs have labels. */
 export const inputLabelRule = defineNodeRule({
