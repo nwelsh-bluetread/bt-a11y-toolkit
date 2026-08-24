@@ -1,0 +1,52 @@
+{
+  "requestedUrl": "https://example.com/",
+  "finalUrl": "https://example.com/",
+  "categories": {
+    "accessibility": {
+      "score": 0.72,
+      "auditRefs": [
+        { "id": "color-contrast" },
+        { "id": "image-alt" },
+        { "id": "button-name" },
+        { "id": "link-name" },
+        { "id": "label" }
+      ]
+    }
+  },
+  "audits": {
+    "color-contrast": {
+      "id": "color-contrast",
+      "title": "Background and foreground colors have a sufficient contrast ratio",
+      "description": "Low-contrast text is difficult for many users to read.",
+      "score": 0,
+      "scoreDisplayMode": "binary",
+      "details": { "items": [{ "node": { "selector": "p.muted" } }] }
+    },
+    "image-alt": {
+      "id": "image-alt",
+      "title": "Image elements have [alt] attributes",
+      "score": 0,
+      "scoreDisplayMode": "binary",
+      "details": { "items": [{ "node": { "selector": "img.hero" } }] }
+    },
+    "button-name": {
+      "id": "button-name",
+      "title": "Buttons have an accessible name",
+      "score": 0,
+      "scoreDisplayMode": "binary",
+      "details": { "items": [{ "node": { "selector": "button.icon" } }] }
+    },
+    "link-name": {
+      "id": "link-name",
+      "title": "Links have a discernible name",
+      "score": 1,
+      "scoreDisplayMode": "binary"
+    },
+    "label": {
+      "id": "label",
+      "title": "Form elements have associated labels",
+      "score": 1,
+      "scoreDisplayMode": "binary"
+    }
+  }
+}

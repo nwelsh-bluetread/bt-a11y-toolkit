@@ -1,0 +1,31 @@
+{
+  "type": "view",
+  "id": "screen-login",
+  "children": [
+    { "type": "image", "id": "logo", "decorative": true },
+    { "type": "heading", "id": "title", "text": "Sign in", "role": "header" },
+    {
+      "type": "textinput",
+      "id": "email",
+      "props": { "required": true }
+    },
+    {
+      "type": "textinput",
+      "id": "password",
+      "accessibleName": "Password"
+    },
+    {
+      "type": "button",
+      "id": "submit",
+      "interactive": true,
+      "size": { "width": 30, "height": 30 }
+    },
+    {
+      "type": "text",
+      "id": "error",
+      "text": "Invalid credentials",
+      "props": { "isStatusMessage": true },
+      "colors": { "foreground": "#e57373", "background": "#ffffff", "fontSize": 13 }
+    }
+  ]
+}

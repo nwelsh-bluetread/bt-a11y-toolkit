@@ -1,0 +1,66 @@
+{
+  "name": "@bluetread/accessibility-toolkit",
+  "version": "0.1.0",
+  "description": "BlueTread's internal, repeatable accessibility testing toolkit. Reusable automated a11y checks, WCAG-mapped scoring, report generation, and Jira ticket creation for web and React Native applications.",
+  "keywords": [
+    "accessibility",
+    "a11y",
+    "wcag",
+    "react-native",
+    "testing",
+    "audit"
+  ],
+  "author": "BlueTread",
+  "license": "UNLICENSED",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "bt-a11y": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./matchers": {
+      "types": "./dist/matchers/index.d.ts",
+      "import": "./dist/matchers/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json --watch",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:lighthouse": "vitest run tests/lighthouse.test.ts",
+    "scan:lighthouse": "tsx scripts/lighthouse.ts",
+    "prepublishOnly": "npm run clean && npm run build"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@types/node": "^22.7.0",
+    "@typescript-eslint/eslint-plugin": "^8.8.0",
+    "@typescript-eslint/parser": "^8.8.0",
+    "@vitest/coverage-v8": "^2.1.2",
+    "eslint": "^9.12.0",
+    "tsx": "^4.23.12",
+    "typescript": "^5.6.2",
+    "typescript-eslint": "^8.68.0",
+    "vitest": "^2.1.2"
+  }
+}
