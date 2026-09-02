@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import {
   lighthouseToFindings,
   lighthouseToAssessment,
+  combineLighthouseResults,
+  type LighthouseResult,
 } from "../src/integrations/lighthouse.js";
 import { sampleLhr } from "./fixtures.lighthouse.js";
 
@@ -64,5 +66,50 @@ describe("lighthouseToAssessment", () => {
   it("builds a category scorecard", () => {
     expect(assessment.categories.length).toBeGreaterThan(0);
     expect(assessment.categories.map((c) => c.category)).toContain("Contrast");
+  });
+});
+
+describe("combineLighthouseResults", () => {
+  // A second "page" derived from the sample with a perfect score and no failing audits.
+  const perfectLhr: LighthouseResult = JSON.parse(JSON.stringify(sampleLhr));
+  if (perfectLhr.categories?.accessibility) perfectLhr.categories.accessibility.score = 1;
+  for (const audit of Object.values(perfectLhr.audits)) {
+    if (audit && typeof audit === "object") {
+      const a = audit as { score?: number | null; details?: unknown };
+      a.score = 1;
+      a.details = undefined;
+    }
+  }
+
+  const pages = [
+    { url: "https://example.com/", lhr: sampleLhr },
+    { url: "https://example.com/about", lhr: perfectLhr },
+  ];
+  const combined = combineLighthouseResults(pages, { targetLevel: "AA" });
+
+  it("tags every finding with the page it came from", () => {
+    expect(combined.findings.length).toBeGreaterThan(0);
+    for (const f of combined.findings) {
+      expect(f.evidence?.page).toBeDefined();
+    }
+    // all findings should come from the failing page
+    expect(combined.findings.every((f) => f.evidence?.page === "https://example.com/")).toBe(true);
+  });
+
+  it("averages the per-page accessibility scores", () => {
+    // (82 + 100) / 2 = 91
+    expect(combined.overallScore).toBe(91);
+  });
+
+  it("aggregates counts across all pages", () => {
+    const single = lighthouseToAssessment(sampleLhr, { targetLevel: "AA" });
+    expect(combined.findings.length).toBe(single.findings.length);
+  });
+
+  it("produces valid WCAG rollups", () => {
+    for (const level of ["A", "AA", "AAA"] as const) {
+      expect(combined.wcag[level]).toBeGreaterThanOrEqual(0);
+      expect(combined.wcag[level]).toBeLessThanOrEqual(100);
+    }
   });
 });

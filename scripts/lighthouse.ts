@@ -8,8 +8,11 @@
  *
  * Usage:
  *   npm run scan:lighthouse -- https://example.com
+ *   npm run scan:lighthouse -- https://example.com https://example.com/about   # many pages
+ *   npm run scan:lighthouse -- --urls ./urls.txt                               # one URL per line
+ *   npm run scan:lighthouse -- --sitemap https://example.com/sitemap.xml       # crawl a sitemap
  *   npm run scan:lighthouse -- https://example.com --format markdown --out lh.md
- *   npm run scan:lighthouse -- --lhr ./lighthouse-result.json          # no Chrome needed
+ *   npm run scan:lighthouse -- --lhr ./lighthouse-result.json                  # no Chrome needed
  *   npm run scan:lighthouse -- https://example.com --jira --min-severity high
  *
  * `lighthouse` and `chrome-launcher` are optional peer deps; install them to run
@@ -17,13 +20,20 @@
  *   npm install -D lighthouse chrome-launcher
  */
 import { readFileSync, writeFileSync } from "node:fs";
-import { lighthouseToAssessment, type LighthouseResult } from "../src/integrations/lighthouse.js";
+import {
+  lighthouseToAssessment,
+  combineLighthouseResults,
+  type LighthouseResult,
+  type LighthousePage,
+} from "../src/integrations/lighthouse.js";
 import { formatConsole, formatJson, formatMarkdown } from "../src/report.js";
 import { createJiraTickets } from "../src/integrations/jira.js";
 import type { Severity, WcagLevel } from "../src/types.js";
 
 interface Args {
-  url?: string;
+  urls: string[];
+  urlsFile?: string;
+  sitemap?: string;
   lhrFile?: string;
   level: WcagLevel;
   format: "console" | "json" | "markdown";
@@ -34,11 +44,13 @@ interface Args {
 }
 
 function parseArgs(argv: string[]): Args {
-  const args: Args = { level: "AA", format: "console", jira: false };
+  const args: Args = { urls: [], level: "AA", format: "console", jira: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     switch (a) {
       case "--lhr": args.lhrFile = argv[++i]; break;
+      case "--urls": args.urlsFile = argv[++i]; break;
+      case "--sitemap": args.sitemap = argv[++i]; break;
       case "--level": args.level = argv[++i] as WcagLevel; break;
       case "--format": args.format = argv[++i] as Args["format"]; break;
       case "--out": args.out = argv[++i]; break;
@@ -46,10 +58,27 @@ function parseArgs(argv: string[]): Args {
       case "--jira": args.jira = true; break;
       case "--min-severity": args.minSeverity = argv[++i] as Severity; break;
       default:
-        if (a && !a.startsWith("--")) args.url = a;
+        if (a && !a.startsWith("--")) args.urls.push(a);
     }
   }
   return args;
+}
+
+/** Read a URL list file (one URL per line, `#` comments and blanks ignored). */
+function readUrlsFile(path: string): string[] {
+  return readFileSync(path, "utf8")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith("#"));
+}
+
+/** Fetch a sitemap.xml and extract its <loc> URLs. */
+async function readSitemap(sitemapUrl: string): Promise<string[]> {
+  const res = await fetch(sitemapUrl);
+  if (!res.ok) throw new Error(`Failed to fetch sitemap (${res.status}): ${sitemapUrl}`);
+  const xml = await res.text();
+  const locs = [...xml.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/gi)].map((m) => m[1]!);
+  return locs;
 }
 
 /** Run a live Lighthouse accessibility scan against a URL. */
@@ -90,24 +119,57 @@ async function runLighthouse(url: string): Promise<LighthouseResult> {
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
 
-  if (!args.url && !args.lhrFile) {
+  // Resolve the full list of URLs to scan from positional args, --urls file, and --sitemap.
+  const urls = [...args.urls];
+  if (args.urlsFile) urls.push(...readUrlsFile(args.urlsFile));
+  if (args.sitemap) urls.push(...(await readSitemap(args.sitemap)));
+  const uniqueUrls = [...new Set(urls)];
+
+  if (uniqueUrls.length === 0 && !args.lhrFile) {
     process.stderr.write(
-      "Usage: npm run scan:lighthouse -- <url> | --lhr <file.json> [--format ...] [--out ...] [--jira]\n",
+      "Usage: npm run scan:lighthouse -- <url> [<url> ...] | --urls <file> | --sitemap <url> | --lhr <file.json> [--format ...] [--out ...] [--jira]\n",
     );
     process.exitCode = 1;
     return;
   }
 
-  const lhr: LighthouseResult = args.lhrFile
-    ? (JSON.parse(readFileSync(args.lhrFile, "utf8")) as LighthouseResult)
-    : await runLighthouse(args.url!);
+  let assessment;
 
-  if (args.saveLhr) {
-    writeFileSync(args.saveLhr, JSON.stringify(lhr, null, 2));
-    process.stdout.write(`Raw Lighthouse result saved to ${args.saveLhr}\n`);
+  if (args.lhrFile) {
+    // Single pre-computed LHR file.
+    const lhr = JSON.parse(readFileSync(args.lhrFile, "utf8")) as LighthouseResult;
+    if (args.saveLhr) writeFileSync(args.saveLhr, JSON.stringify(lhr, null, 2));
+    assessment = lighthouseToAssessment(lhr, { targetLevel: args.level });
+  } else if (uniqueUrls.length === 1) {
+    // Single live page.
+    const lhr = await runLighthouse(uniqueUrls[0]!);
+    if (args.saveLhr) {
+      writeFileSync(args.saveLhr, JSON.stringify(lhr, null, 2));
+      process.stdout.write(`Raw Lighthouse result saved to ${args.saveLhr}\n`);
+    }
+    assessment = lighthouseToAssessment(lhr, { targetLevel: args.level });
+  } else {
+    // Multiple live pages -> one combined report.
+    process.stdout.write(`Scanning ${uniqueUrls.length} page(s)...\n`);
+    const pages: LighthousePage[] = [];
+    for (const url of uniqueUrls) {
+      process.stdout.write(`  → ${url}\n`);
+      try {
+        const lhr = await runLighthouse(url);
+        pages.push({ url, lhr });
+      } catch (err) {
+        process.stderr.write(
+          `    ! skipped (${err instanceof Error ? err.message : String(err)})\n`,
+        );
+      }
+    }
+    if (pages.length === 0) throw new Error("No pages could be scanned.");
+    if (args.saveLhr) {
+      writeFileSync(args.saveLhr, JSON.stringify(pages, null, 2));
+      process.stdout.write(`Raw Lighthouse results saved to ${args.saveLhr}\n`);
+    }
+    assessment = combineLighthouseResults(pages, { targetLevel: args.level });
   }
-
-  const assessment = lighthouseToAssessment(lhr, { targetLevel: args.level });
 
   const output =
     args.format === "json"

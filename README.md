@@ -22,6 +22,77 @@ of an assessment into pure, testable functions that run anywhere (CI, Metro, a
 browser), so every engagement starts from the same baseline and produces the same
 report shape.
 
+## Time estimates (running on a real client site)
+
+Rough per-engagement effort once the toolkit is wired up. "Tool time" is mostly
+unattended machine time; "analyst time" is the human work of reviewing,
+validating, and de-duplicating. Estimates assume a **medium site/app (~15–30 key
+screens)** and scale roughly linearly with screen count.
+
+### Step 1 — Web tool auditing (issue list + severity + combined score)
+
+Automated scanners run per page; a crawler batches them across the site.
+
+| Tool | Setup | Run time (per page) | Analyst review | Notes |
+| --- | --- | --- | --- | --- |
+| **Lighthouse** | ~15 min | ~30–60 sec | — | Headless, fully automated |
+| **axe DevTools** (axe-core) | ~30 min | ~5–15 sec | — | Injected via Puppeteer/Playwright |
+| **WAVE** (API) | ~15 min | ~5–10 sec | — | Optional; needs paid API key |
+| **Consolidate + dedupe + score** | — | seconds | ~2–4 hrs | Merge tools, validate severity, map WCAG |
+
+**Step 1 total:** ~**3–5 hours** for a medium site (mostly analyst validation;
+the scans themselves finish in minutes even across 30 pages).
+
+### Step 2 — Test suites for code (interaction/state, e.g. `aria-expanded`)
+
+Writing behavioral tests scanners can't do (focus traps, live regions, toggles).
+
+| Activity | Estimate |
+| --- | --- |
+| Wire the shared matchers into the client repo | ~1–2 hrs |
+| Author component interaction tests (per key component) | ~20–40 min each |
+| Typical component set (10–20 components) | ~**6–12 hours** |
+
+This is the most variable step — it depends on how many custom interactive
+components the client has. Reusable components pay off fastest.
+
+### Step 3 — Full report (automated, manual entered first)
+
+| Activity | Estimate |
+| --- | --- |
+| Enter manual findings (screen reader, keyboard, gestures) | logged during manual testing |
+| Generate consolidated report (automated) | ~**seconds** |
+| Executive summary write-up / polish | ~2–4 hrs |
+
+Once manual findings are entered as `Finding[]`, the scored report + scorecard +
+Jira tickets generate near-instantly. The human time is the manual testing
+itself (see [`docs/MANUAL_TESTING.md`](docs/MANUAL_TESTING.md)) and the exec
+summary, not the report generation.
+
+### Filtering (adds negligible time)
+
+Filtering is a config/flag concern, not extra work:
+
+| Filter | Cost |
+| --- | --- |
+| **Web vs Mobile** (`platforms` tag) | instant — same data, filtered view |
+| **AA vs AAA** (`targetLevel`) | instant — re-scores from the same findings |
+| **Run parts at a time** (individual `scan:*` / test scripts) | instant — each step is independent |
+
+### Ballpark for a full medium-site engagement
+
+| Phase | Effort |
+| --- | --- |
+| Step 1 — Web tool auditing | ~3–5 hrs |
+| Step 2 — Code test suites | ~6–12 hrs |
+| Step 3 — Manual testing + report | ~10–18 hrs (mostly manual AT testing) |
+| **Total (Phase 1 assessment)** | **~20–35 hrs** |
+
+> These are automation-inclusive estimates. They align with the ~34–40 hr Phase 1
+> figure in [`docs/DEVELOPMENT_CHECKLISTS.md`](docs/DEVELOPMENT_CHECKLISTS.md) —
+> the toolkit shifts hours away from repetitive scanning toward analysis and
+> manual testing. Large or complex apps scale up; small apps scale down.
+
 ## Core concepts
 
 Everything operates on a platform-agnostic `A11yNode` tree. Platform **adapters**
@@ -156,6 +227,78 @@ expect(iconNode).toBeHiddenFromAccessibility();
 expect(touchNode).toMeetTouchTargetSize(44);
 ```
 
+## What unit tests catch that scanners can't
+
+axe and WAVE are **snapshot scanners**: they inspect one rendered DOM state, at
+one moment, and check static attributes. They are blind to anything requiring
+**interaction, state changes, time, or knowledge of intent**. The unit-test
+suite exists to cover exactly that gap.
+
+> **axe / WAVE** — "Is the accessibility attribute present in this DOM snapshot?"
+> **Unit tests** — "Does the component behave accessibly when state changes, time passes, or the user interacts?"
+
+### 1. State that only exists after interaction
+
+A scanner sees the page as it loads and can't click anything.
+
+- **Accordion / disclosure** — does `aria-expanded` actually flip `false`→`true`
+  when toggled?
+- **Modal focus trap** — open a dialog, tab to the last element, tab again → does
+  focus wrap back inside?
+- **Menu / dropdown** — after opening, is focus moved to the first item? On `Esc`,
+  does it close and return focus to the trigger?
+
+```ts
+fireEvent.click(getByRole("button", { name: "Details" }));
+expect(getByRole("button", { name: "Details" })).toHaveAttribute("aria-expanded", "true");
+```
+
+### 2. Dynamic announcements
+
+axe can confirm a `role="alert"` **exists**, but not that your code **puts the
+error text into it at the right time**.
+
+- Submit an invalid form → does the error message land in the live region so it's
+  announced?
+- A "Saved" toast — does it appear in an `aria-live` region *when the save
+  completes*, not just exist empty in the DOM?
+
+### 3. Focus management across flows
+
+- After deleting a row, does focus move somewhere sensible (not to `<body>`,
+  which strands screen-reader users)?
+- After a route change in an SPA, is focus moved to the new page's heading?
+
+### 4. Correct dynamic labels / values
+
+axe checks a label **exists**; it can't verify it's the **right** label as data
+changes.
+
+- A "Like" button that toggles to "Unlike" — does the accessible name update with
+  state?
+- A slider whose `aria-valuenow` must track the actual value as you drag.
+- A count badge — is "3 unread messages" announced, or just a bare "3"?
+
+### 5. Conditional / edge-state rendering
+
+Scanners test whatever state happens to be on screen.
+
+- The **error state** of an input (only rendered after validation fails) — assert
+  `aria-invalid` + `aria-describedby` point to the error.
+- Loading / empty / disabled variants a page scan would never happen to catch.
+
+### 6. Intent / meaning
+
+- axe **can't tell** if an image is decorative or meaningful — it just warns
+  "alt missing." A test for your `Avatar` component encodes the rule: *avatars
+  must have the user's name as alt*.
+- Whether a heading level is *correct* for the hierarchy vs. just *present*.
+
+This is why the [baseline rules](#baseline-automated-rules) include behavioral
+checks like `expanded-state`, `selected-state`, `status-announcement`, and
+`custom-component-props` — the state/behavior checks a scanner structurally
+cannot perform.
+
 ## Jira ticket creation
 
 Turn findings into Jira Cloud issues (Atlassian Document Format descriptions,
@@ -195,7 +338,7 @@ passed through to the underlying script.
 | `test:watch` | Runs all tests in watch mode, re-running on change. | `npm run test:watch` |
 | `test:coverage` | Runs all tests and produces a coverage report (`text` + `html`). | `npm run test:coverage` |
 | `test:lighthouse` | Runs **only** the Lighthouse integration tests. | `npm run test:lighthouse` |
-| `scan:lighthouse` | Standalone Lighthouse runner (see below). | `npm run scan:lighthouse -- <url>` |
+| `scan:lighthouse` | Standalone Lighthouse runner — one or many pages (see below). | `npm run scan:lighthouse -- <url> [<url> ...]` |
 | `prepublishOnly` | Cleans + builds before `npm publish`. Runs automatically on publish. | (automatic) |
 
 ### CLI (`bt-a11y`)
@@ -224,11 +367,22 @@ These run independently of each other so you only run the tool you need.
 
 Runs a Lighthouse accessibility scan (or reads a saved result), converts it
 through the toolkit, and prints/writes a report. Can also file Jira tickets.
+Pass **multiple URLs** (or a URL list / sitemap) to scan every page and get one
+combined report.
 
 ```bash
 # Live scan (needs Chrome + optional deps):
 npm install -D lighthouse chrome-launcher
 npm run scan:lighthouse -- https://example.com
+
+# Scan MANY pages -> one combined score/report:
+npm run scan:lighthouse -- https://example.com https://example.com/about https://example.com/contact
+
+# Scan every URL listed in a file (one URL per line, `#` comments allowed):
+npm run scan:lighthouse -- --urls ./urls.txt
+
+# Scan every page in a sitemap.xml:
+npm run scan:lighthouse -- --sitemap https://example.com/sitemap.xml
 
 # Convert a saved Lighthouse result — no Chrome needed:
 npm run scan:lighthouse -- --lhr ./examples/sample-lighthouse-result.json
@@ -243,14 +397,22 @@ npm run scan:lighthouse -- https://example.com --save-lhr ./lhr.json
 npm run scan:lighthouse -- https://example.com --jira --min-severity high
 ```
 
+When scanning multiple pages, every finding is tagged with the page it came
+from (`evidence.page`), the overall score is the **average** of the per-page
+accessibility scores, and the WCAG rollups aggregate every audit across all
+pages. A page that fails to load is skipped with a warning rather than aborting
+the whole run.
+
 | Flag | Description | Default |
 | --- | --- | --- |
-| `<url>` | URL to scan live (requires `lighthouse` + `chrome-launcher`). | — |
+| `<url> [<url> ...]` | One or more URLs to scan live (requires `lighthouse` + `chrome-launcher`). | — |
+| `--urls <file>` | Read URLs to scan from a file (one per line, `#` comments ignored). | — |
+| `--sitemap <url>` | Fetch a `sitemap.xml` and scan every `<loc>` URL in it. | — |
 | `--lhr <file>` | Read a saved Lighthouse Result JSON instead of scanning. No Chrome needed. | — |
 | `--level <A\|AA\|AAA>` | Target WCAG level. | `AA` |
 | `--format <console\|json\|markdown>` | Report format. | `console` |
 | `--out <file>` | Write the report to a file. | stdout |
-| `--save-lhr <file>` | Save the raw Lighthouse result. | — |
+| `--save-lhr <file>` | Save the raw Lighthouse result(s). | — |
 | `--jira` | Create Jira tickets from findings (needs `JIRA_*` env vars). | off |
 | `--min-severity <critical\|high\|medium\|low>` | Only ticket findings at/above this severity. | all |
 
@@ -331,11 +493,72 @@ examples/            Sample A11yNode trees + Lighthouse result
 docs/                Engagement checklists
 ```
 
+## Tooling ecosystem (beyond this repo)
+
+This toolkit is the **consolidation + reporting core**. It doesn't try to be a
+device lab or replace commercial platforms — it ingests their output into one
+branded, WCAG-scored, Jira-integrated report. Here's what a full engagement
+stack looks like around it.
+
+### What BrowserStack Accessibility premium would add
+
+BrowserStack Accessibility is built on **axe-core** and adds a real-device cloud
+and dashboards on top. Useful additions:
+
+- **Real-device screen readers** — VoiceOver / TalkBack / JAWS on real hardware,
+  no physical lab required for the bulk of testing.
+- **Website Scanner** — scheduled, recurring axe scans across many URLs.
+- **Workflow Analyzer** — record a journey (login → checkout) and scan each step,
+  reaching **authenticated / multi-step** pages a plain URL scan can't.
+- **Assisted / guided manual tests** — structured pass/fail capture for the
+  manual bucket.
+- **Real-device / browser matrix** — thousands of device/OS/browser combos for
+  cross-platform coverage.
+- **Dashboards & trends** — historical tracking and WCAG mapping.
+- **CI/CD SDK** — Cypress / Playwright / Selenium / Jest integration.
+
+**Cost:** paid SaaS, contact-sales/enterprise pricing (no free tier for the
+accessibility product). Roughly **~$100+/user/month** billed annually at the low
+end, scaling up by seats and device-cloud usage — get a current quote from
+BrowserStack for exact numbers.
+
+**Caveats:** it's axe-core underneath (same ~30–40% automated ceiling), it's
+strongest on web (native app automation is still limited), and its reports live
+in **its** dashboard — the branded, consolidated, multi-source report is still
+this toolkit's job. It reduces but doesn't fully retire the need for **1–2
+physical devices** for nuanced screen-reader gestures and final sign-off.
+
+### What else you'd likely need (outside this repo + BrowserStack)
+
+| Need | Option(s) | Notes |
+| --- | --- | --- |
+| **1–2 physical devices** | One modern iPhone + one Android | For fluid SR gestures, haptics, and final conformance sign-off — the "last mile" the cloud can't fully replicate |
+| **Desktop screen readers** | NVDA (free), JAWS (paid), VoiceOver (macOS built-in) | For web SR testing not run through a cloud |
+| **WAVE API** | WebAIM WAVE API | Optional; credit-based (~$0.01–0.04/credit). Only if a client wants WAVE specifically |
+| **axe DevTools Pro** | Deque | Optional; adds guided tests + extra rules beyond free axe-core |
+| **Color/contrast tooling** | TPGi Colour Contrast Analyser, Stark | For designer-side and edge-state contrast checks |
+| **Jira (or tracker)** | Jira Cloud | Already integrated in this toolkit for ticket creation |
+| **Design review** | Figma + a contrast/a11y plugin | Catch issues pre-build during Discovery |
+| **CI runner** | GitHub Actions / GitLab CI | To run scans + unit tests automatically per PR |
+| **Native test infra** | Xcode + XCUITest, Android Studio + Espresso, Maestro/Detox | For scripted on-device audits on mobile projects |
+| **Human expertise** | Trained a11y tester(s) | The screen-reader *experience* and cognitive/usability judgment can't be automated |
+
+### How it fits together
+
+```
+BrowserStack (real-device scans, SR on real HW, auth flows) ─┐
+axe-core / Lighthouse / WAVE (scans) ───────────────────────┤
+Unit-test suites (interaction/state) ───────────────────────┼─► Finding[] ─► THIS TOOLKIT
+Physical-device + manual SR findings ───────────────────────┘        consolidate → score →
+                                                                     scorecard + WCAG + Jira report
+```
+
 ## Roadmap
 
 - Platform adapters (`@bluetread/accessibility-toolkit/adapters/react-native`, `/web`)
 - Native mobile result imports (XCUITest `performAccessibilityAudit`, Android Espresso/ATF)
 - Integrations with WAVE / axe / Lighthouse result imports for consolidation
+- BrowserStack result import (`integrations/browserstack.ts`)
 - CI reporter (GitHub Actions annotations)
 - Before/after comparison for Phase 3 verification
 

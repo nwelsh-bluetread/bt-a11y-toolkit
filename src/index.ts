@@ -52,6 +52,7 @@ export type { JiraConfig, CreatedTicket, FetchLike } from "./integrations/jira.j
 export {
   lighthouseToFindings,
   lighthouseToAssessment,
+  combineLighthouseResults,
   LIGHTHOUSE_AUDIT_MAP,
 } from "./integrations/lighthouse.js";
-export type { LighthouseResult, LighthouseAudit } from "./integrations/lighthouse.js";
+export type { LighthouseResult, LighthouseAudit, LighthousePage } from "./integrations/lighthouse.js";

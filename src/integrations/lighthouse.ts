@@ -234,3 +234,100 @@ function worstSeverity(findings: Finding[]): Severity {
   }
   return "low";
 }
+
+/** A single scanned page: its URL and the Lighthouse result for it. */
+export interface LighthousePage {
+  url: string;
+  lhr: LighthouseResult;
+}
+
+/**
+ * Combine Lighthouse results from **multiple pages** into one consolidated
+ * {@link Assessment}. Each finding is tagged with the page it came from (in
+ * `evidence.page`), the overall score is the average of the per-page
+ * accessibility scores, and WCAG rollups aggregate every audit across all pages.
+ */
+export function combineLighthouseResults(
+  pages: LighthousePage[],
+  options: { targetLevel?: WcagLevel } = {},
+): Assessment {
+  const targetLevel = options.targetLevel ?? "AA";
+
+  const allFindings: Finding[] = [];
+  const perPageScores: number[] = [];
+  const levelStats: Record<WcagLevel, { passed: number; evaluated: number }> = {
+    A: { passed: 0, evaluated: 0 },
+    AA: { passed: 0, evaluated: 0 },
+    AAA: { passed: 0, evaluated: 0 },
+  };
+  const rank: Record<WcagLevel, number> = { A: 1, AA: 2, AAA: 3 };
+
+  for (const page of pages) {
+    // Tag each finding with the page it was found on.
+    for (const finding of lighthouseToFindings(page.lhr)) {
+      allFindings.push({
+        ...finding,
+        evidence: { ...finding.evidence, page: page.url },
+      });
+    }
+
+    const score = page.lhr.categories?.accessibility?.score;
+    if (typeof score === "number") perPageScores.push(Math.round(score * 100));
+
+    const refs = page.lhr.categories?.accessibility?.auditRefs ?? [];
+    const auditIds = refs.length > 0 ? refs.map((r) => r.id) : Object.keys(page.lhr.audits);
+    for (const id of auditIds) {
+      const audit = page.lhr.audits[id];
+      if (!audit || !isScorable(audit)) continue;
+      const mapping = LIGHTHOUSE_AUDIT_MAP[id] ?? DEFAULT_MAPPING;
+      const criteria = toCriteria(mapping.wcag);
+      const passed = audit.score === 1;
+      for (const level of ["A", "AA", "AAA"] as WcagLevel[]) {
+        const relevant = criteria.some((c) => rank[c.level] <= rank[level]);
+        if (!relevant) continue;
+        levelStats[level].evaluated++;
+        if (passed) levelStats[level].passed++;
+      }
+    }
+  }
+
+  const wcag = {
+    A: pct(levelStats.A),
+    AA: pct(levelStats.AA),
+    AAA: pct(levelStats.AAA),
+  } as Record<WcagLevel, number>;
+
+  // Category rollup across all pages.
+  const categoriesMap = new Map<string, Finding[]>();
+  for (const f of allFindings) {
+    const key = f.category ?? "Semantics";
+    const list = categoriesMap.get(key) ?? [];
+    list.push(f);
+    categoriesMap.set(key, list);
+  }
+  const categories = [...categoriesMap.entries()]
+    .map(([category, list]) => ({
+      category,
+      score: Math.max(0, 100 - list.length * 15),
+      severity: worstSeverity(list),
+      findingCount: list.length,
+    }))
+    .sort((a, b) => a.score - b.score);
+
+  const overallScore =
+    perPageScores.length > 0
+      ? Math.round(perPageScores.reduce((a, b) => a + b, 0) / perPageScores.length)
+      : computeOverallScore(allFindings, 100);
+
+  return {
+    generatedAt: new Date().toISOString(),
+    platform: "web",
+    targetLevel,
+    overallScore,
+    counts: countBySeverity(allFindings),
+    wcag,
+    categories,
+    topIssues: computeTopIssues(allFindings),
+    findings: allFindings,
+  };
+}
