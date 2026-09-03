@@ -1,6 +1,6 @@
 {
   "name": "@bluetread/accessibility-toolkit",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "BlueTread's internal, repeatable accessibility testing toolkit. Reusable automated a11y checks, WCAG-mapped scoring, report generation, and Jira ticket creation for web and React Native applications.",
   "keywords": [
     "accessibility",
@@ -46,6 +46,7 @@
     "test:coverage": "vitest run --coverage",
     "test:lighthouse": "vitest run tests/lighthouse.test.ts",
     "scan:lighthouse": "tsx scripts/lighthouse.ts",
+    "scan:axe": "tsx scripts/axe.ts",
     "prepare": "npm run build",
     "prepublishOnly": "npm run clean && npm run build"
   },

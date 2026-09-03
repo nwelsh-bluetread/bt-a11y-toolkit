@@ -28,6 +28,7 @@ interface ParsedArgs {
   urlsFile?: string;
   sitemap?: string;
   lhrFile?: string;
+  axeFile?: string;
   platform: Platform;
   level: WcagLevel;
   format: "console" | "json" | "markdown";
@@ -61,6 +62,9 @@ function parseArgs(argv: string[]): ParsedArgs {
         break;
       case "--lhr":
         args.lhrFile = rest[++i];
+        break;
+      case "--axe":
+        args.axeFile = rest[++i];
         break;
       case "--level":
         args.level = rest[++i] as WcagLevel;
@@ -96,17 +100,24 @@ Usage:
   bt-a11y lighthouse --urls <file> [options]
   bt-a11y lighthouse --sitemap <url> [options]
   bt-a11y lighthouse --lhr <result.json> [options]
+  bt-a11y axe <url> [<url> ...] [options]
+  bt-a11y axe --urls <file> [options]
+  bt-a11y axe --sitemap <url> [options]
+  bt-a11y axe --axe <result.json> [options]
 
 Commands:
   audit         Audit an A11yNode tree exported by a platform adapter.
   lighthouse    Run Lighthouse against one or many live pages (or a saved LHR)
                 and produce one combined accessibility report.
+  axe           Run axe-core (via Playwright) against one or many live pages
+                (or a saved axe result) and produce one combined report.
 
 Options:
   --platform <web|ios|android|react-native>   Target platform (audit; default: web)
-  --urls <file>                                URL list file (one per line, lighthouse)
-  --sitemap <url>                              Scan every page in a sitemap or sitemap index (lighthouse)
+  --urls <file>                                URL list file (one per line, lighthouse/axe)
+  --sitemap <url>                              Scan every page in a sitemap or sitemap index
   --lhr <file>                                 Read a saved Lighthouse result JSON (lighthouse)
+  --axe <file>                                 Read a saved axe result JSON (axe)
   --level <A|AA|AAA>                           Target WCAG level (default: AA)
   --format <console|json|markdown>             Report format (default: console)
   --out <file>                                 Write report to a file
@@ -117,6 +128,8 @@ Options:
 
 Live Lighthouse scans require optional deps:
   npm install -D lighthouse chrome-launcher
+Live axe scans require optional deps:
+  npm install -D playwright @axe-core/playwright && npx playwright install chromium
 
 Environment (for --jira):
   JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN, JIRA_PROJECT_KEY
@@ -214,6 +227,46 @@ async function runLighthouseCommand(args: ParsedArgs): Promise<void> {
   await report(assessment, args);
 }
 
+async function runAxeCommand(args: ParsedArgs): Promise<void> {
+  // Saved axe result JSON — no browser needed.
+  if (args.axeFile) {
+    const { axeToAssessment } = await import("./integrations/axe.js");
+    const results = JSON.parse(readFileSync(args.axeFile, "utf8"));
+    await report(axeToAssessment(results, { targetLevel: args.level }), args);
+    return;
+  }
+
+  const { resolveUrls: resolve, scanUrlsWithAxe } = await import(
+    "./integrations/axe-runner.js"
+  );
+  const urls = await resolve({
+    urls: args.urls,
+    urlsFile: args.urlsFile,
+    sitemap: args.sitemap,
+  });
+
+  if (urls.length === 0) {
+    process.stderr.write(
+      "Error: no URLs to scan. Pass <url> args, --urls <file>, --sitemap <url>, or --axe <file>.\n\n" +
+        HELP,
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  const { assessment } = await scanUrlsWithAxe(urls, {
+    targetLevel: args.level,
+    onProgress: (e) => {
+      if (e.type === "start") process.stderr.write(`Scanning ${e.total} page(s) with axe...\n`);
+      else if (e.type === "page")
+        process.stderr.write(`  [${e.index + 1}/${e.total}] → ${e.url}\n`);
+      else if (e.type === "skip") process.stderr.write(`    ! skipped ${e.url} (${e.error})\n`);
+    },
+  });
+
+  await report(assessment, args);
+}
+
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
   if (argv.length === 0 || argv.includes("-h") || argv.includes("--help")) {
@@ -228,6 +281,9 @@ async function main(): Promise<void> {
       break;
     case "lighthouse":
       await runLighthouseCommand(args);
+      break;
+    case "axe":
+      await runAxeCommand(args);
       break;
     default:
       process.stderr.write(`Unknown command: ${args.command ?? "(none)"}\n\n${HELP}`);

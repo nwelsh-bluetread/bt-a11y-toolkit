@@ -1,0 +1,43 @@
+{
+  "url": "https://example.com/",
+  "violations": [
+    {
+      "id": "color-contrast",
+      "impact": "serious",
+      "tags": ["cat.color", "wcag2aa", "wcag143"],
+      "description": "Ensures the contrast between foreground and background colors meets WCAG 2 AA thresholds",
+      "help": "Elements must meet minimum color contrast ratio thresholds",
+      "helpUrl": "https://dequeuniversity.com/rules/axe/4.9/color-contrast",
+      "nodes": [
+        { "target": ["p.muted"], "html": "<p class=\"muted\">Hi</p>", "failureSummary": "Fix contrast" },
+        { "target": ["span.hint"], "html": "<span class=\"hint\">?</span>" }
+      ]
+    },
+    {
+      "id": "image-alt",
+      "impact": "critical",
+      "tags": ["cat.text-alternatives", "wcag2a", "wcag111"],
+      "description": "Ensures <img> elements have alternate text or a role of none or presentation",
+      "help": "Images must have alternate text",
+      "helpUrl": "https://dequeuniversity.com/rules/axe/4.9/image-alt",
+      "nodes": [{ "target": ["img.logo"], "html": "<img class=\"logo\">" }]
+    },
+    {
+      "id": "label",
+      "impact": "critical",
+      "tags": ["cat.forms", "wcag2a", "wcag412", "wcag131"],
+      "description": "Ensures every form element has a label",
+      "help": "Form elements must have labels",
+      "helpUrl": "https://dequeuniversity.com/rules/axe/4.9/label",
+      "nodes": [{ "target": ["#email"], "html": "<input id=\"email\">" }]
+    }
+  ],
+  "passes": [
+    { "id": "document-title", "impact": null, "tags": ["cat.text-alternatives", "wcag2a", "wcag242"], "nodes": [] },
+    { "id": "html-has-lang", "impact": null, "tags": ["cat.language", "wcag2a", "wcag311"], "nodes": [] },
+    { "id": "button-name", "impact": null, "tags": ["cat.name-role-value", "wcag2a", "wcag412"], "nodes": [] },
+    { "id": "link-name", "impact": null, "tags": ["cat.name-role-value", "wcag2a", "wcag412"], "nodes": [] }
+  ],
+  "incomplete": [],
+  "inapplicable": []
+}

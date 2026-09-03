@@ -188,12 +188,19 @@ bt-a11y lighthouse --sitemap https://example.com/sitemap.xml --format markdown -
 
 # Convert a saved Lighthouse result — no Chrome needed:
 bt-a11y lighthouse --lhr ./lighthouse-result.json
+
+# axe-core (via Playwright) — same page/URL-list/sitemap options:
+bt-a11y axe https://example.com
+bt-a11y axe --sitemap https://example.com/sitemap.xml
+bt-a11y axe --axe ./axe-result.json      # convert a saved axe result, no browser
 ```
 
-> **Why `bt-a11y lighthouse`?** When you install this package into another repo,
-> only the compiled `dist/` ships — the `scripts/` folder does not. So the
-> `bt-a11y` binary is how consumers run Lighthouse. Live scans need the optional
-> deps: `npm install -D lighthouse chrome-launcher`.
+> **Why `bt-a11y lighthouse` / `bt-a11y axe`?** When you install this package
+> into another repo, only the compiled `dist/` ships — the `scripts/` folder does
+> not. So the `bt-a11y` binary is how consumers run scans. Live scans need
+> optional deps:
+> - Lighthouse: `npm install -D lighthouse chrome-launcher`
+> - axe: `npm install -D playwright @axe-core/playwright && npx playwright install chromium`
 
 > **Getting only a few URLs from a sitemap?** Many sites publish a *sitemap
 > index* (a sitemap of sitemaps). `--sitemap` automatically detects a
@@ -205,9 +212,10 @@ Options:
 | Flag | Description | Default |
 | --- | --- | --- |
 | `--platform` | `web` \| `ios` \| `android` \| `react-native` (audit) | `web` |
-| `--urls` | URL list file, one per line (`lighthouse`) | — |
-| `--sitemap` | Scan every page in a sitemap or sitemap index (`lighthouse`) | — |
+| `--urls` | URL list file, one per line (`lighthouse`/`axe`) | — |
+| `--sitemap` | Scan every page in a sitemap or sitemap index (`lighthouse`/`axe`) | — |
 | `--lhr` | Read a saved Lighthouse result JSON (`lighthouse`) | — |
+| `--axe` | Read a saved axe result JSON (`axe`) | — |
 | `--level` | Target WCAG level `A` \| `AA` \| `AAA` | `AA` |
 | `--format` | `console` \| `json` \| `markdown` | `console` |
 | `--out` | Write report to a file | stdout |
@@ -363,6 +371,7 @@ passed through to the underlying script.
 | `test:coverage` | Runs all tests and produces a coverage report (`text` + `html`). | `npm run test:coverage` |
 | `test:lighthouse` | Runs **only** the Lighthouse integration tests. | `npm run test:lighthouse` |
 | `scan:lighthouse` | Standalone Lighthouse runner — one or many pages (see below). | `npm run scan:lighthouse -- <url> [<url> ...]` |
+| `scan:axe` | Standalone axe-core runner (Playwright) — one or many pages. | `npm run scan:axe -- <url> [<url> ...]` |
 | `prepublishOnly` | Cleans + builds before `npm publish`. Runs automatically on publish. | (automatic) |
 
 ### CLI (`bt-a11y`)

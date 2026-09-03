@@ -56,3 +56,10 @@ export {
   LIGHTHOUSE_AUDIT_MAP,
 } from "./integrations/lighthouse.js";
 export type { LighthouseResult, LighthouseAudit, LighthousePage } from "./integrations/lighthouse.js";
+export {
+  axeToFindings,
+  axeToAssessment,
+  combineAxeResults,
+  tagsToCriteria,
+} from "./integrations/axe.js";
+export type { AxeResults, AxeRuleResult, AxeNode, AxePage } from "./integrations/axe.js";
