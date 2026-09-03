@@ -1,0 +1,13 @@
+# One URL per line. Blank lines and lines starting with `#` are ignored.
+# Point these at a RUNNING site — your local dev server or a deployed environment.
+#
+# Local dev example (start your app first, e.g. `npm run dev`):
+# http://localhost:3000
+# http://localhost:3000/about
+# http://localhost:3000/contact
+#
+# Deployed example:
+# https://staging.yourapp.com/
+# https://staging.yourapp.com/login
+#
+# Then run:  npm run scan:lighthouse -- --urls ./urls.txt

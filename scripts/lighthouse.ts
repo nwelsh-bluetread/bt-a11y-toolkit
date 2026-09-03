@@ -22,10 +22,9 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import {
   lighthouseToAssessment,
-  combineLighthouseResults,
   type LighthouseResult,
-  type LighthousePage,
 } from "../src/integrations/lighthouse.js";
+import { resolveUrls, scanUrls } from "../src/integrations/lighthouse-runner.js";
 import { formatConsole, formatJson, formatMarkdown } from "../src/report.js";
 import { createJiraTickets } from "../src/integrations/jira.js";
 import type { Severity, WcagLevel } from "../src/types.js";
@@ -64,111 +63,49 @@ function parseArgs(argv: string[]): Args {
   return args;
 }
 
-/** Read a URL list file (one URL per line, `#` comments and blanks ignored). */
-function readUrlsFile(path: string): string[] {
-  return readFileSync(path, "utf8")
-    .split("\n")
-    .map((l) => l.trim())
-    .filter((l) => l && !l.startsWith("#"));
-}
-
-/** Fetch a sitemap.xml and extract its <loc> URLs. */
-async function readSitemap(sitemapUrl: string): Promise<string[]> {
-  const res = await fetch(sitemapUrl);
-  if (!res.ok) throw new Error(`Failed to fetch sitemap (${res.status}): ${sitemapUrl}`);
-  const xml = await res.text();
-  const locs = [...xml.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/gi)].map((m) => m[1]!);
-  return locs;
-}
-
-/** Run a live Lighthouse accessibility scan against a URL. */
-async function runLighthouse(url: string): Promise<LighthouseResult> {
-  // Optional deps — imported lazily and typed loosely so the toolkit builds
-  // without them installed. Install to enable live scans:
-  //   npm install -D lighthouse chrome-launcher
-  let chromeLauncher: { launch(opts: Record<string, unknown>): Promise<{ port: number; kill(): Promise<void> }> };
-  let lighthouse: { default?: unknown } & Record<string, unknown>;
-  try {
-    chromeLauncher = (await import("chrome-launcher" as string)) as typeof chromeLauncher;
-    lighthouse = (await import("lighthouse" as string)) as typeof lighthouse;
-  } catch {
-    throw new Error(
-      "Live scans require optional deps. Run: npm install -D lighthouse chrome-launcher",
-    );
-  }
-
-  const chrome = await chromeLauncher.launch({ chromeFlags: ["--headless=new"] });
-  try {
-    const runner = (lighthouse.default ?? lighthouse) as (
-      url: string,
-      opts: Record<string, unknown>,
-    ) => Promise<{ lhr: LighthouseResult } | undefined>;
-    const result = await runner(url, {
-      port: chrome.port,
-      onlyCategories: ["accessibility"],
-      output: "json",
-      logLevel: "error",
-    });
-    if (!result?.lhr) throw new Error("Lighthouse returned no result.");
-    return result.lhr;
-  } finally {
-    await chrome.kill();
-  }
-}
-
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
-
-  // Resolve the full list of URLs to scan from positional args, --urls file, and --sitemap.
-  const urls = [...args.urls];
-  if (args.urlsFile) urls.push(...readUrlsFile(args.urlsFile));
-  if (args.sitemap) urls.push(...(await readSitemap(args.sitemap)));
-  const uniqueUrls = [...new Set(urls)];
-
-  if (uniqueUrls.length === 0 && !args.lhrFile) {
-    process.stderr.write(
-      "Usage: npm run scan:lighthouse -- <url> [<url> ...] | --urls <file> | --sitemap <url> | --lhr <file.json> [--format ...] [--out ...] [--jira]\n",
-    );
-    process.exitCode = 1;
-    return;
-  }
 
   let assessment;
 
   if (args.lhrFile) {
-    // Single pre-computed LHR file.
+    // Single pre-computed LHR file — no browser needed.
     const lhr = JSON.parse(readFileSync(args.lhrFile, "utf8")) as LighthouseResult;
     if (args.saveLhr) writeFileSync(args.saveLhr, JSON.stringify(lhr, null, 2));
     assessment = lighthouseToAssessment(lhr, { targetLevel: args.level });
-  } else if (uniqueUrls.length === 1) {
-    // Single live page.
-    const lhr = await runLighthouse(uniqueUrls[0]!);
-    if (args.saveLhr) {
-      writeFileSync(args.saveLhr, JSON.stringify(lhr, null, 2));
-      process.stdout.write(`Raw Lighthouse result saved to ${args.saveLhr}\n`);
-    }
-    assessment = lighthouseToAssessment(lhr, { targetLevel: args.level });
   } else {
-    // Multiple live pages -> one combined report.
-    process.stdout.write(`Scanning ${uniqueUrls.length} page(s)...\n`);
-    const pages: LighthousePage[] = [];
-    for (const url of uniqueUrls) {
-      process.stdout.write(`  → ${url}\n`);
-      try {
-        const lhr = await runLighthouse(url);
-        pages.push({ url, lhr });
-      } catch (err) {
-        process.stderr.write(
-          `    ! skipped (${err instanceof Error ? err.message : String(err)})\n`,
-        );
-      }
+    // Resolve URLs from positional args, --urls file, and --sitemap (or index).
+    const urls = await resolveUrls({
+      urls: args.urls,
+      urlsFile: args.urlsFile,
+      sitemap: args.sitemap,
+    });
+
+    if (urls.length === 0) {
+      process.stderr.write(
+        "Usage: npm run scan:lighthouse -- <url> [<url> ...] | --urls <file> | --sitemap <url> | --lhr <file.json> [--format ...] [--out ...] [--jira]\n",
+      );
+      process.exitCode = 1;
+      return;
     }
-    if (pages.length === 0) throw new Error("No pages could be scanned.");
+
+    const { assessment: result, pages } = await scanUrls(urls, {
+      targetLevel: args.level,
+      onProgress: (e) => {
+        if (e.type === "start") process.stdout.write(`Scanning ${e.total} page(s)...\n`);
+        else if (e.type === "page")
+          process.stdout.write(`  [${e.index + 1}/${e.total}] → ${e.url}\n`);
+        else if (e.type === "skip")
+          process.stderr.write(`    ! skipped ${e.url} (${e.error})\n`);
+      },
+    });
+    assessment = result;
+
     if (args.saveLhr) {
-      writeFileSync(args.saveLhr, JSON.stringify(pages, null, 2));
-      process.stdout.write(`Raw Lighthouse results saved to ${args.saveLhr}\n`);
+      const payload = pages.length === 1 ? pages[0]!.lhr : pages;
+      writeFileSync(args.saveLhr, JSON.stringify(payload, null, 2));
+      process.stdout.write(`Raw Lighthouse result(s) saved to ${args.saveLhr}\n`);
     }
-    assessment = combineLighthouseResults(pages, { targetLevel: args.level });
   }
 
   const output =

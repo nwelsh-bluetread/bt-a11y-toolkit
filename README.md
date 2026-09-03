@@ -172,22 +172,46 @@ console.log(formatConsole(assessment));
 
 ## Quick start (CLI)
 
-The CLI audits a JSON file describing an `A11yNode` tree.
+The CLI has two commands: `audit` (audits an `A11yNode` tree JSON) and
+`lighthouse` (runs Lighthouse against live pages or a saved result).
 
 ```bash
+# Audit an exported node tree:
 bt-a11y audit ./examples/login-screen.json --platform react-native
 bt-a11y audit ./tree.json --format markdown --out a11y-report.md
+
+# Lighthouse — one page, many pages, a URL list, or a whole sitemap:
+bt-a11y lighthouse https://example.com
+bt-a11y lighthouse https://example.com https://example.com/about
+bt-a11y lighthouse --urls ./urls.txt
+bt-a11y lighthouse --sitemap https://example.com/sitemap.xml --format markdown --out a11y.md
+
+# Convert a saved Lighthouse result — no Chrome needed:
+bt-a11y lighthouse --lhr ./lighthouse-result.json
 ```
+
+> **Why `bt-a11y lighthouse`?** When you install this package into another repo,
+> only the compiled `dist/` ships — the `scripts/` folder does not. So the
+> `bt-a11y` binary is how consumers run Lighthouse. Live scans need the optional
+> deps: `npm install -D lighthouse chrome-launcher`.
+
+> **Getting only a few URLs from a sitemap?** Many sites publish a *sitemap
+> index* (a sitemap of sitemaps). `--sitemap` automatically detects a
+> `<sitemapindex>` and follows every child sitemap, so you get all the real page
+> URLs instead of just the handful of child-sitemap links.
 
 Options:
 
 | Flag | Description | Default |
 | --- | --- | --- |
-| `--platform` | `web` \| `ios` \| `android` \| `react-native` | `web` |
+| `--platform` | `web` \| `ios` \| `android` \| `react-native` (audit) | `web` |
+| `--urls` | URL list file, one per line (`lighthouse`) | — |
+| `--sitemap` | Scan every page in a sitemap or sitemap index (`lighthouse`) | — |
+| `--lhr` | Read a saved Lighthouse result JSON (`lighthouse`) | — |
 | `--level` | Target WCAG level `A` \| `AA` \| `AAA` | `AA` |
 | `--format` | `console` \| `json` \| `markdown` | `console` |
 | `--out` | Write report to a file | stdout |
-| `--min-target` | Minimum touch target size (px/dp) | `24` (AA) / `44` (AAA) |
+| `--min-target` | Minimum touch target size (px/dp, audit) | `24` (AA) / `44` (AAA) |
 | `--jira` | Create Jira tickets from findings | off |
 | `--min-severity` | Only ticket findings at/above this severity | all |
 

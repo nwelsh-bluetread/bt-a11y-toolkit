@@ -18,11 +18,16 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { runAudit } from "./audit.js";
 import { formatConsole, formatJson, formatMarkdown } from "./report.js";
 import { createJiraTickets } from "./integrations/jira.js";
-import type { A11yNode, Platform, Severity, WcagLevel } from "./types.js";
+import { resolveUrls, scanUrls } from "./integrations/lighthouse-runner.js";
+import type { A11yNode, Assessment, Platform, Severity, WcagLevel } from "./types.js";
 
 interface ParsedArgs {
   command?: string;
   file?: string;
+  urls: string[];
+  urlsFile?: string;
+  sitemap?: string;
+  lhrFile?: string;
   platform: Platform;
   level: WcagLevel;
   format: "console" | "json" | "markdown";
@@ -34,6 +39,7 @@ interface ParsedArgs {
 
 function parseArgs(argv: string[]): ParsedArgs {
   const args: ParsedArgs = {
+    urls: [],
     platform: "web",
     level: "AA",
     format: "console",
@@ -46,6 +52,15 @@ function parseArgs(argv: string[]): ParsedArgs {
     switch (arg) {
       case "--platform":
         args.platform = rest[++i] as Platform;
+        break;
+      case "--urls":
+        args.urlsFile = rest[++i];
+        break;
+      case "--sitemap":
+        args.sitemap = rest[++i];
+        break;
+      case "--lhr":
+        args.lhrFile = rest[++i];
         break;
       case "--level":
         args.level = rest[++i] as WcagLevel;
@@ -66,7 +81,8 @@ function parseArgs(argv: string[]): ParsedArgs {
         args.minSeverity = rest[++i] as Severity;
         break;
       default:
-        if (arg && !arg.startsWith("--")) args.file = arg;
+        if (arg && arg.startsWith("http")) args.urls.push(arg);
+        else if (arg && !arg.startsWith("--")) args.file = arg;
     }
   }
   return args;
@@ -76,47 +92,38 @@ const HELP = `bt-a11y — BlueTread Accessibility Toolkit
 
 Usage:
   bt-a11y audit <tree.json> [options]
+  bt-a11y lighthouse <url> [<url> ...] [options]
+  bt-a11y lighthouse --urls <file> [options]
+  bt-a11y lighthouse --sitemap <url> [options]
+  bt-a11y lighthouse --lhr <result.json> [options]
+
+Commands:
+  audit         Audit an A11yNode tree exported by a platform adapter.
+  lighthouse    Run Lighthouse against one or many live pages (or a saved LHR)
+                and produce one combined accessibility report.
 
 Options:
-  --platform <web|ios|android|react-native>   Target platform (default: web)
+  --platform <web|ios|android|react-native>   Target platform (audit; default: web)
+  --urls <file>                                URL list file (one per line, lighthouse)
+  --sitemap <url>                              Scan every page in a sitemap or sitemap index (lighthouse)
+  --lhr <file>                                 Read a saved Lighthouse result JSON (lighthouse)
   --level <A|AA|AAA>                           Target WCAG level (default: AA)
   --format <console|json|markdown>             Report format (default: console)
   --out <file>                                 Write report to a file
-  --min-target <px>                            Minimum touch target size (default: 24 for AA, 44 for AAA)
+  --min-target <px>                            Minimum touch target size (audit; default: 24 AA / 44 AAA)
   --jira                                       Create Jira tickets from findings
   --min-severity <critical|high|medium|low>    Only ticket findings at/above this severity
   -h, --help                                   Show this help
+
+Live Lighthouse scans require optional deps:
+  npm install -D lighthouse chrome-launcher
 
 Environment (for --jira):
   JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN, JIRA_PROJECT_KEY
 `;
 
-async function main(): Promise<void> {
-  const argv = process.argv.slice(2);
-  if (argv.length === 0 || argv.includes("-h") || argv.includes("--help")) {
-    process.stdout.write(HELP);
-    return;
-  }
-
-  const args = parseArgs(argv);
-  if (args.command !== "audit") {
-    process.stderr.write(`Unknown command: ${args.command ?? "(none)"}\n\n${HELP}`);
-    process.exitCode = 1;
-    return;
-  }
-  if (!args.file) {
-    process.stderr.write("Error: missing <tree.json>\n\n" + HELP);
-    process.exitCode = 1;
-    return;
-  }
-
-  const tree = JSON.parse(readFileSync(args.file, "utf8")) as A11yNode | A11yNode[];
-  const assessment = runAudit(tree, {
-    platform: args.platform,
-    targetLevel: args.level,
-    minTouchTargetSize: args.minTarget,
-  });
-
+/** Format an assessment, write/print it, and optionally file Jira tickets. */
+async function report(assessment: Assessment, args: ParsedArgs): Promise<void> {
   const output =
     args.format === "json"
       ? formatJson(assessment)
@@ -152,6 +159,79 @@ async function main(): Promise<void> {
     );
     process.stdout.write(`\nCreated ${created.length} Jira ticket(s):\n`);
     for (const t of created) process.stdout.write(`  ${t.key} — ${t.finding.title}\n`);
+  }
+}
+
+async function runAuditCommand(args: ParsedArgs): Promise<void> {
+  if (!args.file) {
+    process.stderr.write("Error: missing <tree.json>\n\n" + HELP);
+    process.exitCode = 1;
+    return;
+  }
+  const tree = JSON.parse(readFileSync(args.file, "utf8")) as A11yNode | A11yNode[];
+  const assessment = runAudit(tree, {
+    platform: args.platform,
+    targetLevel: args.level,
+    minTouchTargetSize: args.minTarget,
+  });
+  await report(assessment, args);
+}
+
+async function runLighthouseCommand(args: ParsedArgs): Promise<void> {
+  // Saved LHR file — no browser needed.
+  if (args.lhrFile) {
+    const { lighthouseToAssessment } = await import("./integrations/lighthouse.js");
+    const lhr = JSON.parse(readFileSync(args.lhrFile, "utf8"));
+    await report(lighthouseToAssessment(lhr, { targetLevel: args.level }), args);
+    return;
+  }
+
+  const urls = await resolveUrls({
+    urls: args.urls,
+    urlsFile: args.urlsFile,
+    sitemap: args.sitemap,
+  });
+
+  if (urls.length === 0) {
+    process.stderr.write(
+      "Error: no URLs to scan. Pass <url> args, --urls <file>, --sitemap <url>, or --lhr <file>.\n\n" +
+        HELP,
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  const { assessment } = await scanUrls(urls, {
+    targetLevel: args.level,
+    onProgress: (e) => {
+      if (e.type === "start") process.stderr.write(`Scanning ${e.total} page(s)...\n`);
+      else if (e.type === "page")
+        process.stderr.write(`  [${e.index + 1}/${e.total}] → ${e.url}\n`);
+      else if (e.type === "skip") process.stderr.write(`    ! skipped ${e.url} (${e.error})\n`);
+    },
+  });
+
+  await report(assessment, args);
+}
+
+async function main(): Promise<void> {
+  const argv = process.argv.slice(2);
+  if (argv.length === 0 || argv.includes("-h") || argv.includes("--help")) {
+    process.stdout.write(HELP);
+    return;
+  }
+
+  const args = parseArgs(argv);
+  switch (args.command) {
+    case "audit":
+      await runAuditCommand(args);
+      break;
+    case "lighthouse":
+      await runLighthouseCommand(args);
+      break;
+    default:
+      process.stderr.write(`Unknown command: ${args.command ?? "(none)"}\n\n${HELP}`);
+      process.exitCode = 1;
   }
 }
 
