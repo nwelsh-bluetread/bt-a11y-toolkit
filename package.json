@@ -1,6 +1,6 @@
 {
   "name": "@bluetread/accessibility-toolkit",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "BlueTread's internal, repeatable accessibility testing toolkit. Reusable automated a11y checks, WCAG-mapped scoring, report generation, and Jira ticket creation for web and React Native applications.",
   "keywords": [
     "accessibility",
@@ -66,5 +66,17 @@
     "typescript": "^5.6.2",
     "typescript-eslint": "^8.68.0",
     "vitest": "^2.1.2"
+  },
+  "peerDependencies": {
+    "@axe-core/playwright": ">=4",
+    "chrome-launcher": ">=1",
+    "lighthouse": ">=11",
+    "playwright": ">=1.40"
+  },
+  "peerDependenciesMeta": {
+    "@axe-core/playwright": { "optional": true },
+    "chrome-launcher": { "optional": true },
+    "lighthouse": { "optional": true },
+    "playwright": { "optional": true }
   }
 }
