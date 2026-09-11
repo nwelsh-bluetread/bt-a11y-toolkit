@@ -46,6 +46,8 @@
     "test:coverage": "vitest run --coverage",
     "test:lighthouse": "vitest run tests/lighthouse.test.ts",
     "scan:lighthouse": "tsx scripts/lighthouse.ts",
+    "test:axe": "vitest run tests/axe.test.ts",
+    "scan:axe": "tsx scripts/axe.ts",
     "prepare": "npm run build",
     "prepublishOnly": "npm run clean && npm run build"
   },
