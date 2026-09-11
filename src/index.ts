@@ -70,3 +70,4 @@ export type {
   AxeImpact,
   AxePage,
 } from "./integrations/axe.js";
+export { mergeAssessments } from "./integrations/combined.js";
