@@ -18,7 +18,12 @@ export interface MatcherResult {
   message: () => string;
 }
 
-export function toHaveAccessibleName(node: A11yNode): MatcherResult {
+/**
+ * Named `toHaveA11yName` rather than `toHaveAccessibleName` so it does not
+ * collide with the element-based matcher of that name that
+ * `@testing-library/react-native` auto-registers on import.
+ */
+export function toHaveA11yName(node: A11yNode): MatcherResult {
   const pass = hasAccessibleName(node);
   return {
     pass,
@@ -91,7 +96,7 @@ export function toBeInteractive(node: A11yNode): MatcherResult {
 
 /** Object to pass to `expect.extend`. */
 export const a11yMatchers = {
-  toHaveAccessibleName,
+  toHaveA11yName,
   toHaveRole,
   toBeHiddenFromAccessibility,
   toMeetTouchTargetSize,

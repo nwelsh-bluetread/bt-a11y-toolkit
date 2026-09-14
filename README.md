@@ -221,11 +221,16 @@ import { a11yMatchers } from "@bluetread/accessibility-toolkit/matchers";
 
 expect.extend(a11yMatchers);
 
-expect(buttonNode).toHaveAccessibleName();
+expect(buttonNode).toHaveA11yName();
 expect(buttonNode).toHaveRole("button");
 expect(iconNode).toBeHiddenFromAccessibility();
 expect(touchNode).toMeetTouchTargetSize(44);
 ```
+
+> The name matcher is `toHaveA11yName`, not `toHaveAccessibleName`:
+> `@testing-library/react-native` auto-registers an element-based
+> `toHaveAccessibleName` when a test imports it, which would silently
+> override the toolkit's node-based matcher.
 
 ## What unit tests catch that scanners can't
 
