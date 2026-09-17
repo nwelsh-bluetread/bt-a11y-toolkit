@@ -29,7 +29,13 @@ import {
 } from "../src/integrations/axe.js";
 import { formatConsole, formatJson, formatMarkdown } from "../src/report.js";
 import { createJiraTickets } from "../src/integrations/jira.js";
-import type { Severity, WcagLevel } from "../src/types.js";
+import type { Severity, WcagLevel, Platform } from "../src/types.js";
+import { readSitemap } from "../src/sitemap.js";
+import {
+  resolveFormFactor,
+  puppeteerViewport,
+  type FormFactorConfig,
+} from "../src/formFactor.js";
 
 interface Args {
   urls: string[];
@@ -41,6 +47,8 @@ interface Args {
   out?: string;
   saveResults?: string;
   jira: boolean;
+  platform?: string;
+  formFactor?: string;
   minSeverity?: Severity;
 }
 
@@ -57,6 +65,8 @@ function parseArgs(argv: string[]): Args {
       case "--out": args.out = argv[++i]; break;
       case "--save-results": args.saveResults = argv[++i]; break;
       case "--jira": args.jira = true; break;
+      case "--platform": args.platform = argv[++i]; break;
+      case "--form-factor": args.formFactor = argv[++i]; break;
       case "--min-severity": args.minSeverity = argv[++i] as Severity; break;
       default:
         if (a && !a.startsWith("--")) args.urls.push(a);
@@ -73,17 +83,8 @@ function readUrlsFile(path: string): string[] {
     .filter((l) => l && !l.startsWith("#"));
 }
 
-/** Fetch a sitemap.xml and extract its <loc> URLs. */
-async function readSitemap(sitemapUrl: string): Promise<string[]> {
-  const res = await fetch(sitemapUrl);
-  if (!res.ok) throw new Error(`Failed to fetch sitemap (${res.status}): ${sitemapUrl}`);
-  const xml = await res.text();
-  const locs = [...xml.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/gi)].map((m) => m[1]!);
-  return locs;
-}
-
 /** Run a live axe-core accessibility scan against a URL using Puppeteer. */
-async function runAxe(url: string): Promise<AxeResults> {
+async function runAxe(url: string, ff: FormFactorConfig): Promise<AxeResults> {
   // Optional deps — imported lazily and typed loosely so the toolkit builds
   // without them installed. Install to enable live scans:
   //   npm install -D puppeteer @axe-core/puppeteer
@@ -101,6 +102,8 @@ async function runAxe(url: string): Promise<AxeResults> {
   const browser = await puppeteer.launch({ headless: true });
   try {
     const page = await browser.newPage();
+    await page.setViewport(puppeteerViewport(ff));
+    await page.setUserAgent(ff.userAgent);
     await page.goto(url, { waitUntil: "networkidle2" });
     const results = await new AxePuppeteer(page).analyze();
     return { ...results, url };
@@ -110,12 +113,18 @@ async function runAxe(url: string): Promise<AxeResults> {
 }
 
 interface PuppeteerBrowser {
-  newPage(): Promise<{ goto(url: string, opts?: Record<string, unknown>): Promise<unknown> }>;
+  newPage(): Promise<{
+    goto(url: string, opts?: Record<string, unknown>): Promise<unknown>;
+    setViewport(vp: Record<string, unknown>): Promise<void>;
+    setUserAgent(ua: string): Promise<void>;
+  }>;
   close(): Promise<void>;
 }
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
+  const ff = resolveFormFactor(args.formFactor);
+  const platform = (args.platform ?? "web") as Platform;
 
   // Resolve the full list of URLs to scan from positional args, --urls file, and --sitemap.
   const urls = [...args.urls];
@@ -137,23 +146,23 @@ async function main(): Promise<void> {
     // Single pre-computed axe results file.
     const results = JSON.parse(readFileSync(args.resultsFile, "utf8")) as AxeResults;
     if (args.saveResults) writeFileSync(args.saveResults, JSON.stringify(results, null, 2));
-    assessment = axeToAssessment(results, { targetLevel: args.level });
+    assessment = axeToAssessment(results, { targetLevel: args.level, platform });
   } else if (uniqueUrls.length === 1) {
     // Single live page.
-    const results = await runAxe(uniqueUrls[0]!);
+    const results = await runAxe(uniqueUrls[0]!, ff);
     if (args.saveResults) {
       writeFileSync(args.saveResults, JSON.stringify(results, null, 2));
       process.stdout.write(`Raw axe result saved to ${args.saveResults}\n`);
     }
-    assessment = axeToAssessment(results, { targetLevel: args.level });
+    assessment = axeToAssessment(results, { targetLevel: args.level, platform });
   } else {
     // Multiple live pages -> one combined report.
-    process.stdout.write(`Scanning ${uniqueUrls.length} page(s)...\n`);
+    process.stdout.write(`Scanning ${uniqueUrls.length} page(s) with axe-core [${ff.formFactor} ${ff.width}x${ff.height}]...\n`);
     const pages: AxePage[] = [];
     for (const url of uniqueUrls) {
       process.stdout.write(`  → ${url}\n`);
       try {
-        const results = await runAxe(url);
+        const results = await runAxe(url, ff);
         pages.push({ url, results });
       } catch (err) {
         process.stderr.write(
@@ -166,7 +175,7 @@ async function main(): Promise<void> {
       writeFileSync(args.saveResults, JSON.stringify(pages, null, 2));
       process.stdout.write(`Raw axe results saved to ${args.saveResults}\n`);
     }
-    assessment = combineAxeResults(pages, { targetLevel: args.level });
+    assessment = combineAxeResults(pages, { targetLevel: args.level, platform });
   }
 
   const output =

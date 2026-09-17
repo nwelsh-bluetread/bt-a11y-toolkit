@@ -16,6 +16,15 @@ export {
   isImageNode,
 } from "./utils.js";
 export { contrastRatio, luminance, parseHex, isLargeText, requiredContrast } from "./contrast.js";
+export { readSitemap, parseSitemapLocs, isSitemapIndex } from "./sitemap.js";
+export type { SitemapFetch, ReadSitemapOptions } from "./sitemap.js";
+export {
+  FORM_FACTORS,
+  resolveFormFactor,
+  lighthouseEmulationSettings,
+  puppeteerViewport,
+} from "./formFactor.js";
+export type { FormFactor, FormFactorConfig } from "./formFactor.js";
 export {
   defaultRules,
   accessibleNameRule,
@@ -43,6 +52,13 @@ export {
 } from "./audit.js";
 export type { AuditOptions } from "./audit.js";
 export { formatConsole, formatJson, formatMarkdown, sortFindings } from "./report.js";
+export {
+  estimateFindingHours,
+  estimateTotalHours,
+  withEffortEstimates,
+  affectedElementCount,
+  formatHours,
+} from "./effort.js";
 export {
   createJiraTickets,
   buildTicketPayload,

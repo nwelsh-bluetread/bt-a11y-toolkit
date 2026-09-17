@@ -28,7 +28,13 @@ import {
 } from "../src/integrations/lighthouse.js";
 import { formatConsole, formatJson, formatMarkdown } from "../src/report.js";
 import { createJiraTickets } from "../src/integrations/jira.js";
-import type { Severity, WcagLevel } from "../src/types.js";
+import type { Severity, WcagLevel, Platform } from "../src/types.js";
+import { readSitemap } from "../src/sitemap.js";
+import {
+  resolveFormFactor,
+  lighthouseEmulationSettings,
+  type FormFactorConfig,
+} from "../src/formFactor.js";
 
 interface Args {
   urls: string[];
@@ -40,6 +46,8 @@ interface Args {
   out?: string;
   saveLhr?: string;
   jira: boolean;
+  platform?: string;
+  formFactor?: string;
   minSeverity?: Severity;
 }
 
@@ -56,6 +64,8 @@ function parseArgs(argv: string[]): Args {
       case "--out": args.out = argv[++i]; break;
       case "--save-lhr": args.saveLhr = argv[++i]; break;
       case "--jira": args.jira = true; break;
+      case "--platform": args.platform = argv[++i]; break;
+      case "--form-factor": args.formFactor = argv[++i]; break;
       case "--min-severity": args.minSeverity = argv[++i] as Severity; break;
       default:
         if (a && !a.startsWith("--")) args.urls.push(a);
@@ -72,17 +82,8 @@ function readUrlsFile(path: string): string[] {
     .filter((l) => l && !l.startsWith("#"));
 }
 
-/** Fetch a sitemap.xml and extract its <loc> URLs. */
-async function readSitemap(sitemapUrl: string): Promise<string[]> {
-  const res = await fetch(sitemapUrl);
-  if (!res.ok) throw new Error(`Failed to fetch sitemap (${res.status}): ${sitemapUrl}`);
-  const xml = await res.text();
-  const locs = [...xml.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/gi)].map((m) => m[1]!);
-  return locs;
-}
-
 /** Run a live Lighthouse accessibility scan against a URL. */
-async function runLighthouse(url: string): Promise<LighthouseResult> {
+async function runLighthouse(url: string, ff: FormFactorConfig): Promise<LighthouseResult> {
   // Optional deps — imported lazily and typed loosely so the toolkit builds
   // without them installed. Install to enable live scans:
   //   npm install -D lighthouse chrome-launcher
@@ -106,6 +107,7 @@ async function runLighthouse(url: string): Promise<LighthouseResult> {
     const result = await runner(url, {
       port: chrome.port,
       onlyCategories: ["accessibility"],
+      ...lighthouseEmulationSettings(ff),
       output: "json",
       logLevel: "error",
     });
@@ -118,6 +120,8 @@ async function runLighthouse(url: string): Promise<LighthouseResult> {
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
+  const ff = resolveFormFactor(args.formFactor);
+  const platform = (args.platform ?? "web") as Platform;
 
   // Resolve the full list of URLs to scan from positional args, --urls file, and --sitemap.
   const urls = [...args.urls];
@@ -139,23 +143,23 @@ async function main(): Promise<void> {
     // Single pre-computed LHR file.
     const lhr = JSON.parse(readFileSync(args.lhrFile, "utf8")) as LighthouseResult;
     if (args.saveLhr) writeFileSync(args.saveLhr, JSON.stringify(lhr, null, 2));
-    assessment = lighthouseToAssessment(lhr, { targetLevel: args.level });
+    assessment = lighthouseToAssessment(lhr, { targetLevel: args.level, platform });
   } else if (uniqueUrls.length === 1) {
     // Single live page.
-    const lhr = await runLighthouse(uniqueUrls[0]!);
+    const lhr = await runLighthouse(uniqueUrls[0]!, ff);
     if (args.saveLhr) {
       writeFileSync(args.saveLhr, JSON.stringify(lhr, null, 2));
       process.stdout.write(`Raw Lighthouse result saved to ${args.saveLhr}\n`);
     }
-    assessment = lighthouseToAssessment(lhr, { targetLevel: args.level });
+    assessment = lighthouseToAssessment(lhr, { targetLevel: args.level, platform });
   } else {
     // Multiple live pages -> one combined report.
-    process.stdout.write(`Scanning ${uniqueUrls.length} page(s)...\n`);
+    process.stdout.write(`Scanning ${uniqueUrls.length} page(s) with Lighthouse [${ff.formFactor} ${ff.width}x${ff.height}]...\n`);
     const pages: LighthousePage[] = [];
     for (const url of uniqueUrls) {
       process.stdout.write(`  → ${url}\n`);
       try {
-        const lhr = await runLighthouse(url);
+        const lhr = await runLighthouse(url, ff);
         pages.push({ url, lhr });
       } catch (err) {
         process.stderr.write(
@@ -168,7 +172,7 @@ async function main(): Promise<void> {
       writeFileSync(args.saveLhr, JSON.stringify(pages, null, 2));
       process.stdout.write(`Raw Lighthouse results saved to ${args.saveLhr}\n`);
     }
-    assessment = combineLighthouseResults(pages, { targetLevel: args.level });
+    assessment = combineLighthouseResults(pages, { targetLevel: args.level, platform });
   }
 
   const output =

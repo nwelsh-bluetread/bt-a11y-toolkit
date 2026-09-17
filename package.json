@@ -70,6 +70,7 @@
     "scan:lighthouse": "tsx scripts/lighthouse.ts",
     "test:axe": "vitest run tests/axe.test.ts",
     "scan:axe": "tsx scripts/axe.ts",
+    "scan:urls": "tsx scripts/urls.ts",
     "scan:all": "tsx scripts/scan.ts",
     "prepare": "npm run build",
     "prepublishOnly": "npm run clean && npm run build"
@@ -78,6 +79,7 @@
     "node": ">=18"
   },
   "devDependencies": {
+    "@axe-core/puppeteer": "^4.13.0",
     "@eslint/js": "^9.39.5",
     "@types/node": "^22.7.0",
     "@typescript-eslint/eslint-plugin": "^8.8.0",
@@ -86,6 +88,7 @@
     "chrome-launcher": "^1.2.1",
     "eslint": "^9.12.0",
     "lighthouse": "^13.4.1",
+    "puppeteer": "^25.11.0",
     "tsx": "^4.23.12",
     "typescript": "^5.6.2",
     "typescript-eslint": "^8.68.0",

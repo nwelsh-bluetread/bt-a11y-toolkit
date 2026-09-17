@@ -133,13 +133,43 @@ Low: 4 🟢 — landmark/region best-practice items
 
 ---
 
+## Form factor (`--form-factor`)
+
+Both engines are pinned to the **same** emulated device, defaulting to `mobile`
+(Moto G Power, 412×823 @ 1.75x — Lighthouse's own default device).
+
+This matters more than it sounds. Lighthouse emulates mobile by default, while
+Puppeteer — which drives axe — defaults to an 800×600 desktop window. Left
+unset, the two engines audit *different renderings of the same URL*, so on a
+responsive site they see different DOM and disagree for reasons unrelated to
+their rulesets. The same four AdaptHealth pages produce **18 findings at mobile
+and 26 at desktop**.
+
+```bash
+# Pages consumed inside a mobile app WebView (the default)
+npm run scan:all -- --urls ./urls.txt --form-factor mobile --platform react-native
+
+# A desktop web property
+npm run scan:all -- --urls ./urls.txt --form-factor desktop --platform web
+```
+
+Pick the form factor your users actually have. Scanning both is a reasonable
+belt-and-braces move for responsive sites, since breakpoint-specific issues only
+appear at one of them — run the command twice with different `--out` files.
+
+`--platform` only labels the assessment and its findings; it does not change
+which rules run. Use `react-native` when the pages are WebView content inside a
+mobile app so the report doesn't read as a desktop web audit.
+
 ## Common options (all scan scripts)
 
 | Flag | Description |
 |---|---|
 | `<url> [<url> ...]` | One or more pages to scan |
 | `--urls <file>` | Read URLs from a file (one per line, `#` comments allowed) |
-| `--sitemap <url>` | Crawl a sitemap.xml for URLs |
+| `--sitemap <url>` | Crawl a sitemap.xml for URLs (follows sitemap index files) |
+| `--form-factor <mobile\|desktop>` | Device emulation for **both** engines (default: `mobile`) |
+| `--platform <web\|ios\|android\|react-native>` | Platform recorded on the assessment and its findings (default: `web`) |
 | `--level <A\|AA\|AAA>` | Target WCAG conformance level (default: `AA`) |
 | `--format <console\|json\|markdown>` | Report format (default: `console`) |
 | `--out <file>` | Write the report to a file |

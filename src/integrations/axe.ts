@@ -7,7 +7,7 @@
  * `scripts/axe.ts`), which keeps it fast to unit test and free of heavy browser
  * dependencies.
  */
-import type { Assessment, Finding, Severity, WcagLevel } from "../types.js";
+import type { Assessment, Finding, Platform, Severity, WcagLevel } from "../types.js";
 import type { WcagCriterion } from "../types.js";
 import { WCAG } from "../wcag.js";
 import {
@@ -15,6 +15,7 @@ import {
   computeTopIssues,
   countBySeverity,
 } from "../audit.js";
+import { estimateFindingHours } from "../effort.js";
 
 /** axe-core impact levels. */
 export type AxeImpact = "minor" | "moderate" | "serious" | "critical" | null;
@@ -180,13 +181,22 @@ function targetToSelector(target?: Array<string | string[]>): string | undefined
  * Convert axe results into toolkit findings. One finding is produced per
  * violation; the offending element selectors are captured as evidence.
  */
-export function axeToFindings(results: AxeResults): Finding[] {
+export function axeToFindings(
+  results: AxeResults,
+  options: { platform?: Platform } = {},
+): Finding[] {
+  const platform = options.platform ?? "web";
   const findings: Finding[] = [];
 
   for (const rule of results.violations) {
     const mapping = resolveMapping(rule);
-    const selectors = rule.nodes
-      .map((n) => targetToSelector(n.target))
+    const elements = rule.nodes.map((n) => ({
+      selector: targetToSelector(n.target),
+      html: n.html?.trim(),
+      failureSummary: n.failureSummary?.trim(),
+    }));
+    const selectors = elements
+      .map((e) => e.selector)
       .filter((s): s is string => Boolean(s));
 
     findings.push({
@@ -197,7 +207,7 @@ export function axeToFindings(results: AxeResults): Finding[] {
       wcag: toCriteria(mapping.wcag),
       category: mapping.category,
       source: "axe",
-      platforms: ["web"],
+      platforms: [platform],
       nodeId: selectors[0],
       remediation: rule.helpUrl,
       evidence: {
@@ -205,12 +215,14 @@ export function axeToFindings(results: AxeResults): Finding[] {
         impact: rule.impact ?? undefined,
         affectedElements: rule.nodes.length,
         selectors: selectors.slice(0, 20),
-        failureSummary: rule.nodes[0]?.failureSummary,
+        elements: elements.slice(0, 20),
+        html: elements[0]?.html,
+        failureSummary: elements[0]?.failureSummary,
       },
     });
   }
 
-  return findings;
+  return findings.map((f) => ({ ...f, estimatedHours: estimateFindingHours(f) }));
 }
 
 const rank: Record<WcagLevel, number> = { A: 1, AA: 2, AAA: 3 };
@@ -281,10 +293,11 @@ function buildCategories(findings: Finding[]): Assessment["categories"] {
  */
 export function axeToAssessment(
   results: AxeResults,
-  options: { targetLevel?: WcagLevel } = {},
+  options: { targetLevel?: WcagLevel; platform?: Platform } = {},
 ): Assessment {
   const targetLevel = options.targetLevel ?? "AA";
-  const findings = axeToFindings(results);
+  const platform = options.platform ?? "web";
+  const findings = axeToFindings(results, { platform });
 
   const levelStats: Record<WcagLevel, { passed: number; evaluated: number }> = {
     A: { passed: 0, evaluated: 0 },
@@ -302,7 +315,7 @@ export function axeToAssessment(
 
   return {
     generatedAt: new Date().toISOString(),
-    platform: "web",
+    platform,
     targetLevel,
     overallScore: computeOverallScore(findings, 100),
     counts: countBySeverity(findings),
@@ -327,9 +340,10 @@ export interface AxePage {
  */
 export function combineAxeResults(
   pages: AxePage[],
-  options: { targetLevel?: WcagLevel } = {},
+  options: { targetLevel?: WcagLevel; platform?: Platform } = {},
 ): Assessment {
   const targetLevel = options.targetLevel ?? "AA";
+  const platform = options.platform ?? "web";
 
   const allFindings: Finding[] = [];
   const levelStats: Record<WcagLevel, { passed: number; evaluated: number }> = {
@@ -357,7 +371,7 @@ export function combineAxeResults(
 
   return {
     generatedAt: new Date().toISOString(),
-    platform: "web",
+    platform,
     targetLevel,
     overallScore: computeOverallScore(allFindings, 100),
     counts: countBySeverity(allFindings),

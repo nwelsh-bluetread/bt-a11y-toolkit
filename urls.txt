@@ -1,0 +1,18 @@
+# URLs for `npm run scan:all -- --urls ./urls.txt`
+#
+# One URL per line. Blank lines and `#` comments are ignored.
+# Duplicates are de-duplicated before scanning.
+#
+# Both engines load each page in a real headless browser, so the URL must be
+# reachable and serving HTML while the scan runs — start your dev server first.
+#
+# Replace the examples below with your own pages. Cover one page per distinct
+# layout/template rather than every page of the same template; scanning is
+# roughly a few seconds per page per engine.
+
+http://localhost:3000/
+http://localhost:3000/login
+
+# Authenticated pages won't work here — both engines load each URL in a fresh
+# browser with no session, so you'd be scanning the login redirect instead.
+# http://localhost:3000/dashboard

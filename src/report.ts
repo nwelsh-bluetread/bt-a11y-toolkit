@@ -1,4 +1,5 @@
 import type { Assessment, Finding, Severity } from "./types.js";
+import { estimateFindingHours, estimateTotalHours, formatHours } from "./effort.js";
 
 const SEVERITY_LABEL: Record<Severity, string> = {
   critical: "Critical",
@@ -37,6 +38,7 @@ export function formatConsole(assessment: Assessment): string {
   lines.push(`WCAG A:     ${wcag.A}%`);
   lines.push(`WCAG AA:    ${wcag.AA}%`);
   lines.push(`WCAG AAA:   ${wcag.AAA}%`);
+  lines.push(`Est. remediation: ${formatHours(estimateTotalHours(assessment.findings))}`);
   lines.push("Top Issues");
   lines.push("────────────");
   if (topIssues.length === 0) {
@@ -63,6 +65,7 @@ export function formatMarkdown(assessment: Assessment): string {
   lines.push(`- **Platform:** ${platform}`);
   lines.push(`- **Target WCAG level:** ${targetLevel}`);
   lines.push(`- **Overall score:** ${overallScore}%`);
+  lines.push(`- **Estimated remediation effort:** ${formatHours(estimateTotalHours(findings))}`);
   lines.push("");
 
   lines.push(`## Summary`);
@@ -82,11 +85,12 @@ export function formatMarkdown(assessment: Assessment): string {
 
   lines.push(`## Accessibility Scorecard`);
   lines.push("");
-  lines.push(`| Category | Score | Priority | Findings |`);
-  lines.push(`| --- | --- | --- | --- |`);
+  lines.push(`| Category | Score | Priority | Findings | Est. effort |`);
+  lines.push(`| --- | --- | --- | --- | --- |`);
   for (const c of categories) {
+    const catHours = estimateTotalHours(findings.filter((f) => (f.category ?? "Semantics") === c.category));
     lines.push(
-      `| ${c.category} | ${c.score}% | ${SEVERITY_ICON[c.severity]} ${SEVERITY_LABEL[c.severity]} | ${c.findingCount} |`,
+      `| ${c.category} | ${c.score}% | ${SEVERITY_ICON[c.severity]} ${SEVERITY_LABEL[c.severity]} | ${c.findingCount} | ${formatHours(catHours)} |`,
     );
   }
   lines.push("");
@@ -102,9 +106,8 @@ export function formatMarkdown(assessment: Assessment): string {
       lines.push(`- **Rule:** \`${f.ruleId}\``);
       lines.push(`- **Severity:** ${SEVERITY_LABEL[f.severity]}`);
       lines.push(`- **WCAG:** ${f.wcag.map((c) => `${c.id} ${c.name} (${c.level})`).join(", ")}`);
-      if (f.nodeId || f.nodeType) {
-        lines.push(`- **Element:** ${f.nodeType ?? "unknown"}${f.nodeId ? ` (\`${f.nodeId}\`)` : ""}`);
-      }
+      lines.push(`- **Est. remediation:** ${formatHours(f.estimatedHours ?? estimateFindingHours(f))}`);
+      appendLocation(lines, f);
       lines.push(`- **Description:** ${f.description}`);
       if (f.remediation) lines.push(`- **Remediation:** ${f.remediation}`);
       lines.push("");
@@ -115,6 +118,54 @@ export function formatMarkdown(assessment: Assessment): string {
 }
 
 const SEVERITY_RANK: Record<Severity, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+
+/** Truncate a single-line HTML snippet so the report stays readable. */
+function truncate(value: string, max = 160): string {
+  const oneLine = value.replace(/\s+/g, " ").trim();
+  return oneLine.length > max ? `${oneLine.slice(0, max - 1)}…` : oneLine;
+}
+
+/**
+ * Append location detail for a finding. Prefers the rich evidence captured by
+ * the scanner integrations (DOM selector path, HTML snippet, failure summary,
+ * and how many elements are affected) and falls back to the node type/id for
+ * tree-based findings.
+ */
+function appendLocation(lines: string[], f: Finding): void {
+  const ev = f.evidence ?? {};
+  const elements = Array.isArray(ev.elements)
+    ? (ev.elements as Array<{ selector?: string; html?: string; failureSummary?: string }>)
+    : [];
+  const selectors = Array.isArray(ev.selectors) ? (ev.selectors as string[]) : [];
+  const affected = typeof ev.affectedElements === "number" ? ev.affectedElements : undefined;
+  const primary = elements[0];
+  const selector = primary?.selector ?? selectors[0] ?? f.nodeId;
+
+  // Tree-based finding (no scanner evidence): keep the simple element line.
+  if (!selector && !f.nodeType) return;
+  if (!selector) {
+    lines.push(`- **Element:** ${f.nodeType ?? "unknown"}`);
+    return;
+  }
+
+  const suffix = affected && affected > 1 ? ` _(and ${affected - 1} more element${affected - 1 === 1 ? "" : "s"})_` : "";
+  lines.push(`- **Location:** \`${selector}\`${suffix}`);
+
+  const html = primary?.html ?? (typeof ev.html === "string" ? ev.html : undefined);
+  if (html) lines.push(`- **HTML:** \`${truncate(html)}\``);
+
+  const summary = primary?.failureSummary ?? (typeof ev.failureSummary === "string" ? ev.failureSummary : undefined);
+  if (summary) lines.push(`- **Why it fails:** ${truncate(summary, 300)}`);
+
+  // List the remaining affected selectors so every location is traceable.
+  const others = (elements.length ? elements.map((e) => e.selector) : selectors)
+    .filter((s): s is string => Boolean(s))
+    .slice(1, 20);
+  if (others.length > 0) {
+    lines.push(`- **Other elements:**`);
+    for (const s of others) lines.push(`  - \`${s}\``);
+  }
+}
 
 /** Sort findings by severity (critical first), then by rule id. */
 export function sortFindings(findings: Finding[]): Finding[] {

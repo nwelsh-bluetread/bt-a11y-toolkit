@@ -6,7 +6,7 @@
  * NOT run Lighthouse itself (that lives in `scripts/lighthouse.ts`), which keeps
  * it fast to unit test and free of heavy browser dependencies.
  */
-import type { Assessment, Finding, Severity, WcagLevel } from "../types.js";
+import type { Assessment, Finding, Severity, WcagLevel, Platform } from "../types.js";
 import type { WcagCriterion } from "../types.js";
 import { WCAG } from "../wcag.js";
 import {
@@ -14,6 +14,7 @@ import {
   computeTopIssues,
   countBySeverity,
 } from "../audit.js";
+import { estimateFindingHours } from "../effort.js";
 
 /** The minimal shape of a Lighthouse audit we rely on. */
 export interface LighthouseAudit {
@@ -112,7 +113,11 @@ function isScorable(audit: LighthouseAudit): boolean {
  * Convert a Lighthouse result into toolkit findings. One finding is produced per
  * failing audit; the offending element selectors are captured as evidence.
  */
-export function lighthouseToFindings(lhr: LighthouseResult): Finding[] {
+export function lighthouseToFindings(
+  lhr: LighthouseResult,
+  options: { platform?: Platform } = {},
+): Finding[] {
+  const platform = options.platform ?? "web";
   const refs = lhr.categories?.accessibility?.auditRefs ?? [];
   const auditIds = refs.length > 0 ? refs.map((r) => r.id) : Object.keys(lhr.audits);
   const findings: Finding[] = [];
@@ -124,8 +129,15 @@ export function lighthouseToFindings(lhr: LighthouseResult): Finding[] {
 
     const mapping = LIGHTHOUSE_AUDIT_MAP[id] ?? DEFAULT_MAPPING;
     const items = audit.details?.items ?? [];
-    const selectors = items
-      .map((i) => i.node?.selector)
+    const elements = items
+      .map((i) => ({
+        selector: i.node?.selector,
+        html: i.node?.snippet?.trim(),
+        label: i.node?.nodeLabel?.trim(),
+      }))
+      .filter((e) => e.selector || e.html);
+    const selectors = elements
+      .map((e) => e.selector)
       .filter((s): s is string => Boolean(s));
 
     findings.push({
@@ -136,17 +148,19 @@ export function lighthouseToFindings(lhr: LighthouseResult): Finding[] {
       wcag: toCriteria(mapping.wcag),
       category: mapping.category,
       source: "lighthouse",
-      platforms: ["web"],
+      platforms: [platform],
       nodeId: selectors[0],
       evidence: {
         auditId: id,
-        affectedElements: selectors.length,
+        affectedElements: elements.length,
         selectors: selectors.slice(0, 20),
+        elements: elements.slice(0, 20),
+        html: elements[0]?.html,
       },
     });
   }
 
-  return findings;
+  return findings.map((f) => ({ ...f, estimatedHours: estimateFindingHours(f) }));
 }
 
 /**
@@ -155,10 +169,11 @@ export function lighthouseToFindings(lhr: LighthouseResult): Finding[] {
  */
 export function lighthouseToAssessment(
   lhr: LighthouseResult,
-  options: { targetLevel?: WcagLevel } = {},
+  options: { targetLevel?: WcagLevel; platform?: Platform } = {},
 ): Assessment {
   const targetLevel = options.targetLevel ?? "AA";
-  const findings = lighthouseToFindings(lhr);
+  const platform = options.platform ?? "web";
+  const findings = lighthouseToFindings(lhr, { platform });
 
   // Per-level pass/eval accounting from every scorable audit.
   const levelStats: Record<WcagLevel, { passed: number; evaluated: number }> = {
@@ -209,7 +224,7 @@ export function lighthouseToAssessment(
 
   return {
     generatedAt: new Date().toISOString(),
-    platform: "web",
+    platform,
     targetLevel,
     overallScore:
       typeof lhr.categories?.accessibility?.score === "number"
@@ -249,9 +264,10 @@ export interface LighthousePage {
  */
 export function combineLighthouseResults(
   pages: LighthousePage[],
-  options: { targetLevel?: WcagLevel } = {},
+  options: { targetLevel?: WcagLevel; platform?: Platform } = {},
 ): Assessment {
   const targetLevel = options.targetLevel ?? "AA";
+  const platform = options.platform ?? "web";
 
   const allFindings: Finding[] = [];
   const perPageScores: number[] = [];
@@ -321,7 +337,7 @@ export function combineLighthouseResults(
 
   return {
     generatedAt: new Date().toISOString(),
-    platform: "web",
+    platform,
     targetLevel,
     overallScore,
     counts: countBySeverity(allFindings),

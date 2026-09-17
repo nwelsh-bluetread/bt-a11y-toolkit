@@ -112,6 +112,8 @@ export interface Finding {
   category?: string;
   /** Origin of the finding, e.g. "toolkit", "lighthouse", "axe", "wave". */
   source?: string;
+  /** Estimated engineering hours to remediate this finding. */
+  estimatedHours?: number;
 }
 
 /** The outcome of evaluating a single rule against a node tree. */

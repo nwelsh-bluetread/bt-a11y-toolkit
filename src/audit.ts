@@ -11,6 +11,7 @@ import type {
 } from "./types.js";
 import { flatten } from "./utils.js";
 import { defaultRules, type CategorizedRule } from "./rules.js";
+import { withEffortEstimates } from "./effort.js";
 
 export interface AuditOptions {
   platform?: Platform;
@@ -63,7 +64,7 @@ export function runAudit(tree: A11yNode | A11yNode[], options: AuditOptions = {}
     wcag: computeWcagRollup(results),
     categories: computeCategoryScores(results),
     topIssues: computeTopIssues(findings),
-    findings,
+    findings: withEffortEstimates(findings),
   };
 }
 

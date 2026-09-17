@@ -30,7 +30,14 @@ import {
 import { mergeAssessments } from "../src/integrations/combined.js";
 import { formatConsole, formatJson, formatMarkdown } from "../src/report.js";
 import { createJiraTickets } from "../src/integrations/jira.js";
-import type { Assessment, Severity, WcagLevel } from "../src/types.js";
+import type { Assessment, Severity, WcagLevel, Platform } from "../src/types.js";
+import { readSitemap } from "../src/sitemap.js";
+import {
+  resolveFormFactor,
+  lighthouseEmulationSettings,
+  puppeteerViewport,
+  type FormFactorConfig,
+} from "../src/formFactor.js";
 
 interface Args {
   urls: string[];
@@ -42,6 +49,8 @@ interface Args {
   format: "console" | "json" | "markdown";
   out?: string;
   jira: boolean;
+  platform?: string;
+  formFactor?: string;
   minSeverity?: Severity;
 }
 
@@ -58,6 +67,8 @@ function parseArgs(argv: string[]): Args {
       case "--format": args.format = argv[++i] as Args["format"]; break;
       case "--out": args.out = argv[++i]; break;
       case "--jira": args.jira = true; break;
+      case "--platform": args.platform = argv[++i]; break;
+      case "--form-factor": args.formFactor = argv[++i]; break;
       case "--min-severity": args.minSeverity = argv[++i] as Severity; break;
       default:
         if (a && !a.startsWith("--")) args.urls.push(a);
@@ -73,15 +84,8 @@ function readUrlsFile(path: string): string[] {
     .filter((l) => l && !l.startsWith("#"));
 }
 
-async function readSitemap(sitemapUrl: string): Promise<string[]> {
-  const res = await fetch(sitemapUrl);
-  if (!res.ok) throw new Error(`Failed to fetch sitemap (${res.status}): ${sitemapUrl}`);
-  const xml = await res.text();
-  return [...xml.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/gi)].map((m) => m[1]!);
-}
-
 /** Run a live Lighthouse accessibility scan against a URL. */
-async function runLighthouse(url: string): Promise<LighthouseResult> {
+async function runLighthouse(url: string, ff: FormFactorConfig): Promise<LighthouseResult> {
   let chromeLauncher: { launch(opts: Record<string, unknown>): Promise<{ port: number; kill(): Promise<void> }> };
   let lighthouse: { default?: unknown } & Record<string, unknown>;
   try {
@@ -99,6 +103,7 @@ async function runLighthouse(url: string): Promise<LighthouseResult> {
     const result = await runner(url, {
       port: chrome.port,
       onlyCategories: ["accessibility"],
+      ...lighthouseEmulationSettings(ff),
       output: "json",
       logLevel: "error",
     });
@@ -110,12 +115,16 @@ async function runLighthouse(url: string): Promise<LighthouseResult> {
 }
 
 interface PuppeteerBrowser {
-  newPage(): Promise<{ goto(url: string, opts?: Record<string, unknown>): Promise<unknown> }>;
+  newPage(): Promise<{
+    goto(url: string, opts?: Record<string, unknown>): Promise<unknown>;
+    setViewport(vp: Record<string, unknown>): Promise<void>;
+    setUserAgent(ua: string): Promise<void>;
+  }>;
   close(): Promise<void>;
 }
 
 /** Run a live axe-core accessibility scan against a URL using Puppeteer. */
-async function runAxe(url: string): Promise<AxeResults> {
+async function runAxe(url: string, ff: FormFactorConfig): Promise<AxeResults> {
   let puppeteer: { launch(opts?: Record<string, unknown>): Promise<PuppeteerBrowser> };
   let AxePuppeteer: new (page: unknown) => { analyze(): Promise<AxeResults> };
   try {
@@ -127,6 +136,8 @@ async function runAxe(url: string): Promise<AxeResults> {
   const browser = await puppeteer.launch({ headless: true });
   try {
     const page = await browser.newPage();
+    await page.setViewport(puppeteerViewport(ff));
+    await page.setUserAgent(ff.userAgent);
     await page.goto(url, { waitUntil: "networkidle2" });
     const results = await new AxePuppeteer(page).analyze();
     return { ...results, url };
@@ -137,6 +148,8 @@ async function runAxe(url: string): Promise<AxeResults> {
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
+  const ff = resolveFormFactor(args.formFactor);
+  const platform = (args.platform ?? "web") as Platform;
 
   const urls = [...args.urls];
   if (args.urlsFile) urls.push(...readUrlsFile(args.urlsFile));
@@ -158,32 +171,32 @@ async function main(): Promise<void> {
     // Offline mode: read pre-computed engine outputs.
     if (args.lhrFile) {
       const lhr = JSON.parse(readFileSync(args.lhrFile, "utf8")) as LighthouseResult;
-      assessments.push(lighthouseToAssessment(lhr, { targetLevel: args.level }));
+      assessments.push(lighthouseToAssessment(lhr, { targetLevel: args.level, platform }));
     }
     if (args.axeFile) {
       const axe = JSON.parse(readFileSync(args.axeFile, "utf8")) as AxeResults;
-      assessments.push(axeToAssessment(axe, { targetLevel: args.level }));
+      assessments.push(axeToAssessment(axe, { targetLevel: args.level, platform }));
     }
   } else {
     // Live mode: run both engines against every page.
-    process.stdout.write(`Scanning ${uniqueUrls.length} page(s) with Lighthouse + axe-core...\n`);
+    process.stdout.write(`Scanning ${uniqueUrls.length} page(s) with Lighthouse + axe-core [${ff.formFactor} ${ff.width}x${ff.height}]...\n`);
     const lhPages: LighthousePage[] = [];
     const axePages: AxePage[] = [];
     for (const url of uniqueUrls) {
       process.stdout.write(`  → ${url}\n`);
       try {
-        lhPages.push({ url, lhr: await runLighthouse(url) });
+        lhPages.push({ url, lhr: await runLighthouse(url, ff) });
       } catch (err) {
         process.stderr.write(`    ! lighthouse skipped (${err instanceof Error ? err.message : String(err)})\n`);
       }
       try {
-        axePages.push({ url, results: await runAxe(url) });
+        axePages.push({ url, results: await runAxe(url, ff) });
       } catch (err) {
         process.stderr.write(`    ! axe skipped (${err instanceof Error ? err.message : String(err)})\n`);
       }
     }
-    if (lhPages.length > 0) assessments.push(combineLighthouseResults(lhPages, { targetLevel: args.level }));
-    if (axePages.length > 0) assessments.push(combineAxeResults(axePages, { targetLevel: args.level }));
+    if (lhPages.length > 0) assessments.push(combineLighthouseResults(lhPages, { targetLevel: args.level, platform }));
+    if (axePages.length > 0) assessments.push(combineAxeResults(axePages, { targetLevel: args.level, platform }));
   }
 
   if (assessments.length === 0) throw new Error("No results from either engine.");
