@@ -105,6 +105,10 @@ export function formatMarkdown(assessment: Assessment): string {
       lines.push("");
       lines.push(`- **Rule:** \`${f.ruleId}\``);
       lines.push(`- **Severity:** ${SEVERITY_LABEL[f.severity]}`);
+      // Surfaces cross-engine de-duplication: an issue both engines found reads
+      // "axe + lighthouse", so a reader can tell corroborated issues from ones
+      // only one ruleset catches.
+      if (f.source) lines.push(`- **Reported by:** ${f.source.split("+").join(" + ")}`);
       lines.push(`- **WCAG:** ${f.wcag.map((c) => `${c.id} ${c.name} (${c.level})`).join(", ")}`);
       lines.push(`- **Est. remediation:** ${formatHours(f.estimatedHours ?? estimateFindingHours(f))}`);
       appendLocation(lines, f);

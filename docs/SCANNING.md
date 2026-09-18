@@ -101,12 +101,59 @@ npm run scan:all -- --lhr ./lighthouse.json --results ./axe.json
 
 | Aspect | Behaviour |
 |---|---|
-| De-duplication | Findings collapse when `page + category + WCAG criteria + selector` match |
+| De-duplication | Findings collapse when they describe the same element on the same page under the same criteria |
 | Source tracking | Surviving finding records every tool in `source` and `evidence.sources` |
 | Severity | The **higher** severity of the duplicate pair is kept |
 | Overall score | Average of each engine's score |
 | WCAG A/AA/AAA | Averaged across engines |
 | Category scorecard | Recomputed from the merged finding set |
+| Effort estimate | Derived from the merged findings, so a shared issue is costed once |
+
+### Matching the same element across engines
+
+The engines do not agree on how to name an element, so an exact selector match
+would never fire — and every issue found by both would be reported, and costed,
+twice. axe emits the shortest unique selector while Lighthouse emits a full
+ancestor path:
+
+```
+axe:        .breadcrumb__link
+lighthouse: div.banner-content-block__wrapper > nav.breadcrumb > div.tw-flex > a.breadcrumb__link
+```
+
+Findings in the same `page + category + criteria` bucket, from engines that have
+not already been merged, are paired on the first of these that holds:
+
+1. **Same DOM id** on the target element.
+2. **A shared class** on the target element (the selector tail, with
+   pseudo-classes and attribute selectors stripped, so `h3` matches
+   `h3:nth-child(6)`).
+3. **A common HTML prefix** of at least 12 characters — the engines truncate
+   snippets at different lengths, so only a prefix is comparable. This is what
+   pairs elements the two engines picked different classes for.
+4. **The same tag name**, when neither side has any class or id to go on
+   (`<h3>` vs `h3:nth-child(6)`).
+
+Rule 4 is deliberately last and deliberately narrow: two genuinely different
+anonymous `<h3>`s on one page, each found by only one engine, would merge. That
+undercounts by one; the alternative double-counts everything.
+
+## Concurrency (`--concurrency`)
+
+Scans are serial by default — one page, both engines, then the next. At roughly
+45–60s per page that puts a 200-page property out of reach, so pass
+`--concurrency` to run several pages at once:
+
+```bash
+npm run scan:all -- --urls ./urls.txt --concurrency 6
+```
+
+Results are collected in **input order**, not completion order, so reports are
+byte-identical regardless of how the pages happen to finish. Each worker
+launches its own Chrome, so concurrency is bounded by RAM more than CPU — 4–8 is
+a reasonable range on a laptop, and the flag is capped at 16. Only the
+accessibility category runs, which is not timing-sensitive, so parallel pages do
+not skew results the way a Lighthouse performance run would.
 
 ### Example output
 
@@ -169,6 +216,7 @@ mobile app so the report doesn't read as a desktop web audit.
 | `--urls <file>` | Read URLs from a file (one per line, `#` comments allowed) |
 | `--sitemap <url>` | Crawl a sitemap.xml for URLs (follows sitemap index files) |
 | `--form-factor <mobile\|desktop>` | Device emulation for **both** engines (default: `mobile`) |
+| `--concurrency <n>` | Pages to scan in parallel (default: `1`, max `16`) |
 | `--platform <web\|ios\|android\|react-native>` | Platform recorded on the assessment and its findings (default: `web`) |
 | `--level <A\|AA\|AAA>` | Target WCAG conformance level (default: `AA`) |
 | `--format <console\|json\|markdown>` | Report format (default: `console`) |

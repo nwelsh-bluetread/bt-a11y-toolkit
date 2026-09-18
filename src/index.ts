@@ -86,4 +86,5 @@ export type {
   AxeImpact,
   AxePage,
 } from "./integrations/axe.js";
-export { mergeAssessments } from "./integrations/combined.js";
+export { mergeAssessments, isSameElement, selectorTail } from "./integrations/combined.js";
+export { mapWithConcurrency, resolveConcurrency } from "./concurrency.js";

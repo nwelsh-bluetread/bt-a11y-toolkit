@@ -232,6 +232,44 @@ expect(touchNode).toMeetTouchTargetSize(44);
 > `toHaveAccessibleName` when a test imports it, which would silently
 > override the toolkit's node-based matcher.
 
+## React Native adapter
+
+The matchers and `runAudit` operate on `A11yNode`s, so a rendered React Native
+tree has to be serialized first. That is what
+`@bluetread/accessibility-toolkit/react-native` does — point it at a
+`react-test-renderer` instance, which is what `@testing-library/react-native`
+hands back:
+
+```tsx
+import { render } from "@testing-library/react-native";
+import { runAudit } from "@bluetread/accessibility-toolkit";
+import { toA11yNode, toA11yTree } from "@bluetread/accessibility-toolkit/react-native";
+
+// One element, for matcher assertions.
+expect(toA11yNode(screen.getByTestId("save"))).toHaveA11yName();
+
+// The whole screen, for a scored audit.
+const assessment = runAudit(toA11yTree(render(<OrdersScreen />)), {
+  platform: "react-native",
+  targetLevel: "AA",
+});
+expect(assessment.findings.filter((f) => f.severity === "critical")).toEqual([]);
+```
+
+The adapter takes no dependency on `react` or `react-native` — it is
+structurally typed against the renderer and ships its own style flattener — so
+it is unit-testable in plain Node. Two things worth knowing:
+
+- **Sizes are only known when declared.** `react-test-renderer` never performs
+  layout, so `size` is populated from explicit `width`/`height` (plus
+  `hitSlop`) and is `undefined` for anything sized by flex or padding. The
+  touch-target rule skips those; verify them on-device with the Accessibility
+  Inspector / Accessibility Scanner.
+- **Style handles.** `StyleSheet.create` returns plain objects in current React
+  Native, which the built-in flattener handles. If your RN version returns
+  opaque registry ids, pass the real flattener:
+  `toA11yTree(rendered, { flatten: StyleSheet.flatten })`.
+
 ## What unit tests catch that scanners can't
 
 axe and WAVE are **snapshot scanners**: they inspect one rendered DOM state, at

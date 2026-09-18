@@ -9,6 +9,7 @@
  * Usage:
  *   npm run scan:all -- https://example.com
  *   npm run scan:all -- --urls ./urls.txt --format markdown --out a11y-report.md
+ *   npm run scan:all -- --urls ./urls.txt --concurrency 6   # scan 6 pages at a time
  *   npm run scan:all -- --lhr ./lighthouse.json --results ./axe.json   # offline, no browser
  *
  * Live scans require the optional engine deps:
@@ -34,10 +35,11 @@ import type { Assessment, Severity, WcagLevel, Platform } from "../src/types.js"
 import { readSitemap } from "../src/sitemap.js";
 import {
   resolveFormFactor,
-  lighthouseEmulationSettings,
   puppeteerViewport,
   type FormFactorConfig,
 } from "../src/formFactor.js";
+import { mapWithConcurrency, resolveConcurrency } from "../src/concurrency.js";
+import { runLighthouse } from "./lighthouseRunner.js";
 
 interface Args {
   urls: string[];
@@ -51,6 +53,7 @@ interface Args {
   jira: boolean;
   platform?: string;
   formFactor?: string;
+  concurrency?: string;
   minSeverity?: Severity;
 }
 
@@ -69,6 +72,7 @@ function parseArgs(argv: string[]): Args {
       case "--jira": args.jira = true; break;
       case "--platform": args.platform = argv[++i]; break;
       case "--form-factor": args.formFactor = argv[++i]; break;
+      case "--concurrency": args.concurrency = argv[++i]; break;
       case "--min-severity": args.minSeverity = argv[++i] as Severity; break;
       default:
         if (a && !a.startsWith("--")) args.urls.push(a);
@@ -84,35 +88,6 @@ function readUrlsFile(path: string): string[] {
     .filter((l) => l && !l.startsWith("#"));
 }
 
-/** Run a live Lighthouse accessibility scan against a URL. */
-async function runLighthouse(url: string, ff: FormFactorConfig): Promise<LighthouseResult> {
-  let chromeLauncher: { launch(opts: Record<string, unknown>): Promise<{ port: number; kill(): Promise<void> }> };
-  let lighthouse: { default?: unknown } & Record<string, unknown>;
-  try {
-    chromeLauncher = (await import("chrome-launcher" as string)) as typeof chromeLauncher;
-    lighthouse = (await import("lighthouse" as string)) as typeof lighthouse;
-  } catch {
-    throw new Error("Live Lighthouse scans require: npm install -D lighthouse chrome-launcher");
-  }
-  const chrome = await chromeLauncher.launch({ chromeFlags: ["--headless=new"] });
-  try {
-    const runner = (lighthouse.default ?? lighthouse) as (
-      url: string,
-      opts: Record<string, unknown>,
-    ) => Promise<{ lhr: LighthouseResult } | undefined>;
-    const result = await runner(url, {
-      port: chrome.port,
-      onlyCategories: ["accessibility"],
-      ...lighthouseEmulationSettings(ff),
-      output: "json",
-      logLevel: "error",
-    });
-    if (!result?.lhr) throw new Error("Lighthouse returned no result.");
-    return result.lhr;
-  } finally {
-    await chrome.kill();
-  }
-}
 
 interface PuppeteerBrowser {
   newPage(): Promise<{
@@ -159,7 +134,7 @@ async function main(): Promise<void> {
   const offline = Boolean(args.lhrFile || args.axeFile);
   if (uniqueUrls.length === 0 && !offline) {
     process.stderr.write(
-      "Usage: npm run scan:all -- <url> [<url> ...] | --urls <file> | --sitemap <url> | --lhr <lhr.json> --results <axe.json> [--format ...] [--out ...] [--jira]\n",
+      "Usage: npm run scan:all -- <url> [<url> ...] | --urls <file> | --sitemap <url> | --lhr <lhr.json> --results <axe.json> [--concurrency <n>] [--format ...] [--out ...] [--jira]\n",
     );
     process.exitCode = 1;
     return;
@@ -179,22 +154,36 @@ async function main(): Promise<void> {
     }
   } else {
     // Live mode: run both engines against every page.
-    process.stdout.write(`Scanning ${uniqueUrls.length} page(s) with Lighthouse + axe-core [${ff.formFactor} ${ff.width}x${ff.height}]...\n`);
-    const lhPages: LighthousePage[] = [];
-    const axePages: AxePage[] = [];
-    for (const url of uniqueUrls) {
-      process.stdout.write(`  → ${url}\n`);
+    const concurrency = resolveConcurrency(args.concurrency);
+    process.stdout.write(
+      `Scanning ${uniqueUrls.length} page(s) with Lighthouse + axe-core [${ff.formFactor} ${ff.width}x${ff.height}, concurrency ${concurrency}]...\n`,
+    );
+    const scanned = await mapWithConcurrency(uniqueUrls, concurrency, async (url, index) => {
+      const position = `[${index + 1}/${uniqueUrls.length}]`;
+      let lhr: LighthouseResult | undefined;
+      let axe: AxeResults | undefined;
       try {
-        lhPages.push({ url, lhr: await runLighthouse(url, ff) });
+        lhr = await runLighthouse(url, ff);
       } catch (err) {
-        process.stderr.write(`    ! lighthouse skipped (${err instanceof Error ? err.message : String(err)})\n`);
+        process.stderr.write(`    ! lighthouse skipped ${url} (${err instanceof Error ? err.message : String(err)})\n`);
       }
       try {
-        axePages.push({ url, results: await runAxe(url, ff) });
+        axe = await runAxe(url, ff);
       } catch (err) {
-        process.stderr.write(`    ! axe skipped (${err instanceof Error ? err.message : String(err)})\n`);
+        process.stderr.write(`    ! axe skipped ${url} (${err instanceof Error ? err.message : String(err)})\n`);
       }
-    }
+      process.stdout.write(`  ✓ ${position} ${url}\n`);
+      return { url, lhr, axe };
+    });
+
+    // Results come back in input order, so reports stay stable run to run.
+    const lhPages: LighthousePage[] = scanned
+      .filter((r): r is typeof r & { lhr: LighthouseResult } => Boolean(r.lhr))
+      .map((r) => ({ url: r.url, lhr: r.lhr }));
+    const axePages: AxePage[] = scanned
+      .filter((r): r is typeof r & { axe: AxeResults } => Boolean(r.axe))
+      .map((r) => ({ url: r.url, results: r.axe }));
+
     if (lhPages.length > 0) assessments.push(combineLighthouseResults(lhPages, { targetLevel: args.level, platform }));
     if (axePages.length > 0) assessments.push(combineAxeResults(axePages, { targetLevel: args.level, platform }));
   }

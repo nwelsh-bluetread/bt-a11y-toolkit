@@ -21,4 +21,12 @@ export default tseslint.config(
       "@typescript-eslint/consistent-type-imports": "warn",
     },
   },
+  {
+    // Plain-JS Node scripts (the Lighthouse child-process worker). TypeScript
+    // files get their globals from the compiler; these need them declared.
+    files: ["**/*.mjs", "**/*.cjs"],
+    languageOptions: {
+      globals: { process: "readonly", console: "readonly" },
+    },
+  },
 );

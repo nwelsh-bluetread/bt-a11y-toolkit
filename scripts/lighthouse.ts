@@ -30,11 +30,9 @@ import { formatConsole, formatJson, formatMarkdown } from "../src/report.js";
 import { createJiraTickets } from "../src/integrations/jira.js";
 import type { Severity, WcagLevel, Platform } from "../src/types.js";
 import { readSitemap } from "../src/sitemap.js";
-import {
-  resolveFormFactor,
-  lighthouseEmulationSettings,
-  type FormFactorConfig,
-} from "../src/formFactor.js";
+import { resolveFormFactor } from "../src/formFactor.js";
+import { mapWithConcurrency, resolveConcurrency } from "../src/concurrency.js";
+import { runLighthouse } from "./lighthouseRunner.js";
 
 interface Args {
   urls: string[];
@@ -48,6 +46,7 @@ interface Args {
   jira: boolean;
   platform?: string;
   formFactor?: string;
+  concurrency?: string;
   minSeverity?: Severity;
 }
 
@@ -66,6 +65,7 @@ function parseArgs(argv: string[]): Args {
       case "--jira": args.jira = true; break;
       case "--platform": args.platform = argv[++i]; break;
       case "--form-factor": args.formFactor = argv[++i]; break;
+      case "--concurrency": args.concurrency = argv[++i]; break;
       case "--min-severity": args.minSeverity = argv[++i] as Severity; break;
       default:
         if (a && !a.startsWith("--")) args.urls.push(a);
@@ -82,41 +82,6 @@ function readUrlsFile(path: string): string[] {
     .filter((l) => l && !l.startsWith("#"));
 }
 
-/** Run a live Lighthouse accessibility scan against a URL. */
-async function runLighthouse(url: string, ff: FormFactorConfig): Promise<LighthouseResult> {
-  // Optional deps — imported lazily and typed loosely so the toolkit builds
-  // without them installed. Install to enable live scans:
-  //   npm install -D lighthouse chrome-launcher
-  let chromeLauncher: { launch(opts: Record<string, unknown>): Promise<{ port: number; kill(): Promise<void> }> };
-  let lighthouse: { default?: unknown } & Record<string, unknown>;
-  try {
-    chromeLauncher = (await import("chrome-launcher" as string)) as typeof chromeLauncher;
-    lighthouse = (await import("lighthouse" as string)) as typeof lighthouse;
-  } catch {
-    throw new Error(
-      "Live scans require optional deps. Run: npm install -D lighthouse chrome-launcher",
-    );
-  }
-
-  const chrome = await chromeLauncher.launch({ chromeFlags: ["--headless=new"] });
-  try {
-    const runner = (lighthouse.default ?? lighthouse) as (
-      url: string,
-      opts: Record<string, unknown>,
-    ) => Promise<{ lhr: LighthouseResult } | undefined>;
-    const result = await runner(url, {
-      port: chrome.port,
-      onlyCategories: ["accessibility"],
-      ...lighthouseEmulationSettings(ff),
-      output: "json",
-      logLevel: "error",
-    });
-    if (!result?.lhr) throw new Error("Lighthouse returned no result.");
-    return result.lhr;
-  } finally {
-    await chrome.kill();
-  }
-}
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
@@ -154,19 +119,24 @@ async function main(): Promise<void> {
     assessment = lighthouseToAssessment(lhr, { targetLevel: args.level, platform });
   } else {
     // Multiple live pages -> one combined report.
-    process.stdout.write(`Scanning ${uniqueUrls.length} page(s) with Lighthouse [${ff.formFactor} ${ff.width}x${ff.height}]...\n`);
-    const pages: LighthousePage[] = [];
-    for (const url of uniqueUrls) {
-      process.stdout.write(`  → ${url}\n`);
+    const concurrency = resolveConcurrency(args.concurrency);
+    process.stdout.write(
+      `Scanning ${uniqueUrls.length} page(s) with Lighthouse [${ff.formFactor} ${ff.width}x${ff.height}, concurrency ${concurrency}]...\n`,
+    );
+    const scanned = await mapWithConcurrency(uniqueUrls, concurrency, async (url, index) => {
       try {
         const lhr = await runLighthouse(url, ff);
-        pages.push({ url, lhr });
+        process.stdout.write(`  ✓ [${index + 1}/${uniqueUrls.length}] ${url}\n`);
+        return { url, lhr };
       } catch (err) {
         process.stderr.write(
-          `    ! skipped (${err instanceof Error ? err.message : String(err)})\n`,
+          `    ! skipped ${url} (${err instanceof Error ? err.message : String(err)})\n`,
         );
+        return undefined;
       }
-    }
+    });
+    // Results come back in input order, so reports stay stable run to run.
+    const pages: LighthousePage[] = scanned.filter((p): p is LighthousePage => p !== undefined);
     if (pages.length === 0) throw new Error("No pages could be scanned.");
     if (args.saveLhr) {
       writeFileSync(args.saveLhr, JSON.stringify(pages, null, 2));

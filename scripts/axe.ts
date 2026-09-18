@@ -36,6 +36,7 @@ import {
   puppeteerViewport,
   type FormFactorConfig,
 } from "../src/formFactor.js";
+import { mapWithConcurrency, resolveConcurrency } from "../src/concurrency.js";
 
 interface Args {
   urls: string[];
@@ -49,6 +50,7 @@ interface Args {
   jira: boolean;
   platform?: string;
   formFactor?: string;
+  concurrency?: string;
   minSeverity?: Severity;
 }
 
@@ -67,6 +69,7 @@ function parseArgs(argv: string[]): Args {
       case "--jira": args.jira = true; break;
       case "--platform": args.platform = argv[++i]; break;
       case "--form-factor": args.formFactor = argv[++i]; break;
+      case "--concurrency": args.concurrency = argv[++i]; break;
       case "--min-severity": args.minSeverity = argv[++i] as Severity; break;
       default:
         if (a && !a.startsWith("--")) args.urls.push(a);
@@ -157,19 +160,24 @@ async function main(): Promise<void> {
     assessment = axeToAssessment(results, { targetLevel: args.level, platform });
   } else {
     // Multiple live pages -> one combined report.
-    process.stdout.write(`Scanning ${uniqueUrls.length} page(s) with axe-core [${ff.formFactor} ${ff.width}x${ff.height}]...\n`);
-    const pages: AxePage[] = [];
-    for (const url of uniqueUrls) {
-      process.stdout.write(`  → ${url}\n`);
+    const concurrency = resolveConcurrency(args.concurrency);
+    process.stdout.write(
+      `Scanning ${uniqueUrls.length} page(s) with axe-core [${ff.formFactor} ${ff.width}x${ff.height}, concurrency ${concurrency}]...\n`,
+    );
+    const scanned = await mapWithConcurrency(uniqueUrls, concurrency, async (url, index) => {
       try {
         const results = await runAxe(url, ff);
-        pages.push({ url, results });
+        process.stdout.write(`  ✓ [${index + 1}/${uniqueUrls.length}] ${url}\n`);
+        return { url, results };
       } catch (err) {
         process.stderr.write(
-          `    ! skipped (${err instanceof Error ? err.message : String(err)})\n`,
+          `    ! skipped ${url} (${err instanceof Error ? err.message : String(err)})\n`,
         );
+        return undefined;
       }
-    }
+    });
+    // Results come back in input order, so reports stay stable run to run.
+    const pages: AxePage[] = scanned.filter((p): p is AxePage => p !== undefined);
     if (pages.length === 0) throw new Error("No pages could be scanned.");
     if (args.saveResults) {
       writeFileSync(args.saveResults, JSON.stringify(pages, null, 2));
