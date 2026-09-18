@@ -323,6 +323,7 @@ export function axeToAssessment(
     categories: buildCategories(findings),
     topIssues: computeTopIssues(findings),
     findings,
+    pages: results.url ? [results.url] : [],
   };
 }
 
@@ -379,5 +380,6 @@ export function combineAxeResults(
     categories: buildCategories(allFindings),
     topIssues: computeTopIssues(allFindings),
     findings: allFindings,
+    pages: pages.map((p) => p.url),
   };
 }

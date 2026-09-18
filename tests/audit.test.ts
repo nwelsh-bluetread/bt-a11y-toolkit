@@ -73,4 +73,32 @@ describe("formatters", () => {
     expect(md).toContain("# Accessibility Assessment");
     expect(md).toContain("## Accessibility Scorecard");
   });
+
+  it("lists scanned pages when the assessment records them", () => {
+    const withPages = { ...assessment, pages: ["https://x.test/a", "https://x.test/b"] };
+    const md = formatMarkdown(withPages);
+    expect(md).toContain("## Pages Scanned");
+    expect(md).toContain("2 pages audited:");
+    expect(md).toContain("- https://x.test/a");
+    expect(md).toContain("- https://x.test/b");
+  });
+
+  it("omits the Pages Scanned section when no pages are known", () => {
+    const md = formatMarkdown({ ...assessment, pages: [] });
+    expect(md).not.toContain("## Pages Scanned");
+  });
+
+  it("falls back to per-finding evidence.page when pages is absent", () => {
+    const tagged = {
+      ...assessment,
+      pages: undefined,
+      findings: assessment.findings.length
+        ? [{ ...assessment.findings[0]!, evidence: { page: "https://x.test/only" } }]
+        : [],
+    };
+    if (tagged.findings.length === 0) return;
+    const md = formatMarkdown(tagged);
+    expect(md).toContain("## Pages Scanned");
+    expect(md).toContain("https://x.test/only");
+  });
 });

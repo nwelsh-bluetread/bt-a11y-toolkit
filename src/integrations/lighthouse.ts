@@ -235,6 +235,7 @@ export function lighthouseToAssessment(
     categories,
     topIssues: computeTopIssues(findings),
     findings,
+    pages: lhr.finalUrl || lhr.requestedUrl ? [lhr.finalUrl ?? lhr.requestedUrl!] : [],
   };
 }
 
@@ -345,5 +346,6 @@ export function combineLighthouseResults(
     categories,
     topIssues: computeTopIssues(allFindings),
     findings: allFindings,
+    pages: pages.map((p) => p.url),
   };
 }

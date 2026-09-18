@@ -68,6 +68,16 @@ export function formatMarkdown(assessment: Assessment): string {
   lines.push(`- **Estimated remediation effort:** ${formatHours(estimateTotalHours(findings))}`);
   lines.push("");
 
+  const pages = collectPages(assessment);
+  if (pages.length > 0) {
+    lines.push(`## Pages Scanned`);
+    lines.push("");
+    lines.push(`${pages.length} ${pages.length === 1 ? "page" : "pages"} audited:`);
+    lines.push("");
+    for (const page of pages) lines.push(`- ${page}`);
+    lines.push("");
+  }
+
   lines.push(`## Summary`);
   lines.push("");
   lines.push(`| Severity | Count |`);
@@ -130,6 +140,20 @@ function truncate(value: string, max = 160): string {
 }
 
 /**
+ * Collect the distinct pages an assessment covered. Prefers the assessment's own
+ * `pages` list and falls back to any `evidence.page` tags on the findings (set
+ * by the multi-page scan combiners), so older assessments still surface pages.
+ */
+function collectPages(assessment: Assessment): string[] {
+  const pages = new Set<string>(assessment.pages ?? []);
+  for (const f of assessment.findings) {
+    const page = f.evidence?.page;
+    if (typeof page === "string" && page) pages.add(page);
+  }
+  return [...pages];
+}
+
+/**
  * Append location detail for a finding. Prefers the rich evidence captured by
  * the scanner integrations (DOM selector path, HTML snippet, failure summary,
  * and how many elements are affected) and falls back to the node type/id for
@@ -137,6 +161,8 @@ function truncate(value: string, max = 160): string {
  */
 function appendLocation(lines: string[], f: Finding): void {
   const ev = f.evidence ?? {};
+  const page = typeof ev.page === "string" ? ev.page : undefined;
+  if (page) lines.push(`- **Page:** ${page}`);
   const elements = Array.isArray(ev.elements)
     ? (ev.elements as Array<{ selector?: string; html?: string; failureSummary?: string }>)
     : [];

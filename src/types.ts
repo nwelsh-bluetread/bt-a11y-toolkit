@@ -173,4 +173,6 @@ export interface Assessment {
   categories: CategoryScore[];
   topIssues: string[];
   findings: Finding[];
+  /** URLs/screens the assessment was run against, when known. */
+  pages?: string[];
 }
