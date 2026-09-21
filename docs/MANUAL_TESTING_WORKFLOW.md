@@ -176,7 +176,53 @@ estimate now covers both automated and manual work.
 
 ---
 
-## 6. Quick checklist
+## 6. Time estimates (testing effort, per platform)
+
+These estimate the **time to run the manual tests** — separate from the
+*remediation* hours the toolkit puts on each finding. The floor is a
+**one-page/one-screen site**; larger sites scale by page/screen count.
+
+> **Formula (per platform):**
+> `total = setup + Σ_area( base + (pages − 1) × perPage )`
+> where `pages ≥ 1`. A one-page site pays only `setup + Σ base`.
+
+| Test area | Base (1st page) | Each extra page | Applies to |
+|-----------|:---------------:|:---------------:|------------|
+| Environment / AT setup (once per platform) | 0.5 h | — | Web + Mobile |
+| Screen reader walkthrough | 0.75 h | 0.25 h | Web + Mobile |
+| Keyboard / switch operation | 0.5 h | 0.2 h | Web + Mobile |
+| Gestures & touch | 0.35 h | 0.15 h | Mobile |
+| Cognitive / content review | 0.35 h | 0.2 h | Web + Mobile |
+| Visual & sensory | 0.35 h | 0.15 h | Web + Mobile |
+| Responsive / reflow / zoom | 0.35 h | 0.15 h | Web |
+| Motion, media & timing | 0.25 h | 0.1 h | Web + Mobile |
+| Logging & transferring findings | 0.25 h | 0.15 h | Web + Mobile |
+
+### Worked examples
+
+**One-page website (minimum, web, single AT):**
+`0.5 (setup) + 0.75 + 0.5 + 0.35 + 0.35 + 0.35 + 0.25 + 0.25 ≈ 3.3 h`
+→ budget **~3–4 hours** for a thorough single-page manual pass.
+
+**10-page website (web, single AT):** each scaling area adds `9 × perPage`:
+`3.3 (page 1) + 9 × (0.25+0.2+0.2+0.15+0.15+0.1+0.15) ≈ 3.3 + 9 × 1.2 = ~14 h`.
+
+**Mobile app, ~8 screens, both VoiceOver + TalkBack:** run the mobile column
+twice (once per OS/AT). Roughly `2 × (setup + Σ base + 7 × Σ perPage)` ≈
+`2 × (0.5 + 2.65 + 7 × 1.05) ≈ 2 × 10.5 = ~21 h`.
+
+> **Notes**
+> - Multiply by the number of **AT/OS combinations** you cover (e.g. VoiceOver
+>   *and* TalkBack, or NVDA *and* VoiceOver on web).
+> - "Pages" for mobile = distinct **screens/states**, not routes.
+> - These are *testing* hours. Add the report's **remediation** estimate (the
+>   per-finding hours) for total engagement effort.
+> - BrowserStack reduces **setup** and evidence-capture time but not the
+>   per-page AT walkthrough time — those are hands-on judgement.
+
+---
+
+## 7. Quick checklist
 
 - [ ] Automated scans run (toolkit `scan:*`, and/or BrowserStack Accessibility).
 - [ ] BrowserStack device matrix chosen; sessions recorded for evidence.
