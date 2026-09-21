@@ -87,4 +87,9 @@ export type {
   AxePage,
 } from "./integrations/axe.js";
 export { mergeAssessments, isSameElement, selectorTail } from "./integrations/combined.js";
+export {
+  manualFindingsToAssessment,
+  manualToFindings,
+} from "./integrations/manual.js";
+export type { ManualFinding } from "./integrations/manual.js";
 export { mapWithConcurrency, resolveConcurrency } from "./concurrency.js";

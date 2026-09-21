@@ -1,0 +1,52 @@
+[
+  {
+    "title": "Focus order jumps from header to footer, skipping the form",
+    "description": "Swiping right with VoiceOver on the checkout screen moves focus from the page title straight to the footer nav, skipping the shipping-address fields entirely. Users cannot reach the form with the screen reader.",
+    "severity": "critical",
+    "wcag": ["1.3.2", "2.4.3"],
+    "category": "Screen Reader",
+    "page": "https://app.example.com/checkout",
+    "method": "VoiceOver (iOS 18)",
+    "location": "Checkout > Shipping step, after the 'Shipping address' heading",
+    "remediation": "Fix the DOM/accessibility order so the address fields fall between the heading and the footer, or set an explicit accessibility order.",
+    "estimatedHours": 3,
+    "platforms": ["ios", "react-native"]
+  },
+  {
+    "title": "Toast confirmation is not announced",
+    "description": "After saving profile changes, a green 'Saved' toast appears for 3s but TalkBack says nothing, so screen-reader users get no confirmation the action succeeded.",
+    "severity": "high",
+    "wcag": ["4.1.3"],
+    "category": "Screen Reader",
+    "page": "https://app.example.com/profile",
+    "method": "TalkBack (Android 15)",
+    "location": "Profile > Edit > Save button",
+    "remediation": "Expose the toast container as a polite live region (accessibilityLiveRegion=\"polite\" / role=\"status\").",
+    "platforms": ["android", "react-native"]
+  },
+  {
+    "title": "Custom dropdown not operable by keyboard",
+    "description": "The country selector opens on click but cannot be opened or navigated with the keyboard (Enter/Space/Arrow keys do nothing), and it is not focusable via Tab.",
+    "severity": "critical",
+    "wcag": ["2.1.1"],
+    "category": "Keyboard",
+    "page": "https://app.example.com/signup",
+    "method": "Keyboard only (web)",
+    "location": "Sign up > Country dropdown",
+    "remediation": "Make the trigger focusable (tabindex=0), add role=combobox/listbox semantics, and wire Enter/Space/Arrow/Escape handling.",
+    "estimatedHours": 4,
+    "platforms": ["web"]
+  },
+  {
+    "title": "Error state shown by red border only",
+    "description": "Invalid form fields are indicated only by a red border with no text or icon, so the error is not perceivable to color-blind users or screen readers.",
+    "severity": "high",
+    "wcag": ["1.4.1", "3.3.1"],
+    "category": "Forms",
+    "page": "https://app.example.com/signup",
+    "method": "Manual visual + VoiceOver",
+    "location": "Sign up > Email field validation",
+    "remediation": "Add an associated text error message and an icon; link it to the field with aria-describedby.",
+    "platforms": ["web", "ios", "android"]
+  }
+]
