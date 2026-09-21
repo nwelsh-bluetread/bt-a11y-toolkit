@@ -342,6 +342,66 @@ checks like `expanded-state`, `selected-state`, `status-announcement`, and
 `custom-component-props` — the state/behavior checks a scanner structurally
 cannot perform.
 
+## Manual testing
+
+Automated tooling catches only **~30–40% of WCAG issues** (presence &
+thresholds). The rest — *meaning & experience* — needs a human with assistive
+tech. The toolkit turns that manual pass into `Finding`s that merge into the same
+scorecard, WCAG rollup, effort total, and Jira tickets as the automated results.
+
+**Docs & fillable artifacts:**
+
+| File | Purpose |
+| --- | --- |
+| [`docs/MANUAL_TESTING.md`](docs/MANUAL_TESTING.md) | What to test by hand, organized by WCAG level (A / AA / AAA) |
+| [`docs/MANUAL_TESTING_WORKFLOW.md`](docs/MANUAL_TESTING_WORKFLOW.md) | End-to-end workflow (web + mobile), what BrowserStack can automate, and per-area **time estimates** |
+| [`examples/manual-testing-worksheet.md`](examples/manual-testing-worksheet.md) | Fillable checklist to complete **while testing** |
+| [`examples/manual-findings.template.json`](examples/manual-findings.template.json) | Machine-readable findings the toolkit ingests |
+
+**Workflow:** fill the worksheet as you test → transfer each ❌ into the JSON
+template → convert and merge into the report.
+
+```ts
+import {
+  axeToAssessment,
+  manualFindingsToAssessment,
+  mergeAssessments,
+  formatMarkdown,
+} from "@bluetread/accessibility-toolkit";
+import { readFileSync, writeFileSync } from "node:fs";
+
+const axe = axeToAssessment(JSON.parse(readFileSync("axe.json", "utf8")));
+const manual = manualFindingsToAssessment(
+  JSON.parse(readFileSync("examples/manual-findings.template.json", "utf8")),
+  { targetLevel: "AA", platform: "web" },
+);
+
+// One consolidated report covering automated + manual findings.
+const combined = mergeAssessments([axe, manual], { targetLevel: "AA" });
+writeFileSync("a11y-report.md", formatMarkdown(combined));
+```
+
+For a **mobile-only** engagement, merge the manual assessment with the React
+Native tree audit instead of the web scanners:
+
+```ts
+const rn = runAudit(tree, { platform: "react-native", targetLevel: "AA" });
+const manual = manualFindingsToAssessment(entries, { platform: "react-native" });
+const combined = mergeAssessments([rn, manual], { targetLevel: "AA" });
+```
+
+**Web vs. mobile** — same WCAG goals, different tools and inputs:
+
+| | Web | Mobile (iOS / Android / RN) |
+| --- | --- | --- |
+| Screen reader | NVDA / JAWS or VoiceOver+Safari | **VoiceOver** *and* **TalkBack** (run both) |
+| Primary input | Keyboard (Tab / arrows), no trap | Swipe + external keyboard / switch |
+| Extra area | Reflow / zoom (200%, 320px) | **Gestures & touch** (single-pointer alt, pointer cancellation) |
+| "Pages" | Routes / URLs | Distinct screens / states |
+
+Manual findings carry `source: "manual"`, so the combined report shows which
+tool (or human) reported each issue, tagged with the page/screen it was found on.
+
 ## Jira ticket creation
 
 Turn findings into Jira Cloud issues (Atlassian Document Format descriptions,
