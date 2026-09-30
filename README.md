@@ -37,6 +37,7 @@ Automated scanners run per page; a crawler batches them across the site.
 | --- | --- | --- | --- | --- |
 | **Lighthouse** | ~15 min | ~30–60 sec | — | Headless, fully automated |
 | **axe DevTools** (axe-core) | ~30 min | ~5–15 sec | — | Injected via Puppeteer/Playwright |
+| **Pa11y** (HTML_CodeSniffer + axe) | ~15 min | ~5–15 sec | — | Dual-runner; catches issues axe alone misses |
 | **WAVE** (API) | ~15 min | ~5–10 sec | — | Optional; needs paid API key |
 | **Consolidate + dedupe + score** | — | seconds | ~2–4 hrs | Merge tools, validate severity, map WCAG |
 
@@ -165,7 +166,7 @@ Two different things share the word "test", so this table separates them:
 
 ## Auditing mobile-only apps (no web)
 
-WAVE, Lighthouse, and axe DevTools all require a **web DOM**, so they do **not**
+WAVE, Lighthouse, Pa11y, and axe DevTools all require a **web DOM**, so they do **not**
 apply to native mobile apps. For a mobile-only project, ignore those tools and
 use the mobile toolchain below. The audit is inherently **more manual** than web
 — there is no DOM-style automated scanner for native mobile — so budget extra
@@ -580,7 +581,82 @@ the whole run.
 | `--jira` | Create Jira tickets from findings (needs `JIRA_*` env vars). | off |
 | `--min-severity <critical\|high\|medium\|low>` | Only ticket findings at/above this severity. | all |
 
-### Test files (`tests/`)
+#### `scripts/axe.ts` — `npm run scan:axe`
+
+Runs an axe-core scan (via Puppeteer) or converts a saved axe result, then
+prints/writes a report. Same URL / sitemap / multi-page / Jira options as the
+Lighthouse runner.
+
+```bash
+# Live scan (needs optional deps):
+npm install -D puppeteer @axe-core/puppeteer
+npm run scan:axe -- https://example.com
+
+# Many pages -> one combined report:
+npm run scan:axe -- --sitemap https://example.com/sitemap.xml --format markdown --out axe.md
+
+# Convert a saved axe result — no browser needed:
+npm run scan:axe -- --results ./examples/sample-axe-result.json
+```
+
+#### `scripts/pa11y.ts` — `npm run scan:pa11y`
+
+Runs a Pa11y scan. Pa11y supports **two runners** — HTML_CodeSniffer (`htmlcs`,
+the default) and `axe` — and you can run both in one pass for broader coverage.
+HTML_CodeSniffer catches issues axe alone misses (and vice-versa), and the
+results de-dupe against the other engines via `mergeAssessments`.
+
+```bash
+# Live scan (needs the optional dep):
+npm install -D pa11y
+npm run scan:pa11y -- https://example.com
+
+# Run BOTH runners for the widest coverage:
+npm run scan:pa11y -- https://example.com --runner axe --runner htmlcs
+
+# Many pages -> one combined report:
+npm run scan:pa11y -- --sitemap https://example.com/sitemap.xml --format markdown --out pa11y.md
+
+# Convert a saved Pa11y result (issue array or full object) — no browser needed:
+npm run scan:pa11y -- --results ./pa11y-result.json
+```
+
+| Flag | Description | Default |
+| --- | --- | --- |
+| `<url> [<url> ...]` | One or more URLs to scan live (requires `pa11y`). | — |
+| `--runner <htmlcs\|axe>` | Test runner; repeat the flag to run several. | `htmlcs` |
+| `--urls <file>` / `--sitemap <url>` | Batch URLs from a file or sitemap. | — |
+| `--results <file>` | Read a saved Pa11y result instead of scanning. No browser needed. | — |
+| `--level <A\|AA\|AAA>` | Target WCAG level (maps to `WCAG2A/AA/AAA`). | `AA` |
+| `--format <console\|json\|markdown>` | Report format. | `console` |
+| `--out <file>` | Write the report to a file. | stdout |
+| `--jira` / `--min-severity <…>` | File Jira tickets (needs `JIRA_*` env vars). | off / all |
+
+#### `scripts/scan.ts` — `npm run scan:all`
+
+Runs **Lighthouse and axe** against the same page(s) and merges their results
+into one de-duplicated report — the widest single-command coverage.
+
+```bash
+npm run scan:all -- --sitemap https://example.com/sitemap.xml --format markdown --out a11y-report.md
+```
+
+#### `scripts/checklist.ts` — `npm run checklist`
+
+Generates a manual checklist (pages as columns) or ingests a filled-in one, so
+manual findings merge with the automated report. See
+[Manual checklist](#skills-capabilities-vs-unit-tests) and
+[`docs/MANUAL_TESTING_WORKFLOW.md`](docs/MANUAL_TESTING_WORKFLOW.md).
+
+```bash
+# Generate a blank AA checklist for three screens:
+npm run checklist -- generate --level AA /login /dashboard /settings --out manual.md
+
+# Ingest the completed checklist AND merge with the automated scan:
+npm run checklist -- ingest ./manual.md --merge ./auto-assessment.json --out final-report.md
+```
+
+
 
 Each file can be run on its own with `npx vitest run tests/<file>`.
 
@@ -737,7 +813,7 @@ physical devices** for nuanced screen-reader gestures and final sign-off.
 
 ```
 BrowserStack (real-device scans, SR on real HW, auth flows) ─┐
-axe-core / Lighthouse / WAVE (scans) ───────────────────────┤
+axe-core / Lighthouse / Pa11y / WAVE (scans) ───────────────┤
 Unit-test suites (interaction/state) ───────────────────────┼─► Finding[] ─► THIS TOOLKIT
 Physical-device + manual SR findings ───────────────────────┘        consolidate → score →
                                                                      scorecard + WCAG + Jira report
@@ -747,7 +823,7 @@ Physical-device + manual SR findings ──────────────�
 
 - Platform adapters (`@bluetread/accessibility-toolkit/adapters/react-native`, `/web`)
 - Native mobile result imports (XCUITest `performAccessibilityAudit`, Android Espresso/ATF)
-- Integrations with WAVE / axe / Lighthouse result imports for consolidation
+- WAVE result import for consolidation (axe, Lighthouse, and Pa11y are already integrated)
 - BrowserStack result import (`integrations/browserstack.ts`)
 - CI reporter (GitHub Actions annotations)
 - Before/after comparison for Phase 3 verification
