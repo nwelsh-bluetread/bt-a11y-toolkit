@@ -154,14 +154,11 @@ Two different things share the word "test", so this table separates them:
 | **Form factors** | `src/formFactor.ts` | Mobile/tablet/desktop viewport + emulation presets for scans. | `tests/formFactor.test.ts` (7) |
 | **Concurrency** | `src/concurrency.ts` | Bounded parallel page scanning. | `tests/concurrency.test.ts` (11) |
 | **Sitemap crawl** | `src/sitemap.ts` | Reads `sitemap.xml` (+ index) into a URL list for batch scans. | `tests/sitemap.test.ts` (10) |
-| **Effort estimation** | `src/effort.ts` | Remediation-hour estimates per finding/severity. | `tests/effort.test.ts` ⚠️ |
+| **Effort estimation** | `src/effort.ts` | Remediation-hour estimates per finding/severity. | `tests/effort.test.ts` (5) |
 
-> Run everything with `npm test` (~200 unit tests). Run one skill's suite with
-> `npx vitest run tests/<file>.test.ts`. The catalogue above is the fastest way
-> to see *what exists* and *where its proof lives*.
->
-> ⚠️ `tests/effort.test.ts` is currently a known-failing/placeholder suite
-> pending the `effort` export it references; it does not affect the other skills.
+> Run everything with `npm test` (~220 unit tests, all green). Run one skill's
+> suite with `npx vitest run tests/<file>.test.ts`. The catalogue above is the
+> fastest way to see *what exists* and *where its proof lives*.
 
 
 ## Auditing mobile-only apps (no web)

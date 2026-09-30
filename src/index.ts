@@ -51,7 +51,8 @@ export {
   computeTopIssues,
   countBySeverity,
 } from "./audit.js";
-export type { AuditOptions, AuditTarget } from "./audit.js";
+export type { AuditOptions, AuditTarget, CombinedAssessment } from "./audit.js";
+export { estimateHours, estimateTotalHours, SEVERITY_HOURS } from "./effort.js";
 export { formatConsole, formatJson, formatMarkdown, sortFindings } from "./report.js";
 export {
   createJiraTickets,

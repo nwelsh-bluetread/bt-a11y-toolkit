@@ -73,6 +73,75 @@ export function countBySeverity(findings: Finding[]): Record<Severity, number> {
   return counts;
 }
 
+/** A single named screen/page to audit as part of a multi-target run. */
+export interface AuditTarget {
+  /** Human-readable name used to attribute findings, e.g. "Billing/Home". */
+  name: string;
+  /** The node tree (or trees) for this target. */
+  tree: A11yNode | A11yNode[];
+}
+
+/** An {@link Assessment} that spans several targets, listing each audited page. */
+export interface CombinedAssessment extends Assessment {
+  /** Every audited target name, in order, including ones with no findings. */
+  pages: string[];
+}
+
+/**
+ * Audit several named targets and roll them up into a single assessment.
+ *
+ * Unlike averaging per-target scores, this sums the underlying checks across
+ * every target, so a clean screen lifts the rollup and a broken one drags it
+ * down proportionally. Findings are attributed to their target via
+ * `evidence.page`, and identical findings on different targets stay separate —
+ * they are two real screens to fix, not one.
+ */
+export function combineAudits(
+  targets: AuditTarget[],
+  options: AuditOptions = {},
+): CombinedAssessment {
+  const platform = options.platform ?? "web";
+  const targetLevel = options.targetLevel ?? "AA";
+  const ctx: RuleContext = {
+    platform,
+    targetLevel,
+    minTouchTargetSize: options.minTouchTargetSize ?? (targetLevel === "AAA" ? 44 : 24),
+  };
+  const rules = options.rules ?? defaultRules;
+
+  const allResults: Array<{ rule: CategorizedRule; result: RuleResult }> = [];
+  const findings: Finding[] = [];
+  let nodeCount = 0;
+
+  for (const target of targets) {
+    const nodes = flatten(target.tree);
+    nodeCount += nodes.length;
+    for (const rule of rules) {
+      const result = rule.evaluate(nodes, ctx);
+      allResults.push({ rule, result });
+      for (const finding of result.findings) {
+        findings.push({
+          ...finding,
+          evidence: { ...(finding.evidence ?? {}), page: target.name },
+        });
+      }
+    }
+  }
+
+  return {
+    generatedAt: new Date().toISOString(),
+    platform,
+    targetLevel,
+    overallScore: computeOverallScore(findings, nodeCount),
+    counts: countBySeverity(findings),
+    wcag: computeWcagRollup(allResults),
+    categories: computeCategoryScores(allResults),
+    topIssues: computeTopIssues(findings),
+    pages: targets.map((t) => t.name),
+    findings,
+  };
+}
+
 /**
  * Overall score out of 100. Starts at 100 and deducts weighted points per
  * finding, scaled by how many nodes were evaluated so small trees are not
