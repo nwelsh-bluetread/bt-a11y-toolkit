@@ -26,6 +26,15 @@ export interface A11yNode {
   /** Stable identifier used in findings (testID, DOM id, or generated path). */
   id?: string;
   /**
+   * Component path from an ancestor down to this node, e.g.
+   * `"Layout > Menu > TabItem > TouchableOpacity > View"`.
+   *
+   * What makes a tree-based finding findable when there is no DOM selector to
+   * report and the failing node carries no `testID`. Set by the adapter that
+   * built the tree; adapters that cannot determine a path leave it unset.
+   */
+  path?: string;
+  /**
    * The conceptual element type, normalized across platforms.
    * e.g. "button", "image", "text", "textinput", "view", "link", "header".
    */
@@ -112,8 +121,17 @@ export interface Finding {
   category?: string;
   /** Origin of the finding, e.g. "toolkit", "lighthouse", "axe", "wave". */
   source?: string;
-  /** Estimated engineering hours to remediate this finding. */
-  estimatedHours?: number;
+  /**
+   * Stable, deterministic identity for this problem across runs. Two runs that
+   * find the same issue on the same element produce the same fingerprint, which
+   * is what makes trend tracking (new / fixed / regressed) possible. Computed by
+   * {@link import("./history.js").fingerprint}.
+   */
+  fingerprint?: string;
+  /** ISO timestamp this fingerprint was first observed across tracked runs. */
+  firstSeen?: string;
+  /** ISO timestamp this fingerprint was most recently observed. */
+  lastSeen?: string;
 }
 
 /** The outcome of evaluating a single rule against a node tree. */
@@ -173,6 +191,4 @@ export interface Assessment {
   categories: CategoryScore[];
   topIssues: string[];
   findings: Finding[];
-  /** URLs/screens the assessment was run against, when known. */
-  pages?: string[];
 }

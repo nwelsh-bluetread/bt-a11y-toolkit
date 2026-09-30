@@ -1,232 +1,124 @@
-# Manual Accessibility Testing Workflow
+# Manual Accessibility Testing — Workflow
 
-This is the end-to-end process for the **manual** half of an audit — the ~60–70%
-of WCAG issues automation can't catch — and how to fold it into the same report
-the toolkit produces for the automated scans.
-
-- **What to test** and by what method (web + mobile).
-- **What BrowserStack (and other automation) can do for you** vs. what stays hands-on.
-- **How to record findings** so they merge into the toolkit's scorecard, WCAG
-  rollup, effort estimate, and Jira tickets.
-
-See also: [`MANUAL_TESTING.md`](MANUAL_TESTING.md) (the WCAG-by-level checklist)
-and [`../examples/manual-testing-worksheet.md`](../examples/manual-testing-worksheet.md)
-(the fillable worksheet).
+A step-by-step process for running a manual accessibility pass with the toolkit.
+For the full catalogue of *what* to check per WCAG level, see
+[`MANUAL_TESTING.md`](./MANUAL_TESTING.md). This document covers *how to run the
+session* — and, critically, what must be agreed **before** testing starts.
 
 ---
 
-## 1. The layered model
+## 0. Before you start — establish scope (required)
 
-```
-Automated (presence & thresholds)          Manual (meaning & experience)
-────────────────────────────────           ─────────────────────────────
-axe-core / Lighthouse (web)                 Screen reader walkthroughs
-eslint-plugin-react-native-a11y (RN)        Keyboard / switch operation
-Accessibility Scanner / XCUITest (mobile)   Gesture & touch alternatives
-this toolkit's rules                        Cognitive / content judgement
-                                            Reflow / zoom / orientation
-        │                                              │
-        └───────────────► one merged Assessment ◄──────┘
-                (mergeAssessments → scorecard + Jira)
-```
+A manual pass is only meaningful against a known surface. **Do not begin testing
+until the scope below is written down.**
 
-Automated tooling verifies a label *exists* and a contrast ratio *passes*. Only a
-human can confirm the label is *meaningful*, the focus order makes *sense*, and a
-status change is actually *announced*. Both halves normalize into the same
-`Finding` model.
+> **If the user (or engagement brief) has not provided these, the assistant must
+> list them first — derived from the app, sitemap, route table, or navigation —
+> and ask the user to confirm or correct the list before any testing begins.**
+> Never silently assume scope.
 
----
+Enumerate, at minimum:
 
-## 2. What to test manually
+### Pages / screens
+The concrete list of surfaces under test. For web, pull from the sitemap, router
+config, or `urls.txt`; for mobile/RN, from the navigation stack / screen registry.
 
-Work these **per primary user flow, per platform**. Full detail and WCAG mapping
-is in [`MANUAL_TESTING.md`](MANUAL_TESTING.md); the short version:
+- [ ] Every page/screen to be tested, by name **and** route/URL
+- [ ] Key **states** per screen (empty, loading, error, success, populated)
+- [ ] **Modals, drawers, toasts, and overlays** (they're separate surfaces)
+- [ ] Auth-gated vs. public screens, and any test credentials needed
 
-### Web
+### Gestures / interactions
+The input methods and gestures the app relies on — each needs an accessible path.
 
-1. **Screen reader** (NVDA or VoiceOver/Safari): name, role, state on every
-   control; logical reading order; live-region announcements; error association;
-   modal focus management.
-2. **Keyboard only**: reach and operate everything; visible focus; no trap; Esc
-   closes dialogs; expected key patterns for menus/tabs/comboboxes/sliders.
-3. **Reflow / zoom**: 200% text, 320px reflow, text-spacing overrides, no
-   clipping/overlap.
-4. **Content / cognitive**: meaningful alt text, descriptive headings and links,
-   actionable errors, no color-only meaning.
+- [ ] Taps / clicks and **long-press**
+- [ ] **Swipe** (carousels, dismiss, swipe-to-delete, drawer open/close)
+- [ ] **Drag-and-drop / reorder**
+- [ ] **Pinch / zoom / rotate** and multi-finger gestures
+- [ ] **Pull-to-refresh**, infinite scroll
+- [ ] Custom or path-based gestures (signature, slider, map pan)
+- [ ] Device motion / shake, and any **timeouts** the user must beat
 
-### Mobile (iOS / Android / React Native)
+### Test conditions
+- [ ] Target **WCAG level** (A / AA / AAA) — drives which checks apply
+- [ ] Platforms & assistive tech (VoiceOver, TalkBack, NVDA, keyboard-only)
+- [ ] Form factors / viewports (mobile, tablet, desktop, 320px reflow)
 
-1. **VoiceOver (iOS)** and **TalkBack (Android)**: swipe order, names/roles/states,
-   announcements, form errors, modal focus, dynamic content.
-2. **External keyboard / switch control**: focusability and operation.
-3. **Gestures & touch**: target size and spacing in practice; single-pointer
-   alternative for complex gestures; pointer cancellation on release.
-4. **Orientation & reflow**: portrait ⇄ landscape not locked; large font sizes
-   don't truncate/overlap.
+If any item is unknown, list it as an explicit **open question** rather than
+skipping it — an unconfirmed screen or gesture is a coverage gap, not a pass.
 
 ---
 
-## 3. What can be automated (incl. BrowserStack)
+## 1. Run the automated pass first
 
-BrowserStack doesn't replace manual AT testing, but it removes a lot of the
-**setup, matrix, and evidence-gathering** toil. Split it like this:
+Automated tooling clears the ~30–40% of issues that are measurable, so the manual
+session focuses on meaning and experience.
 
-| Task | Automatable? | Tool |
-|------|:------------:|------|
-| Run axe/Lighthouse across many pages | ✅ Fully | This toolkit's `scan:*` scripts |
-| Run axe on **real devices/browsers** at scale | ✅ Fully | **BrowserStack Accessibility Testing** (axe engine on its device cloud) |
-| Device/OS/browser **matrix** (iOS Safari, Android Chrome, older versions) | ✅ Provisioning | **BrowserStack App/Live & Automate** |
-| Capture **screenshots/recordings** of each screen for evidence | ✅ Fully | BrowserStack sessions / Percy visual snapshots |
-| Programmatic a11y assertions in CI (roles, names, states) | ✅ Fully | XCUITest `performAccessibilityAudit()`, Espresso `AccessibilityChecks`, this toolkit's matchers |
-| Keyboard-operability *smoke* checks | ⚠️ Partial | Playwright/Appium scripted Tab traversal (finds traps, not judgement) |
-| **Screen reader announcement quality** (does it make sense?) | ❌ Manual | VoiceOver / TalkBack / NVDA by a human |
-| **Focus order makes sense** / meaningful alt text / clear errors | ❌ Manual | Human judgement |
-| **Gesture alternatives**, reflow "feels right" | ❌ Manual | Human on device |
-
-**Rule of thumb:** BrowserStack automates *where* you test (device matrix),
-*collecting evidence*, and *running the same automated engines* consistently on
-real hardware. It does **not** automate the *judgement* checks — those stay on
-the worksheet.
-
-### Suggested BrowserStack setup
-
-1. Enable **BrowserStack Accessibility Testing** and point it at the same URL
-   list you feed the toolkit (`urls.txt`). Export its axe results as JSON.
-2. Import that JSON through the toolkit's axe integration (it's the same axe
-   result shape) so device-cloud scans merge with local scans.
-3. Use **App Live** sessions on real iOS/Android devices to do the VoiceOver /
-   TalkBack passes when you don't have the physical device — recording the
-   session as evidence for each finding.
-
----
-
-## 4. Recording manual findings
-
-Two fillable artifacts live in `examples/`:
-
-| File | Use |
-|------|-----|
-| [`manual-testing-worksheet.md`](../examples/manual-testing-worksheet.md) | Human-friendly checklist to fill **while testing** |
-| [`manual-findings.template.json`](../examples/manual-findings.template.json) | Machine-readable list the toolkit ingests |
-
-Workflow: fill the **worksheet** as you test → transfer each ❌ into the **JSON
-template** → run the converter.
-
-### Each JSON entry
-
-```jsonc
-{
-  "title": "Focus order skips the form",
-  "description": "What you observed and why it fails.",
-  "severity": "critical",            // critical | high | medium | low
-  "wcag": ["1.3.2", "2.4.3"],        // success-criterion ids
-  "category": "Screen Reader",       // scorecard bucket
-  "page": "https://app/checkout",    // or a screen name for mobile
-  "method": "VoiceOver (iOS 18)",    // how it was found
-  "location": "Checkout > Shipping", // where / repro steps
-  "remediation": "Fix the order…",   // suggested fix
-  "estimatedHours": 3,               // optional; auto-estimated if omitted
-  "platforms": ["ios", "react-native"]
-}
+```bash
+npm run scan:all -- --sitemap https://example.com/sitemap.xml --format markdown --out report.md
 ```
 
+Review the report's **Failing WCAG Criteria** and **hotspot** sections to prioritise
+which screens to test manually first.
+
 ---
 
-## 5. Merging manual results into the toolkit output
+## 2. Walk each screen × gesture
 
-`manualFindingsToAssessment()` turns the filled template into an `Assessment`,
-and `mergeAssessments()` folds it into the automated report — one scorecard, one
-WCAG rollup, one effort total, one set of Jira tickets, tagged by `source`.
+For every screen from step 0, exercise each relevant gesture with assistive tech
+active. Use the level-appropriate tables in
+[`MANUAL_TESTING.md`](./MANUAL_TESTING.md) as the checklist.
 
-```ts
-import {
-  axeToAssessment,
-  manualFindingsToAssessment,
-  mergeAssessments,
-  formatMarkdown,
-} from "@bluetread/accessibility-toolkit";
-import { readFileSync, writeFileSync } from "node:fs";
+Generate a ready-to-fill checklist with the pages as columns:
 
-const axe = axeToAssessment(JSON.parse(readFileSync("axe.json", "utf8")));
-const manual = manualFindingsToAssessment(
-  JSON.parse(readFileSync("examples/manual-findings.template.json", "utf8")),
-  { targetLevel: "AA", platform: "web" },
-);
+```bash
+# Pages as columns, one row per manual WCAG check for the target level
+npm run checklist -- generate --level AA /login /dashboard /settings \
+  --gesture "swipe to delete" --gesture "pinch to zoom" --out manual.md
 
-const combined = mergeAssessments([axe, manual], { targetLevel: "AA" });
-writeFileSync("a11y-report.md", formatMarkdown(combined));
+# Or pull the page list straight from a sitemap; CSV for a spreadsheet
+npm run checklist -- generate --sitemap https://example.com/sitemap.xml \
+  --format csv --out manual.csv
 ```
 
-For a **mobile-only** engagement (no web scanners), the manual assessment can be
-merged with the React Native tree audit instead:
+Fill each cell with `pass`, `fail`, or `n/a` (blank = not yet tested). While
+testing:
 
-```ts
-import { runAudit, manualFindingsToAssessment, mergeAssessments } from "@bluetread/accessibility-toolkit";
+- Confirm every gesture has a **non-gesture equivalent** (WCAG 2.5.1 / 2.1.1).
+- Confirm **focus/reading order** matches the visual flow on each screen.
+- Confirm **touch targets** meet the size minimum (measure the rendered size).
 
-const rn = runAudit(tree, { platform: "react-native", targetLevel: "AA" });
-const manual = manualFindingsToAssessment(entries, { platform: "react-native" });
-const combined = mergeAssessments([rn, manual], { targetLevel: "AA" });
+---
+
+## 3. Ingest the completed checklist
+
+Feed the filled-in checklist back to the toolkit. Every `fail` becomes a
+`Finding` with `source: "manual"`, the **screen** as `evidence.page`, and the
+mapped WCAG criteria — so it flows into the same scorecard, WCAG rollup, trend
+history, and Jira tickets as automated results.
+
+```bash
+# Manual findings only
+npm run checklist -- ingest ./manual.md --format markdown --out manual-report.md
+
+# Manual + automated merged into ONE report with ALL findings
+npm run checklist -- ingest ./manual.md --merge ./auto-assessment.json \
+  --format markdown --out final-report.md
 ```
 
-Manual findings carry `source: "manual"`, appear in the **Findings** section with
-their **Page**, **method**, and **Est. remediation**, and roll into the
-**Pages Scanned** list. Because the effort estimator understands the manual
-categories (Screen Reader, Keyboard, etc.), the report's total remediation
-estimate now covers both automated and manual work.
+The ingest prints a per-page coverage summary (fail / pass / n/a / untested) so
+uncovered scope is visible, not silently dropped.
 
 ---
 
-## 6. Time estimates (testing effort, per platform)
+## 4. Verify coverage
 
-These estimate the **time to run the manual tests** — separate from the
-*remediation* hours the toolkit puts on each finding. The floor is a
-**one-page/one-screen site**; larger sites scale by page/screen count.
+Before signing off, confirm every item from step 0 was actually exercised:
 
-> **Formula (per platform):**
-> `total = setup + Σ_area( base + (pages − 1) × perPage )`
-> where `pages ≥ 1`. A one-page site pays only `setup + Σ base`.
+- [ ] Every listed page/screen visited (including states and overlays)
+- [ ] Every listed gesture tested for an accessible path
+- [ ] Every open question resolved (not left unconfirmed)
 
-| Test area | Base (1st page) | Each extra page | Applies to |
-|-----------|:---------------:|:---------------:|------------|
-| Environment / AT setup (once per platform) | 0.5 h | — | Web + Mobile |
-| Screen reader walkthrough | 0.75 h | 0.25 h | Web + Mobile |
-| Keyboard / switch operation | 0.5 h | 0.2 h | Web + Mobile |
-| Gestures & touch | 0.35 h | 0.15 h | Mobile |
-| Cognitive / content review | 0.35 h | 0.2 h | Web + Mobile |
-| Visual & sensory | 0.35 h | 0.15 h | Web + Mobile |
-| Responsive / reflow / zoom | 0.35 h | 0.15 h | Web |
-| Motion, media & timing | 0.25 h | 0.1 h | Web + Mobile |
-| Logging & transferring findings | 0.25 h | 0.15 h | Web + Mobile |
+Uncovered scope is reported as a gap, not omitted. The ingest's per-page
+`untested` count is your coverage check.
 
-### Worked examples
-
-**One-page website (minimum, web, single AT):**
-`0.5 (setup) + 0.75 + 0.5 + 0.35 + 0.35 + 0.35 + 0.25 + 0.25 ≈ 3.3 h`
-→ budget **~3–4 hours** for a thorough single-page manual pass.
-
-**10-page website (web, single AT):** each scaling area adds `9 × perPage`:
-`3.3 (page 1) + 9 × (0.25+0.2+0.2+0.15+0.15+0.1+0.15) ≈ 3.3 + 9 × 1.2 = ~14 h`.
-
-**Mobile app, ~8 screens, both VoiceOver + TalkBack:** run the mobile column
-twice (once per OS/AT). Roughly `2 × (setup + Σ base + 7 × Σ perPage)` ≈
-`2 × (0.5 + 2.65 + 7 × 1.05) ≈ 2 × 10.5 = ~21 h`.
-
-> **Notes**
-> - Multiply by the number of **AT/OS combinations** you cover (e.g. VoiceOver
->   *and* TalkBack, or NVDA *and* VoiceOver on web).
-> - "Pages" for mobile = distinct **screens/states**, not routes.
-> - These are *testing* hours. Add the report's **remediation** estimate (the
->   per-finding hours) for total engagement effort.
-> - BrowserStack reduces **setup** and evidence-capture time but not the
->   per-page AT walkthrough time — those are hands-on judgement.
-
----
-
-## 7. Quick checklist
-
-- [ ] Automated scans run (toolkit `scan:*`, and/or BrowserStack Accessibility).
-- [ ] BrowserStack device matrix chosen; sessions recorded for evidence.
-- [ ] Worksheet completed per flow, per platform, with the right AT.
-- [ ] ❌ items transferred into `manual-findings.template.json`.
-- [ ] `manualFindingsToAssessment` + `mergeAssessments` run.
-- [ ] Combined report generated and reviewed; Jira tickets filed.

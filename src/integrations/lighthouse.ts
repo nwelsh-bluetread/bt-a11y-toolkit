@@ -14,7 +14,6 @@ import {
   computeTopIssues,
   countBySeverity,
 } from "../audit.js";
-import { estimateFindingHours } from "../effort.js";
 
 /** The minimal shape of a Lighthouse audit we rely on. */
 export interface LighthouseAudit {
@@ -129,15 +128,8 @@ export function lighthouseToFindings(
 
     const mapping = LIGHTHOUSE_AUDIT_MAP[id] ?? DEFAULT_MAPPING;
     const items = audit.details?.items ?? [];
-    const elements = items
-      .map((i) => ({
-        selector: i.node?.selector,
-        html: i.node?.snippet?.trim(),
-        label: i.node?.nodeLabel?.trim(),
-      }))
-      .filter((e) => e.selector || e.html);
-    const selectors = elements
-      .map((e) => e.selector)
+    const selectors = items
+      .map((i) => i.node?.selector)
       .filter((s): s is string => Boolean(s));
 
     findings.push({
@@ -152,15 +144,13 @@ export function lighthouseToFindings(
       nodeId: selectors[0],
       evidence: {
         auditId: id,
-        affectedElements: elements.length,
+        affectedElements: selectors.length,
         selectors: selectors.slice(0, 20),
-        elements: elements.slice(0, 20),
-        html: elements[0]?.html,
       },
     });
   }
 
-  return findings.map((f) => ({ ...f, estimatedHours: estimateFindingHours(f) }));
+  return findings;
 }
 
 /**
@@ -235,7 +225,6 @@ export function lighthouseToAssessment(
     categories,
     topIssues: computeTopIssues(findings),
     findings,
-    pages: lhr.finalUrl || lhr.requestedUrl ? [lhr.finalUrl ?? lhr.requestedUrl!] : [],
   };
 }
 
@@ -346,6 +335,5 @@ export function combineLighthouseResults(
     categories,
     topIssues: computeTopIssues(allFindings),
     findings: allFindings,
-    pages: pages.map((p) => p.url),
   };
 }

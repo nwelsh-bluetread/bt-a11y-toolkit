@@ -36,6 +36,13 @@ Pages/screens, primary journeys, workflows, reusable components, forms,
 navigation patterns, modals/dialogs, dynamic content, auth/login, error and
 validation states, responsive/tablet layouts. Document exclusions.
 
+> **AI pre-start requirement:** if the user has not supplied the scope, the
+> assistant must **list the pages/screens and gestures/interactions first**
+> (derived from the sitemap, router config, `urls.txt`, or navigation stack) and
+> ask the user to confirm or correct the list **before** any testing begins.
+> Never assume scope silently. See
+> [`MANUAL_TESTING_WORKFLOW.md`](./MANUAL_TESTING_WORKFLOW.md) §0.
+
 ### 3. Automated analysis
 - **WAVE** — errors, alerts, contrast.
 - **axe DevTools** — violations, incomplete, WCAG mapping.

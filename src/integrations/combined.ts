@@ -316,6 +316,5 @@ export function mergeAssessments(
     categories,
     topIssues: computeTopIssues(findings),
     findings,
-    pages: [...new Set(assessments.flatMap((a) => a.pages ?? []))],
   };
 }

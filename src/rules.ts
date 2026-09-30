@@ -68,7 +68,11 @@ function defineNodeRule(config: NodeRuleConfig): CategorizedRule {
           nodeId: node.id,
           nodeType: node.type,
           remediation,
-          evidence,
+          // The node's path is what makes a tree-based finding findable: on
+          // native there is no DOM selector, and failing controls rarely carry
+          // a testID. Reported as a selector so the report renders it as the
+          // finding's location.
+          evidence: node.path ? { selectors: [node.path], ...evidence } : evidence,
           platforms: config.platforms,
         });
       }
@@ -93,19 +97,69 @@ export const accessibleNameRule = defineNodeRule({
   }),
 });
 
-/** 2. Buttons have accessibilityRole="button". */
+/**
+ * Node types that carry their own role semantics. A text input or a slider is
+ * interactive but must not be told to announce itself as a button.
+ */
+const SELF_DESCRIBING_TYPES = new Set([
+  "textinput",
+  "input",
+  "slider",
+  "switch",
+  "checkbox",
+  "radio",
+  "link",
+  "tab",
+  "menuitem",
+]);
+
+/**
+ * Roles that already tell assistive technology what a control does. Any of
+ * these satisfies the rule — the point is that a control announces *a* purpose,
+ * not that everything is a button.
+ */
+const CONTROL_ROLES = new Set([
+  "button",
+  "imagebutton",
+  "togglebutton",
+  "link",
+  "checkbox",
+  "radio",
+  "switch",
+  "tab",
+  "menuitem",
+  "combobox",
+  "search",
+  "spinbutton",
+  "slider",
+  "adjustable",
+]);
+
+/**
+ * 2. Pressable controls announce a role.
+ *
+ * Scoped by *interactivity*, not by node type. An earlier version required
+ * `type === "button"`, which on React Native only happens once
+ * `accessibilityRole="button"` is already set — so the rule applied only to
+ * nodes that already passed it and could never fail. The defect it exists to
+ * catch is a bare `TouchableOpacity`/`Pressable` with an `onPress` and no role,
+ * which VoiceOver and TalkBack announce as plain text with no hint that it can
+ * be activated.
+ */
 export const buttonRoleRule = defineNodeRule({
   id: "button-role",
-  title: "Buttons must expose a button role",
+  title: "Pressable controls must expose a role",
   description:
-    "Pressable controls that behave like buttons must expose accessibilityRole=\"button\" (RN) or role=\"button\" (web) so they are announced and operable as buttons.",
+    "Pressable controls must expose accessibilityRole=\"button\" (RN) or role=\"button\" (web) — or another control role — so they are announced and operable as controls rather than as plain text.",
   severity: "high",
   category: "Semantics",
   wcagIds: ["4.1.2"],
-  applies: (n) => isInteractive(n) && (n.type.toLowerCase() === "button" || n.props?.behavesAsButton === true),
-  passes: (n) => (n.role ?? "").toLowerCase() === "button",
-  fail: () => ({
-    remediation: 'Set accessibilityRole="button" (React Native) or role="button" (web).',
+  applies: (n) =>
+    n.props?.behavesAsButton === true ||
+    (isInteractive(n) && !isHiddenFromAT(n) && !SELF_DESCRIBING_TYPES.has(n.type.toLowerCase())),
+  passes: (n) => CONTROL_ROLES.has((n.role ?? "").toLowerCase()),
+  fail: (n) => ({
+    remediation: `Set accessibilityRole="button" (React Native) or role="button" (web) on this ${n.type}.`,
   }),
 });
 

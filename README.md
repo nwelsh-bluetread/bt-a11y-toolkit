@@ -103,6 +103,66 @@ into `A11yNode`s, then the shared rules evaluate them identically.
 A11yNode tree ──► rules ──► findings ──► scoring ──► report / Jira tickets
 ```
 
+## How the toolkit works (end-to-end)
+
+The toolkit is a **consolidation + reporting core**. Every source of findings —
+the built-in rules, external scanners (axe / Lighthouse / Pa11y), and the human
+manual pass — normalizes into the same `Finding` model, so they all merge into
+one scored report and one trend history.
+
+```
+0. AI lists pages/screens + gestures            → you confirm scope
+1. Automated scans      axe · Lighthouse · Pa11y → Assessment (per engine)
+   Built-in rules       A11yNode tree → runAudit → Assessment
+2. Manual checklist     generate (pages = columns) → auditor fills in
+   Ingest checklist     fill → Finding[] (source: "manual")
+3. Merge everything     mergeAssessments(auto + manual) → ONE report
+                        (de-duped across engines, WCAG-scored, per-file locations)
+4. Persist run          recordRun() → history.jsonl  (discrete data)
+5. Compare over time    diffRuns / trends → new · fixed · regressed · MTTR · hotspots
+6. File tickets         createJiraTickets(assessment)
+```
+
+Each stage is independent and runnable on its own — you never have to run the
+whole pipeline to use one part. The stages map to the docs in
+[`docs/MANUAL_TESTING_WORKFLOW.md`](docs/MANUAL_TESTING_WORKFLOW.md).
+
+## Skills (capabilities) vs. unit tests
+
+Two different things share the word "test", so this table separates them:
+
+- **Skills** = what the toolkit can *do* — the capabilities/modules you invoke.
+- **Unit tests** = the Vitest suites that *prove each skill works* in CI.
+
+| Skill (capability) | Module | What it does | Unit tests |
+| --- | --- | --- | --- |
+| **Baseline rules** | `src/rules.ts` | 13 pure WCAG-mapped rules over an `A11yNode` tree (names, roles, images, touch targets, labels, state, contrast). | `tests/rules.test.ts` (19) |
+| **Contrast math** | `src/contrast.ts` | WCAG contrast ratio, luminance, large-text + threshold helpers (no deps). | `tests/contrast.test.ts` (8) |
+| **Audit runner & scoring** | `src/audit.ts` | Runs rules → score, WCAG rollup, scorecard, top issues. | `tests/audit.test.ts` (14) |
+| **Report formatters** | `src/report.ts` | console / json / markdown, incl. score breakdown + failing-criteria-by-file. | covered via `tests/audit.test.ts` |
+| **axe integration** | `src/integrations/axe.ts` | axe-core results → `Finding`/`Assessment`; single + multi-page. | `tests/axe.test.ts` (17) |
+| **Lighthouse integration** | `src/integrations/lighthouse.ts` | Lighthouse LHR → `Finding`/`Assessment`; single + multi-page. | `tests/lighthouse.test.ts` (12) |
+| **Pa11y integration** | `src/integrations/pa11y.ts` | Pa11y (HTML_CodeSniffer + axe runner) → findings. | `tests/pa11y.test.ts` (15) |
+| **Cross-engine merge** | `src/integrations/combined.ts` | De-dupes findings across engines by selector/HTML; records every source. | `tests/combined.test.ts` (8), `tests/crossEngine.test.ts` (18) |
+| **Manual checklist** | `src/manual.ts` | Generate a pages-as-columns checklist; ingest the filled copy → manual findings. | `tests/manual.test.ts` (16) |
+| **History (discrete data)** | `src/history.ts` | Stable `fingerprint`, `recordRun`, `diffRuns` (new/fixed/regressed). | `tests/history.test.ts` (16) |
+| **Trends** | `src/trends.ts` | Score trend, recurring issues, MTTR, hotspots over run history. | `tests/trends.test.ts` (6) |
+| **Jira tickets** | `src/integrations/jira.ts` | Findings → Jira Cloud issues (ADF, priority, WCAG refs). | `tests/jira.test.ts` (5) |
+| **React Native adapter** | `src/react-native/` | Serializes a `react-test-renderer` tree into `A11yNode`s. | `tests/reactNative.test.ts` (33) |
+| **Test matchers** | `src/matchers/` | `toHaveA11yName`, `toHaveRole`, `toMeetTouchTargetSize`, … | covered via `tests/rules.test.ts` |
+| **Form factors** | `src/formFactor.ts` | Mobile/tablet/desktop viewport + emulation presets for scans. | `tests/formFactor.test.ts` (7) |
+| **Concurrency** | `src/concurrency.ts` | Bounded parallel page scanning. | `tests/concurrency.test.ts` (11) |
+| **Sitemap crawl** | `src/sitemap.ts` | Reads `sitemap.xml` (+ index) into a URL list for batch scans. | `tests/sitemap.test.ts` (10) |
+| **Effort estimation** | `src/effort.ts` | Remediation-hour estimates per finding/severity. | `tests/effort.test.ts` ⚠️ |
+
+> Run everything with `npm test` (~200 unit tests). Run one skill's suite with
+> `npx vitest run tests/<file>.test.ts`. The catalogue above is the fastest way
+> to see *what exists* and *where its proof lives*.
+>
+> ⚠️ `tests/effort.test.ts` is currently a known-failing/placeholder suite
+> pending the `effort` export it references; it does not affect the other skills.
+
+
 ## Auditing mobile-only apps (no web)
 
 WAVE, Lighthouse, and axe DevTools all require a **web DOM**, so they do **not**
@@ -342,66 +402,6 @@ checks like `expanded-state`, `selected-state`, `status-announcement`, and
 `custom-component-props` — the state/behavior checks a scanner structurally
 cannot perform.
 
-## Manual testing
-
-Automated tooling catches only **~30–40% of WCAG issues** (presence &
-thresholds). The rest — *meaning & experience* — needs a human with assistive
-tech. The toolkit turns that manual pass into `Finding`s that merge into the same
-scorecard, WCAG rollup, effort total, and Jira tickets as the automated results.
-
-**Docs & fillable artifacts:**
-
-| File | Purpose |
-| --- | --- |
-| [`docs/MANUAL_TESTING.md`](docs/MANUAL_TESTING.md) | What to test by hand, organized by WCAG level (A / AA / AAA) |
-| [`docs/MANUAL_TESTING_WORKFLOW.md`](docs/MANUAL_TESTING_WORKFLOW.md) | End-to-end workflow (web + mobile), what BrowserStack can automate, and per-area **time estimates** |
-| [`examples/manual-testing-worksheet.md`](examples/manual-testing-worksheet.md) | Fillable checklist to complete **while testing** |
-| [`examples/manual-findings.template.json`](examples/manual-findings.template.json) | Machine-readable findings the toolkit ingests |
-
-**Workflow:** fill the worksheet as you test → transfer each ❌ into the JSON
-template → convert and merge into the report.
-
-```ts
-import {
-  axeToAssessment,
-  manualFindingsToAssessment,
-  mergeAssessments,
-  formatMarkdown,
-} from "@bluetread/accessibility-toolkit";
-import { readFileSync, writeFileSync } from "node:fs";
-
-const axe = axeToAssessment(JSON.parse(readFileSync("axe.json", "utf8")));
-const manual = manualFindingsToAssessment(
-  JSON.parse(readFileSync("examples/manual-findings.template.json", "utf8")),
-  { targetLevel: "AA", platform: "web" },
-);
-
-// One consolidated report covering automated + manual findings.
-const combined = mergeAssessments([axe, manual], { targetLevel: "AA" });
-writeFileSync("a11y-report.md", formatMarkdown(combined));
-```
-
-For a **mobile-only** engagement, merge the manual assessment with the React
-Native tree audit instead of the web scanners:
-
-```ts
-const rn = runAudit(tree, { platform: "react-native", targetLevel: "AA" });
-const manual = manualFindingsToAssessment(entries, { platform: "react-native" });
-const combined = mergeAssessments([rn, manual], { targetLevel: "AA" });
-```
-
-**Web vs. mobile** — same WCAG goals, different tools and inputs:
-
-| | Web | Mobile (iOS / Android / RN) |
-| --- | --- | --- |
-| Screen reader | NVDA / JAWS or VoiceOver+Safari | **VoiceOver** *and* **TalkBack** (run both) |
-| Primary input | Keyboard (Tab / arrows), no trap | Swipe + external keyboard / switch |
-| Extra area | Reflow / zoom (200%, 320px) | **Gestures & touch** (single-pointer alt, pointer cancellation) |
-| "Pages" | Routes / URLs | Distinct screens / states |
-
-Manual findings carry `source: "manual"`, so the combined report shows which
-tool (or human) reported each issue, tagged with the page/screen it was found on.
-
 ## Jira ticket creation
 
 Turn findings into Jira Cloud issues (Atlassian Document Format descriptions,
@@ -422,6 +422,61 @@ await createJiraTickets(assessment, {
 
 Or from the CLI with `--jira` (reads `JIRA_*` env vars).
 
+## History & trends (discrete data tracking)
+
+Each scan produces a stateless `Assessment`. To answer *"is this the same issue
+we saw last week?"*, *"what did we fix?"*, and *"what regressed?"*, the toolkit
+turns every run into a durable, comparable **run record** keyed by a stable
+finding **fingerprint**.
+
+### How it works
+
+- **`fingerprint(finding)`** — a deterministic hash of the WCAG criteria +
+  file/page + normalized selector. It deliberately **excludes the engine**, so
+  the same issue found by axe *and* Pa11y fingerprints identically (corroboration
+  doesn't fork the identity).
+- **`recordRun(assessment, meta)`** — converts an `Assessment` into a
+  serializable `RunRecord` (with `commitSha`, `branch`, timestamps, and a
+  fingerprint per finding). Storage-agnostic — append it to a JSONL ledger,
+  SQLite, or an artifact bucket.
+- **`diffRuns(prev, next, priorFingerprints?)`** — classifies every finding as
+  **new / fixed / regressed / persisting**, plus a score delta. Passing prior
+  fingerprints distinguishes a true regression (fixed, then back) from a brand-new
+  issue.
+- **`mergeRunHistory(runs)` / `allFingerprints(runs)`** — carry `firstSeen`
+  forward so issue **age** is accurate across the whole history.
+
+### Trend analytics (`src/trends.ts`)
+
+Pure functions over a chronological list of run records:
+
+| Function | Answers |
+| --- | --- |
+| `scoreTrend(runs)` | Are we getting better or worse? (per-run score deltas) |
+| `recurringIssues(runs)` | Which issues get fixed then keep coming back? (systemic signal) |
+| `mttrByCategory(runs)` / `mttrBySeverity(runs)` | Mean/median **time-to-remediation** — empirical fix times |
+| `hotspots(runs, limit)` | Which files/pages accumulate the most distinct issues? |
+
+```ts
+import { recordRun, diffRuns, allFingerprints, scoreTrend } from "@bluetread/accessibility-toolkit";
+
+// After each scan, persist the run:
+const record = recordRun(assessment, { commitSha, branch, label: "nightly" });
+appendFileSync(".a11y-history/history.jsonl", JSON.stringify(record) + "\n");
+
+// Compare to the previous run:
+const diff = diffRuns(prev, next, allFingerprints(earlierRuns));
+// → diff.new / diff.fixed / diff.regressed / diff.scoreDelta
+
+// Chart the score over time:
+scoreTrend(allRuns); // [{ runId, overallScore, delta }, ...]
+```
+
+Because manual findings ingest with `source: "manual"` and the same fingerprint
+scheme, the trend history covers the **full** picture — automated *and* human
+findings, tracked identically over time.
+
+
 ## Scripts & tests reference
 
 Everything you can run, what it does, and how. All arguments after `--` are
@@ -441,7 +496,13 @@ passed through to the underlying script.
 | `test:watch` | Runs all tests in watch mode, re-running on change. | `npm run test:watch` |
 | `test:coverage` | Runs all tests and produces a coverage report (`text` + `html`). | `npm run test:coverage` |
 | `test:lighthouse` | Runs **only** the Lighthouse integration tests. | `npm run test:lighthouse` |
+| `test:axe` | Runs **only** the axe integration tests. | `npm run test:axe` |
+| `test:pa11y` | Runs **only** the Pa11y integration tests. | `npm run test:pa11y` |
 | `scan:lighthouse` | Standalone Lighthouse runner — one or many pages (see below). | `npm run scan:lighthouse -- <url> [<url> ...]` |
+| `scan:axe` | Standalone axe-core runner — one or many pages. | `npm run scan:axe -- <url> [<url> ...]` |
+| `scan:pa11y` | Standalone Pa11y runner (HTML_CodeSniffer + axe runner). | `npm run scan:pa11y -- <url> [<url> ...]` |
+| `scan:all` | Runs Lighthouse **and** axe on the same pages, merged into one report. | `npm run scan:all -- <url> [<url> ...]` |
+| `checklist` | Generate a manual checklist (pages as columns) or ingest a filled one. | `npm run checklist -- generate\|ingest ...` |
 | `prepublishOnly` | Cleans + builds before `npm publish`. Runs automatically on publish. | (automatic) |
 
 ### CLI (`bt-a11y`)
@@ -525,13 +586,23 @@ Each file can be run on its own with `npx vitest run tests/<file>`.
 
 | Test file | Covers | Run just this |
 | --- | --- | --- |
-| `tests/rules.test.ts` | The baseline automated rules (accessible name, roles, images, touch targets, labels, contrast, etc.). | `npx vitest run tests/rules.test.ts` |
+| `tests/rules.test.ts` | The 13 baseline rules (names, roles, images, touch targets — incl. exact-size/adjacent-cluster cases, labels, contrast). | `npx vitest run tests/rules.test.ts` |
 | `tests/contrast.test.ts` | WCAG contrast math (`parseHex`, `contrastRatio`, large-text + threshold helpers). | `npx vitest run tests/contrast.test.ts` |
 | `tests/audit.test.ts` | The audit runner, scoring, WCAG rollups, scorecard, and report formatters. | `npx vitest run tests/audit.test.ts` |
 | `tests/jira.test.ts` | Jira payload building, severity filtering, and ticket creation (mocked fetch). | `npx vitest run tests/jira.test.ts` |
 | `tests/lighthouse.test.ts` | Lighthouse → `Finding`/`Assessment` conversion and mappings. | `npm run test:lighthouse` |
-| `tests/fixtures.ts` | Shared sample `A11yNode` tree used by rule/audit tests (not a test itself). | — |
-| `tests/fixtures.lighthouse.ts` | Shared sample Lighthouse Result used by the Lighthouse test (not a test itself). | — |
+| `tests/axe.test.ts` | axe-core → `Finding`/`Assessment`, WCAG-tag decoding, single + multi-page. | `npx vitest run tests/axe.test.ts` |
+| `tests/pa11y.test.ts` | Pa11y (HTML_CodeSniffer + axe runner) → findings; code parsing. | `npx vitest run tests/pa11y.test.ts` |
+| `tests/combined.test.ts` | Cross-engine de-dupe (`mergeAssessments`, `isSameElement`, `selectorTail`). | `npx vitest run tests/combined.test.ts` |
+| `tests/crossEngine.test.ts` | End-to-end pairing of the same issue across axe/Lighthouse/Pa11y. | `npx vitest run tests/crossEngine.test.ts` |
+| `tests/manual.test.ts` | Manual checklist generate + ingest; verdict parsing; round-trip. | `npx vitest run tests/manual.test.ts` |
+| `tests/history.test.ts` | Fingerprinting, `recordRun`, `diffRuns`, `mergeRunHistory`. | `npx vitest run tests/history.test.ts` |
+| `tests/trends.test.ts` | Score trend, recurring issues, MTTR, hotspots. | `npx vitest run tests/trends.test.ts` |
+| `tests/reactNative.test.ts` | RN adapter: node/tree serialization, roles, sizing, state, colors. | `npx vitest run tests/reactNative.test.ts` |
+| `tests/formFactor.test.ts` | Form-factor presets and viewport/emulation settings. | `npx vitest run tests/formFactor.test.ts` |
+| `tests/concurrency.test.ts` | Bounded parallel scanning (`mapWithConcurrency`, `resolveConcurrency`). | `npx vitest run tests/concurrency.test.ts` |
+| `tests/sitemap.test.ts` | `sitemap.xml` (+ index) parsing into a URL list. | `npx vitest run tests/sitemap.test.ts` |
+| `tests/fixtures*.ts` | Shared sample trees / axe / Lighthouse / Pa11y results (not tests themselves). | — |
 
 ### Common workflows
 
@@ -583,17 +654,33 @@ src/
   rules.ts           The 13 baseline automated rules
   audit.ts           Audit runner, scoring, scorecard, WCAG rollups
   report.ts          console / json / markdown formatters
+  manual.ts          Manual checklist generate + ingest (pages as columns)
+  history.ts         Run records, fingerprints, run diffing (discrete data)
+  trends.ts          Score trend, recurring issues, MTTR, hotspots
+  effort.ts          Remediation-hour estimates
+  formFactor.ts      Mobile/tablet/desktop viewport + emulation presets
+  concurrency.ts     Bounded parallel page scanning
+  sitemap.ts         sitemap.xml crawl → URL list
   integrations/
     jira.ts          Jira ticket creation
-    lighthouse.ts    Lighthouse LHR -> Finding/Assessment (pure)
+    lighthouse.ts    Lighthouse LHR  -> Finding/Assessment (pure)
+    axe.ts           axe-core result -> Finding/Assessment (pure)
+    pa11y.ts         Pa11y result    -> Finding/Assessment (pure)
+    combined.ts      Cross-engine merge + de-dupe
   matchers/
     index.ts         Vitest/Jest assertion matchers
+  react-native/
+    index.ts         RN renderer tree -> A11yNode adapter
   cli.ts             bt-a11y command line
 scripts/             Standalone, per-tool runners
   lighthouse.ts      npm run scan:lighthouse
+  axe.ts             npm run scan:axe
+  pa11y.ts           npm run scan:pa11y
+  scan.ts            npm run scan:all (Lighthouse + axe merged)
+  checklist.ts       npm run checklist (generate | ingest)
 tests/               Unit tests + fixtures
-examples/            Sample A11yNode trees + Lighthouse result
-docs/                Engagement checklists
+examples/            Sample A11yNode trees + axe / Lighthouse results
+docs/                Engagement checklists + manual testing workflow
 ```
 
 ## Tooling ecosystem (beyond this repo)

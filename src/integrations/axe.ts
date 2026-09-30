@@ -15,7 +15,6 @@ import {
   computeTopIssues,
   countBySeverity,
 } from "../audit.js";
-import { estimateFindingHours } from "../effort.js";
 
 /** axe-core impact levels. */
 export type AxeImpact = "minor" | "moderate" | "serious" | "critical" | null;
@@ -190,13 +189,8 @@ export function axeToFindings(
 
   for (const rule of results.violations) {
     const mapping = resolveMapping(rule);
-    const elements = rule.nodes.map((n) => ({
-      selector: targetToSelector(n.target),
-      html: n.html?.trim(),
-      failureSummary: n.failureSummary?.trim(),
-    }));
-    const selectors = elements
-      .map((e) => e.selector)
+    const selectors = rule.nodes
+      .map((n) => targetToSelector(n.target))
       .filter((s): s is string => Boolean(s));
 
     findings.push({
@@ -215,14 +209,12 @@ export function axeToFindings(
         impact: rule.impact ?? undefined,
         affectedElements: rule.nodes.length,
         selectors: selectors.slice(0, 20),
-        elements: elements.slice(0, 20),
-        html: elements[0]?.html,
-        failureSummary: elements[0]?.failureSummary,
+        failureSummary: rule.nodes[0]?.failureSummary,
       },
     });
   }
 
-  return findings.map((f) => ({ ...f, estimatedHours: estimateFindingHours(f) }));
+  return findings;
 }
 
 const rank: Record<WcagLevel, number> = { A: 1, AA: 2, AAA: 3 };
@@ -323,7 +315,6 @@ export function axeToAssessment(
     categories: buildCategories(findings),
     topIssues: computeTopIssues(findings),
     findings,
-    pages: results.url ? [results.url] : [],
   };
 }
 
@@ -380,6 +371,5 @@ export function combineAxeResults(
     categories: buildCategories(allFindings),
     topIssues: computeTopIssues(allFindings),
     findings: allFindings,
-    pages: pages.map((p) => p.url),
   };
 }

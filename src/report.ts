@@ -1,5 +1,5 @@
 import type { Assessment, Finding, Severity } from "./types.js";
-import { estimateFindingHours, estimateTotalHours, formatHours } from "./effort.js";
+import { SEVERITY_WEIGHT } from "./audit.js";
 
 const SEVERITY_LABEL: Record<Severity, string> = {
   critical: "Critical",
@@ -15,6 +15,87 @@ const SEVERITY_ICON: Record<Severity, string> = {
   low: "🟢",
 };
 
+const SEVERITY_ORDER: Severity[] = ["critical", "high", "medium", "low"];
+
+/**
+ * The file, page, or URL a finding came from, however the engine recorded it.
+ * Multi-page scans stamp `evidence.page`; single-tree audits may carry a
+ * `nodeId` path instead. Returns `undefined` when nothing locates the finding.
+ */
+function locationOf(f: Finding): string | undefined {
+  const page = f.evidence?.page;
+  if (typeof page === "string" && page.length > 0) return page;
+  return undefined;
+}
+
+/** A single element selector for a finding, if one was recorded. */
+function selectorOf(f: Finding): string | undefined {
+  const ev = f.evidence ?? {};
+  const selectors = Array.isArray(ev.selectors) ? (ev.selectors as string[]) : [];
+  return selectors[0] ?? f.nodeId ?? undefined;
+}
+
+/** Round to at most 2 decimals. */
+function round(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+/** A WCAG criterion that has at least one failing finding. */
+interface CriterionFailure {
+  id: string;
+  name: string;
+  level: string;
+  count: number;
+  severity: Severity;
+  /** Distinct files/pages the criterion fails in, if recorded. */
+  locations: string[];
+}
+
+/**
+ * Aggregate findings by the WCAG success criteria they violate, so a reader can
+ * see exactly which criteria fail, how many times, and in which files/pages.
+ * Sorted by severity (worst first) then by criterion id.
+ */
+function criterionFailures(findings: Finding[]): CriterionFailure[] {
+  const byCriterion = new Map<
+    string,
+    { name: string; level: string; count: number; findings: Finding[]; locations: Set<string> }
+  >();
+
+  for (const f of findings) {
+    const loc = locationOf(f);
+    for (const c of f.wcag) {
+      const entry =
+        byCriterion.get(c.id) ??
+        { name: c.name, level: c.level, count: 0, findings: [], locations: new Set<string>() };
+      entry.count++;
+      entry.findings.push(f);
+      if (loc) entry.locations.add(loc);
+      byCriterion.set(c.id, entry);
+    }
+  }
+
+  const rank: Record<Severity, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+  return [...byCriterion.entries()]
+    .map(([id, e]) => ({
+      id,
+      name: e.name,
+      level: e.level,
+      count: e.count,
+      severity: worstSeverity(e.findings),
+      locations: [...e.locations].sort(),
+    }))
+    .sort((a, b) => rank[a.severity] - rank[b.severity] || a.id.localeCompare(b.id));
+}
+
+/** The worst severity among a set of findings. */
+function worstSeverity(findings: Finding[]): Severity {
+  for (const sev of SEVERITY_ORDER) {
+    if (findings.some((f) => f.severity === sev)) return sev;
+  }
+  return "low";
+}
+
 /**
  * Render the compact console-style report shown in the toolkit spec:
  *
@@ -26,7 +107,7 @@ const SEVERITY_ICON: Record<Severity, string> = {
  * ```
  */
 export function formatConsole(assessment: Assessment): string {
-  const { overallScore, counts, wcag, topIssues } = assessment;
+  const { overallScore, counts, wcag, topIssues, findings } = assessment;
   const lines: string[] = [];
   lines.push("Accessibility Assessment");
   lines.push("────────────────────────────");
@@ -35,10 +116,40 @@ export function formatConsole(assessment: Assessment): string {
   lines.push(`High: ${counts.high}`);
   lines.push(`Medium: ${counts.medium}`);
   lines.push(`Low: ${counts.low}`);
+
+  // Show where the score comes from: each severity deducts weighted points.
+  lines.push("Score Breakdown");
+  lines.push("────────────");
+  let rawDeduction = 0;
+  for (const sev of SEVERITY_ORDER) {
+    const count = counts[sev];
+    if (count === 0) continue;
+    const weight = SEVERITY_WEIGHT[sev];
+    const subtotal = count * weight;
+    rawDeduction += subtotal;
+    lines.push(`${SEVERITY_LABEL[sev]}: ${count} × ${weight} = -${subtotal} pts`);
+  }
+  if (rawDeduction === 0) {
+    lines.push("No deductions 🎉");
+  } else {
+    lines.push(`Raw deduction: -${round(rawDeduction)} pts (scaled to tree size, clamped 0-100)`);
+  }
+
   lines.push(`WCAG A:     ${wcag.A}%`);
   lines.push(`WCAG AA:    ${wcag.AA}%`);
   lines.push(`WCAG AAA:   ${wcag.AAA}%`);
-  lines.push(`Est. remediation: ${formatHours(estimateTotalHours(assessment.findings))}`);
+
+  // List which WCAG criteria are failing and how often.
+  const criteria = criterionFailures(findings);
+  if (criteria.length > 0) {
+    lines.push("Failing WCAG Criteria");
+    lines.push("────────────");
+    for (const c of criteria) {
+      const where = c.locations.length > 0 ? ` — ${c.locations.join(", ")}` : "";
+      lines.push(`${c.id} ${c.name} (${c.level}): ${c.count} finding(s)${where}`);
+    }
+  }
+
   lines.push("Top Issues");
   lines.push("────────────");
   if (topIssues.length === 0) {
@@ -65,18 +176,7 @@ export function formatMarkdown(assessment: Assessment): string {
   lines.push(`- **Platform:** ${platform}`);
   lines.push(`- **Target WCAG level:** ${targetLevel}`);
   lines.push(`- **Overall score:** ${overallScore}%`);
-  lines.push(`- **Estimated remediation effort:** ${formatHours(estimateTotalHours(findings))}`);
   lines.push("");
-
-  const pages = collectPages(assessment);
-  if (pages.length > 0) {
-    lines.push(`## Pages Scanned`);
-    lines.push("");
-    lines.push(`${pages.length} ${pages.length === 1 ? "page" : "pages"} audited:`);
-    lines.push("");
-    for (const page of pages) lines.push(`- ${page}`);
-    lines.push("");
-  }
 
   lines.push(`## Summary`);
   lines.push("");
@@ -93,14 +193,57 @@ export function formatMarkdown(assessment: Assessment): string {
   lines.push(`| AAA | ${wcag.AAA}% |`);
   lines.push("");
 
+  // Show exactly how the overall score is derived: each severity deducts
+  // weighted points (critical 10, high 5, medium 2, low 0.5), the sum is scaled
+  // to tree size, then subtracted from 100 and clamped to 0-100.
+  lines.push(`## Score Breakdown`);
+  lines.push("");
+  lines.push(`Overall score starts at **100** and deducts weighted points per finding:`);
+  lines.push("");
+  lines.push(`| Severity | Findings | Weight | Deduction |`);
+  lines.push(`| --- | --- | --- | --- |`);
+  let rawDeduction = 0;
+  for (const s of SEVERITY_ORDER) {
+    const weight = SEVERITY_WEIGHT[s];
+    const subtotal = counts[s] * weight;
+    rawDeduction += subtotal;
+    lines.push(
+      `| ${SEVERITY_ICON[s]} ${SEVERITY_LABEL[s]} | ${counts[s]} | ${weight} | -${round(subtotal)} |`,
+    );
+  }
+  lines.push(`| **Raw total** | ${findings.length} | | **-${round(rawDeduction)}** |`);
+  lines.push("");
+  lines.push(
+    `The raw deduction is normalized against the number of nodes/elements evaluated ` +
+      `(so small pages aren't over-penalized), then subtracted from 100 and clamped to 0-100, ` +
+      `giving the **${overallScore}%** overall score.`,
+  );
+  lines.push("");
+
+  // Enumerate each failing WCAG criterion, how many findings hit it, its worst
+  // severity, and which files/pages it fails in.
+  const criteria = criterionFailures(findings);
+  if (criteria.length > 0) {
+    lines.push(`## Failing WCAG Criteria`);
+    lines.push("");
+    lines.push(`| Criterion | Level | Severity | Findings | Fails in |`);
+    lines.push(`| --- | --- | --- | --- | --- |`);
+    for (const c of criteria) {
+      const where = c.locations.length > 0 ? c.locations.join("<br>") : "—";
+      lines.push(
+        `| ${c.id} ${c.name} | ${c.level} | ${SEVERITY_ICON[c.severity]} ${SEVERITY_LABEL[c.severity]} | ${c.count} | ${where} |`,
+      );
+    }
+    lines.push("");
+  }
+
   lines.push(`## Accessibility Scorecard`);
   lines.push("");
-  lines.push(`| Category | Score | Priority | Findings | Est. effort |`);
-  lines.push(`| --- | --- | --- | --- | --- |`);
+  lines.push(`| Category | Score | Priority | Findings |`);
+  lines.push(`| --- | --- | --- | --- |`);
   for (const c of categories) {
-    const catHours = estimateTotalHours(findings.filter((f) => (f.category ?? "Semantics") === c.category));
     lines.push(
-      `| ${c.category} | ${c.score}% | ${SEVERITY_ICON[c.severity]} ${SEVERITY_LABEL[c.severity]} | ${c.findingCount} | ${formatHours(catHours)} |`,
+      `| ${c.category} | ${c.score}% | ${SEVERITY_ICON[c.severity]} ${SEVERITY_LABEL[c.severity]} | ${c.findingCount} |`,
     );
   }
   lines.push("");
@@ -120,8 +263,14 @@ export function formatMarkdown(assessment: Assessment): string {
       // only one ruleset catches.
       if (f.source) lines.push(`- **Reported by:** ${f.source.split("+").join(" + ")}`);
       lines.push(`- **WCAG:** ${f.wcag.map((c) => `${c.id} ${c.name} (${c.level})`).join(", ")}`);
-      lines.push(`- **Est. remediation:** ${formatHours(f.estimatedHours ?? estimateFindingHours(f))}`);
-      appendLocation(lines, f);
+      const location = locationOf(f);
+      if (location) lines.push(`- **File/Page:** ${location}`);
+      const selector = selectorOf(f);
+      if (f.nodeId || f.nodeType || selector) {
+        const el = f.nodeType ?? "element";
+        const sel = selector ? ` (\`${selector}\`)` : "";
+        lines.push(`- **Element:** ${el}${sel}`);
+      }
       lines.push(`- **Description:** ${f.description}`);
       if (f.remediation) lines.push(`- **Remediation:** ${f.remediation}`);
       lines.push("");
@@ -132,70 +281,6 @@ export function formatMarkdown(assessment: Assessment): string {
 }
 
 const SEVERITY_RANK: Record<Severity, number> = { critical: 0, high: 1, medium: 2, low: 3 };
-
-/** Truncate a single-line HTML snippet so the report stays readable. */
-function truncate(value: string, max = 160): string {
-  const oneLine = value.replace(/\s+/g, " ").trim();
-  return oneLine.length > max ? `${oneLine.slice(0, max - 1)}…` : oneLine;
-}
-
-/**
- * Collect the distinct pages an assessment covered. Prefers the assessment's own
- * `pages` list and falls back to any `evidence.page` tags on the findings (set
- * by the multi-page scan combiners), so older assessments still surface pages.
- */
-function collectPages(assessment: Assessment): string[] {
-  const pages = new Set<string>(assessment.pages ?? []);
-  for (const f of assessment.findings) {
-    const page = f.evidence?.page;
-    if (typeof page === "string" && page) pages.add(page);
-  }
-  return [...pages];
-}
-
-/**
- * Append location detail for a finding. Prefers the rich evidence captured by
- * the scanner integrations (DOM selector path, HTML snippet, failure summary,
- * and how many elements are affected) and falls back to the node type/id for
- * tree-based findings.
- */
-function appendLocation(lines: string[], f: Finding): void {
-  const ev = f.evidence ?? {};
-  const page = typeof ev.page === "string" ? ev.page : undefined;
-  if (page) lines.push(`- **Page:** ${page}`);
-  const elements = Array.isArray(ev.elements)
-    ? (ev.elements as Array<{ selector?: string; html?: string; failureSummary?: string }>)
-    : [];
-  const selectors = Array.isArray(ev.selectors) ? (ev.selectors as string[]) : [];
-  const affected = typeof ev.affectedElements === "number" ? ev.affectedElements : undefined;
-  const primary = elements[0];
-  const selector = primary?.selector ?? selectors[0] ?? f.nodeId;
-
-  // Tree-based finding (no scanner evidence): keep the simple element line.
-  if (!selector && !f.nodeType) return;
-  if (!selector) {
-    lines.push(`- **Element:** ${f.nodeType ?? "unknown"}`);
-    return;
-  }
-
-  const suffix = affected && affected > 1 ? ` _(and ${affected - 1} more element${affected - 1 === 1 ? "" : "s"})_` : "";
-  lines.push(`- **Location:** \`${selector}\`${suffix}`);
-
-  const html = primary?.html ?? (typeof ev.html === "string" ? ev.html : undefined);
-  if (html) lines.push(`- **HTML:** \`${truncate(html)}\``);
-
-  const summary = primary?.failureSummary ?? (typeof ev.failureSummary === "string" ? ev.failureSummary : undefined);
-  if (summary) lines.push(`- **Why it fails:** ${truncate(summary, 300)}`);
-
-  // List the remaining affected selectors so every location is traceable.
-  const others = (elements.length ? elements.map((e) => e.selector) : selectors)
-    .filter((s): s is string => Boolean(s))
-    .slice(1, 20);
-  if (others.length > 0) {
-    lines.push(`- **Other elements:**`);
-    for (const s of others) lines.push(`  - \`${s}\``);
-  }
-}
 
 /** Sort findings by severity (critical first), then by rule id. */
 export function sortFindings(findings: Finding[]): Finding[] {

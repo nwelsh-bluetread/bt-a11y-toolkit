@@ -44,21 +44,15 @@ export {
 export type { CategorizedRule, RuleCategory } from "./rules.js";
 export {
   runAudit,
+  combineAudits,
   computeOverallScore,
   computeWcagRollup,
   computeCategoryScores,
   computeTopIssues,
   countBySeverity,
 } from "./audit.js";
-export type { AuditOptions } from "./audit.js";
+export type { AuditOptions, AuditTarget } from "./audit.js";
 export { formatConsole, formatJson, formatMarkdown, sortFindings } from "./report.js";
-export {
-  estimateFindingHours,
-  estimateTotalHours,
-  withEffortEstimates,
-  affectedElementCount,
-  formatHours,
-} from "./effort.js";
 export {
   createJiraTickets,
   buildTicketPayload,
@@ -86,10 +80,56 @@ export type {
   AxeImpact,
   AxePage,
 } from "./integrations/axe.js";
-export { mergeAssessments, isSameElement, selectorTail } from "./integrations/combined.js";
 export {
-  manualFindingsToAssessment,
-  manualToFindings,
-} from "./integrations/manual.js";
-export type { ManualFinding } from "./integrations/manual.js";
+  pa11yToFindings,
+  pa11yToAssessment,
+  combinePa11yResults,
+  parseHtmlcsCode,
+  resolveIssueMapping,
+} from "./integrations/pa11y.js";
+export type {
+  Pa11yResults,
+  Pa11yIssue,
+  Pa11yIssueType,
+  Pa11yPage,
+} from "./integrations/pa11y.js";
+export { mergeAssessments, isSameElement, selectorTail } from "./integrations/combined.js";
 export { mapWithConcurrency, resolveConcurrency } from "./concurrency.js";
+export {
+  fingerprint,
+  normalizeSelector,
+  recordRun,
+  diffRuns,
+  mergeRunHistory,
+  allFingerprints,
+} from "./history.js";
+export type {
+  RunMeta,
+  RunRecord,
+  TrackedFinding,
+  FindingStatus,
+  FindingChange,
+  RunDiff,
+} from "./history.js";
+export {
+  scoreTrend,
+  recurringIssues,
+  mttrByCategory,
+  mttrBySeverity,
+  hotspots,
+} from "./trends.js";
+export type { ScorePoint, Recurrence, Mttr, Hotspot } from "./trends.js";
+export {
+  MANUAL_CHECKS,
+  manualChecksForLevel,
+  generateChecklistMarkdown,
+  generateChecklistCsv,
+  parseVerdict,
+  ingestChecklist,
+} from "./manual.js";
+export type {
+  ManualCheck,
+  ChecklistOptions,
+  CellVerdict,
+  IngestResult,
+} from "./manual.js";

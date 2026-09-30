@@ -1,99 +1,152 @@
 import { describe, it, expect } from "vitest";
 import {
-  manualToFindings,
-  manualFindingsToAssessment,
-  type ManualFinding,
-} from "../src/integrations/manual.js";
-import { mergeAssessments } from "../src/integrations/combined.js";
-import { axeToAssessment } from "../src/integrations/axe.js";
-import { formatMarkdown } from "../src/report.js";
+  MANUAL_CHECKS,
+  manualChecksForLevel,
+  generateChecklistMarkdown,
+  generateChecklistCsv,
+  parseVerdict,
+  ingestChecklist,
+} from "../src/manual.js";
 
-const entries: ManualFinding[] = [
-  {
-    title: "Focus order skips the form",
-    description: "VoiceOver jumps past the address fields.",
-    severity: "critical",
-    wcag: ["1.3.2", "2.4.3"],
-    category: "Screen Reader",
-    page: "https://app.test/checkout",
-    method: "VoiceOver",
-    location: "Checkout > Shipping",
-    remediation: "Fix the accessibility order.",
-    estimatedHours: 3,
-    platforms: ["ios"],
-  },
-  {
-    title: "Dropdown not keyboard operable",
-    description: "Cannot open the country selector with the keyboard.",
-    severity: "high",
-    wcag: ["2.1.1"],
-    category: "Keyboard",
-    page: "https://app.test/signup",
-    method: "Keyboard",
-  },
-];
-
-describe("manualToFindings", () => {
-  it("expands wcag ids, tags source=manual, and carries evidence", () => {
-    const findings = manualToFindings(entries, { platform: "web" });
-    expect(findings).toHaveLength(2);
-    const [first] = findings;
-    expect(first?.source).toBe("manual");
-    expect(first?.wcag.map((c) => c.id)).toEqual(["1.3.2", "2.4.3"]);
-    expect(first?.evidence?.page).toBe("https://app.test/checkout");
-    expect(first?.evidence?.method).toBe("VoiceOver");
-    expect(first?.ruleId.startsWith("manual:")).toBe(true);
+describe("manualChecksForLevel", () => {
+  it("includes only A checks at level A", () => {
+    const checks = manualChecksForLevel("A");
+    expect(checks.every((c) => c.level === "A")).toBe(true);
   });
 
-  it("uses the explicit estimate when given, else estimates", () => {
-    const [withEstimate, withoutEstimate] = manualToFindings(entries);
-    expect(withEstimate?.estimatedHours).toBe(3);
-    expect(withoutEstimate?.estimatedHours).toBeGreaterThan(0);
+  it("is cumulative: AA includes A + AA", () => {
+    const aa = manualChecksForLevel("AA");
+    expect(aa.some((c) => c.level === "A")).toBe(true);
+    expect(aa.some((c) => c.level === "AA")).toBe(true);
+    expect(aa.some((c) => c.level === "AAA")).toBe(false);
   });
 
-  it("defaults platforms to the option when not provided", () => {
-    const [, second] = manualToFindings(entries, { platform: "android" });
-    expect(second?.platforms).toEqual(["android"]);
-  });
-
-  it("drops unknown wcag ids", () => {
-    const [f] = manualToFindings([
-      { title: "x", description: "y", severity: "low", wcag: ["9.9.9"] },
-    ]);
-    expect(f?.wcag).toEqual([]);
+  it("AAA includes everything", () => {
+    expect(manualChecksForLevel("AAA")).toHaveLength(MANUAL_CHECKS.length);
   });
 });
 
-describe("manualFindingsToAssessment", () => {
-  it("produces an assessment with counts, categories, and pages", () => {
-    const a = manualFindingsToAssessment(entries, { platform: "web", targetLevel: "AA" });
-    expect(a.counts.critical).toBe(1);
-    expect(a.counts.high).toBe(1);
-    expect(a.categories.map((c) => c.category).sort()).toEqual(["Keyboard", "Screen Reader"]);
-    expect(a.pages).toContain("https://app.test/checkout");
-    expect(a.pages).toContain("https://app.test/signup");
-    expect(a.findings.every((f) => f.source === "manual")).toBe(true);
+describe("generateChecklistMarkdown", () => {
+  const md = generateChecklistMarkdown({
+    pages: ["/login", "/dashboard"],
+    level: "AA",
+    gestures: ["swipe to delete"],
   });
 
-  it("deducts from the WCAG rollup for failing levels", () => {
-    const a = manualFindingsToAssessment(entries);
-    // Both findings map to level A criteria, so A is deducted the most.
-    expect(a.wcag.A).toBeLessThan(100);
+  it("puts pages as column headers", () => {
+    expect(md).toContain("| Manual check | WCAG | How to test | /login | /dashboard |");
+  });
+
+  it("emits a row per applicable check", () => {
+    const rowCount = md.split("\n").filter((l) => l.startsWith("| Screen reader announces")).length;
+    expect(rowCount).toBe(1);
+    // AA checklist should not contain AAA-only checks.
+    expect(md).not.toContain("Enhanced contrast 7:1");
+  });
+
+  it("appends a gestures sub-table when gestures are provided", () => {
+    expect(md).toContain("## Gestures / interactions");
+    expect(md).toContain("| swipe to delete |");
+  });
+
+  it("escapes pipe characters in page names", () => {
+    const piped = generateChecklistMarkdown({ pages: ["a|b"], level: "A" });
+    expect(piped).toContain("a\\|b");
   });
 });
 
-describe("merging manual with automated", () => {
-  it("folds manual findings into a combined report", () => {
-    const manual = manualFindingsToAssessment(entries, { platform: "web" });
-    const axe = axeToAssessment({
-      url: "https://app.test/checkout",
-      violations: [],
-      passes: [],
+describe("generateChecklistCsv", () => {
+  it("produces a header row with pages and a row per check", () => {
+    const csv = generateChecklistCsv({ pages: ["/home", "/about"], level: "A" });
+    const rows = csv.split("\n");
+    expect(rows[0]).toBe("Check,WCAG,How to test,/home,/about");
+    expect(rows.length).toBe(1 + manualChecksForLevel("A").length);
+  });
+
+  it("quotes fields containing commas", () => {
+    const csv = generateChecklistCsv({ pages: ["a,b"], level: "A" });
+    expect(csv.split("\n")[0]).toContain('"a,b"');
+  });
+});
+
+describe("parseVerdict", () => {
+  it("recognizes pass/fail/na/untested synonyms", () => {
+    expect(parseVerdict("pass")).toBe("pass");
+    expect(parseVerdict("✓")).toBe("pass");
+    expect(parseVerdict("fail")).toBe("fail");
+    expect(parseVerdict("x")).toBe("fail");
+    expect(parseVerdict("n/a")).toBe("n/a");
+    expect(parseVerdict("")).toBe("untested");
+    expect(parseVerdict("-")).toBe("untested");
+  });
+
+  it("treats a free-text note as a fail so it is not dropped", () => {
+    expect(parseVerdict("focus lost on close")).toBe("fail");
+  });
+});
+
+describe("ingestChecklist", () => {
+  // A completed checklist built by hand so the test is robust to exact spacing.
+  function filled(): string {
+    return [
+      "# Manual Accessibility Checklist",
+      "",
+      "| Manual check | WCAG | How to test | /login | /dashboard |",
+      "| --- | --- | --- | --- | --- |",
+      "| Screen reader announces name, role, and value | 4.1.2 | VoiceOver | fail | pass |",
+      "| Visible focus indicator on every control | 2.4.7 | Tab | pass | n/a |",
+      "",
+      "## Gestures / interactions",
+      "",
+      "| Gesture | /login | /dashboard |",
+      "| --- | --- | --- |",
+      "| swipe to delete | fail | n/a |",
+      "",
+    ].join("\n");
+  }
+
+  it("turns fail cells into manual findings tagged with the page", () => {
+    const { findings } = ingestChecklist(filled());
+    const sr = findings.find((f) => f.ruleId === "manual:sr-name-role-value");
+    expect(sr).toBeDefined();
+    expect(sr!.source).toBe("manual");
+    expect(sr!.severity).toBe("critical");
+    expect(sr!.wcag.map((c) => c.id)).toContain("4.1.2");
+    expect(sr!.evidence?.page).toBe("/login");
+  });
+
+  it("does not create findings for pass / n/a / untested cells", () => {
+    const { findings } = ingestChecklist(filled());
+    // /dashboard passed the SR check -> no finding for it.
+    expect(
+      findings.filter((f) => f.ruleId === "manual:sr-name-role-value" && f.evidence?.page === "/dashboard"),
+    ).toHaveLength(0);
+  });
+
+  it("ingests gesture-table failures as pointer-gesture findings", () => {
+    const { findings } = ingestChecklist(filled());
+    const gesture = findings.find((f) => f.ruleId.startsWith("manual:gesture:"));
+    expect(gesture).toBeDefined();
+    expect(gesture!.wcag.map((c) => c.id)).toContain("2.5.1");
+    expect(gesture!.evidence?.page).toBe("/login");
+  });
+
+  it("tallies verdict counts per page", () => {
+    const { counts, byPage } = ingestChecklist(filled());
+    expect(counts.fail).toBeGreaterThanOrEqual(2); // SR fail + gesture fail
+    expect(byPage["/login"]!.fail).toBeGreaterThanOrEqual(2);
+    expect(byPage["/dashboard"]!.pass).toBeGreaterThanOrEqual(1);
+  });
+
+  it("round-trips: a freshly generated (blank) checklist yields no findings", () => {
+    const blank = generateChecklistMarkdown({
+      pages: ["/a", "/b"],
+      level: "AA",
+      gestures: ["pinch"],
     });
-    const combined = mergeAssessments([axe, manual], { targetLevel: "AA" });
-    expect(combined.findings.some((f) => f.source === "manual")).toBe(true);
-    const md = formatMarkdown(combined);
-    expect(md).toContain("## Pages Scanned");
-    expect(md).toContain("Focus order skips the form");
+    const { findings, counts } = ingestChecklist(blank);
+    expect(findings).toHaveLength(0);
+    expect(counts.fail).toBe(0);
+    expect(counts.untested).toBeGreaterThan(0);
   });
 });

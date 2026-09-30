@@ -11,7 +11,6 @@ import type {
 } from "./types.js";
 import { flatten } from "./utils.js";
 import { defaultRules, type CategorizedRule } from "./rules.js";
-import { withEffortEstimates } from "./effort.js";
 
 export interface AuditOptions {
   platform?: Platform;
@@ -22,7 +21,7 @@ export interface AuditOptions {
 }
 
 /** Weight applied to each severity when computing the deduction from 100. */
-const SEVERITY_WEIGHT: Record<Severity, number> = {
+export const SEVERITY_WEIGHT: Record<Severity, number> = {
   critical: 10,
   high: 5,
   medium: 2,
@@ -64,7 +63,7 @@ export function runAudit(tree: A11yNode | A11yNode[], options: AuditOptions = {}
     wcag: computeWcagRollup(results),
     categories: computeCategoryScores(results),
     topIssues: computeTopIssues(findings),
-    findings: withEffortEstimates(findings),
+    findings,
   };
 }
 

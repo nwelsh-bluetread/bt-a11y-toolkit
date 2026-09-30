@@ -210,3 +210,90 @@ describe("toA11yTree", () => {
     expect(tree.children?.[0]?.size).toEqual({ width: 10, height: 10 });
   });
 });
+
+describe("one control, one node", () => {
+  /**
+   * A wrapper component, the Touchable it renders, and the host view all carry
+   * the same handler. Only the innermost should count as the control.
+   */
+  it("marks only the innermost node of a shared-handler chain interactive", () => {
+    const onPress = () => {};
+    const tree = toA11yNode({
+      type: "View",
+      props: {},
+      children: [
+        {
+          type: "TabItem",
+          props: { onPress },
+          children: [
+            {
+              type: "TouchableOpacity",
+              props: { onPress },
+              children: [{ type: "View", props: { onPress, accessibilityRole: "button" }, children: ["Pay now"] }],
+            },
+          ],
+        },
+      ],
+    });
+
+    const interactive: string[] = [];
+    const walk = (n: { interactive?: boolean; role?: string; children?: unknown[] }): void => {
+      if (n.interactive) interactive.push(n.role ?? "none");
+      for (const c of (n.children ?? []) as Array<typeof n>) walk(c);
+    };
+    walk(tree);
+
+    expect(interactive).toEqual(["button"]);
+  });
+
+  it("keeps distinct controls separate", () => {
+    const tree = toA11yNode({
+      type: "View",
+      props: {},
+      children: [
+        { type: "TouchableOpacity", props: { onPress: () => {} }, children: ["One"] },
+        { type: "TouchableOpacity", props: { onPress: () => {} }, children: ["Two"] },
+      ],
+    });
+
+    expect((tree.children ?? []).filter((c) => c.interactive)).toHaveLength(2);
+  });
+
+  it("leaves a lone pressable interactive", () => {
+    const tree = toA11yNode({ type: "TouchableOpacity", props: { onPress: () => {} }, children: ["Go"] });
+    expect(tree.interactive).toBe(true);
+  });
+});
+
+describe("component paths", () => {
+  it("records where each node sits in the tree", () => {
+    const tree = toA11yNode({
+      type: "Layout",
+      props: {},
+      children: [
+        {
+          type: "ScrollView",
+          props: {},
+          children: [{ type: "TouchableOpacity", props: { onPress: () => {} }, children: ["Pay"] }],
+        },
+      ],
+    });
+
+    expect(tree.path).toBe("Layout");
+    expect(tree.children?.[0]?.children?.[0]?.path).toBe("Layout > ScrollView > TouchableOpacity");
+  });
+
+  it("keeps only the trailing segments of a deep path", () => {
+    const deep = ["A", "B", "C", "D", "E", "F", "G"].reduceRight<Record<string, unknown>>(
+      (child, type) => ({ type, props: {}, children: [child] }),
+      { type: "Leaf", props: {}, children: [] },
+    );
+
+    const leafPath = (function findLeaf(node: { path?: string; children?: unknown[] }): string {
+      const children = (node.children ?? []) as Array<typeof node>;
+      return children.length ? findLeaf(children[0]!) : (node.path ?? "");
+    })(toA11yNode(deep as never));
+
+    expect(leafPath).toBe("D > E > F > G > Leaf");
+  });
+});

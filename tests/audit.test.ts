@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { runAudit, computeOverallScore, computeTopIssues } from "../src/audit.js";
+import { runAudit, combineAudits, computeOverallScore, computeTopIssues } from "../src/audit.js";
 import { formatConsole, formatJson, formatMarkdown } from "../src/report.js";
-import type { Finding } from "../src/types.js";
+import type { A11yNode, Finding } from "../src/types.js";
 import { wcag } from "../src/wcag.js";
 import { sampleTree } from "./fixtures.js";
 
@@ -34,6 +34,66 @@ describe("runAudit", () => {
       expect(assessment.wcag[level]).toBeGreaterThanOrEqual(0);
       expect(assessment.wcag[level]).toBeLessThanOrEqual(100);
     }
+  });
+});
+
+describe("combineAudits", () => {
+  const clean: A11yNode = {
+    type: "view",
+    id: "clean-root",
+    children: [
+      {
+        type: "button",
+        id: "ok",
+        role: "button",
+        accessibleName: "Pay",
+        interactive: true,
+        size: { width: 48, height: 48 },
+      },
+    ],
+  };
+  const combined = combineAudits(
+    [
+      { name: "Billing/Home", tree: sampleTree },
+      { name: "Billing/Detail", tree: sampleTree },
+      { name: "Billing/Clean", tree: clean },
+    ],
+    { platform: "react-native", targetLevel: "AA" },
+  );
+
+  it("lists every audited target, including ones with no findings", () => {
+    expect(combined.pages).toEqual(["Billing/Home", "Billing/Detail", "Billing/Clean"]);
+  });
+
+  it("attributes every finding to the target it came from", () => {
+    const pages = new Set(combined.findings.map((f) => f.evidence?.page));
+    expect(pages).toEqual(new Set(["Billing/Home", "Billing/Detail"]));
+  });
+
+  it("keeps matching findings from different targets as separate defects", () => {
+    const single = runAudit(sampleTree, { platform: "react-native", targetLevel: "AA" });
+    // Two copies of the same tree are two real screens to fix, not one.
+    expect(combined.findings.length).toBe(single.findings.length * 2);
+  });
+
+  it("sums the underlying checks rather than averaging per-target rates", () => {
+    // The clean target adds passing checks, so the rollup must improve on the
+    // rate of the failing targets alone.
+    const failingOnly = combineAudits(
+      [
+        { name: "Billing/Home", tree: sampleTree },
+        { name: "Billing/Detail", tree: sampleTree },
+      ],
+      { platform: "react-native", targetLevel: "AA" },
+    );
+    expect(combined.wcag.AA).toBeGreaterThan(failingOnly.wcag.AA);
+  });
+
+  it("produces an empty assessment for no targets", () => {
+    const empty = combineAudits([], { platform: "react-native" });
+    expect(empty.findings).toEqual([]);
+    expect(empty.pages).toEqual([]);
+    expect(empty.overallScore).toBe(100);
   });
 });
 
@@ -72,33 +132,5 @@ describe("formatters", () => {
     const md = formatMarkdown(assessment);
     expect(md).toContain("# Accessibility Assessment");
     expect(md).toContain("## Accessibility Scorecard");
-  });
-
-  it("lists scanned pages when the assessment records them", () => {
-    const withPages = { ...assessment, pages: ["https://x.test/a", "https://x.test/b"] };
-    const md = formatMarkdown(withPages);
-    expect(md).toContain("## Pages Scanned");
-    expect(md).toContain("2 pages audited:");
-    expect(md).toContain("- https://x.test/a");
-    expect(md).toContain("- https://x.test/b");
-  });
-
-  it("omits the Pages Scanned section when no pages are known", () => {
-    const md = formatMarkdown({ ...assessment, pages: [] });
-    expect(md).not.toContain("## Pages Scanned");
-  });
-
-  it("falls back to per-finding evidence.page when pages is absent", () => {
-    const tagged = {
-      ...assessment,
-      pages: undefined,
-      findings: assessment.findings.length
-        ? [{ ...assessment.findings[0]!, evidence: { page: "https://x.test/only" } }]
-        : [],
-    };
-    if (tagged.findings.length === 0) return;
-    const md = formatMarkdown(tagged);
-    expect(md).toContain("## Pages Scanned");
-    expect(md).toContain("https://x.test/only");
   });
 });

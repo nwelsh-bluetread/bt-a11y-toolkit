@@ -51,7 +51,7 @@ the same scorecard, WCAG rollup, and Jira tickets as the automated results.
 | Status messages announced without stealing focus | 4.1.3 | Trigger toasts/loading/results; confirm polite announcement |
 | Headings & labels are descriptive | 2.4.6 | Review heading text and control labels for clarity |
 | Orientation not locked (unless essential) | 1.3.4 | Rotate device portrait ⇄ landscape |
-| Touch target minimum 24×24 | 2.5.8 | Measure small/closely-spaced controls |
+| Touch target minimum 24×24 | 2.5.8 | Measure the rendered target with dev-tools/inspector; confirm **both** width and height ≥ 24px and that closely-spaced controls don't overlap/misfire |
 | Link/button purpose clear in context | 2.4.4 | "Read more" etc. makes sense to a screen reader user |
 | Consistent navigation & identification | 3.2.3 / 3.2.4 | Nav and components behave the same across screens |
 | Error suggestions provided when known | 3.3.3 | Validation tells the user how to fix it |
@@ -61,7 +61,7 @@ the same scorecard, WCAG rollup, and Jira tickets as the automated results.
 | Manual check | WCAG SC | How to test |
 | --- | --- | --- |
 | Enhanced contrast 7:1 (4.5:1 large) | 1.4.6 | Re-measure text contrast to the higher bar |
-| Touch target 44×44 (enhanced) | 2.5.5 | Measure interactive targets |
+| Touch target 44×44 (enhanced) | 2.5.5 | Measure the rendered size of interactive targets; confirm both dimensions ≥ 44px |
 | Motion from interaction can be disabled | 2.3.3 | Respect reduced-motion; no unavoidable animation |
 | Sign language for prerecorded audio | 1.2.6 | Verify signed track where required |
 | No timing / re-authentication data loss | 2.2.3 / 2.2.5 | Remove or extend time limits |
@@ -130,3 +130,35 @@ Work these per **primary user flow**, per platform.
 Findings are mapped to the matching success criterion, so a 30px target passes
 an **AA** audit but is flagged under **AAA**. Override with
 `runAudit(tree, { minTouchTargetSize: N })` or the CLI `--min-target N`.
+
+### Verifying the actual target size
+
+The `touch-target-size` rule measures the node's **rendered** `size` and records
+it on the finding so you can see exactly how far short a control falls:
+
+```jsonc
+{
+  "ruleId": "touch-target-size",
+  "nodeId": "toolbar-bold",
+  "evidence": { "size": { "width": 20, "height": 20 }, "minimum": 44, "wcag": "2.5.5" }
+}
+```
+
+To verify a target by hand:
+
+1. **Measure both dimensions.** Inspect the element (browser dev-tools box model,
+   or RN layout inspector) and read its width **and** height. Both must meet the
+   threshold — a wide-but-short button (e.g. 200×18) still fails.
+2. **Measure the tappable area, not just the visible glyph.** Padding and
+   `hitSlop` count toward the target; a 16px icon inside 24px of padding passes.
+3. **Check adjacent controls don't misfire.** For closely-spaced clusters
+   (toolbars, icon rows, pagination), confirm each control is independently large
+   enough and that neighbouring hit areas don't overlap, so a tap lands on the
+   intended control. The rule flags every undersized control in a cluster
+   separately rather than collapsing them into one finding.
+
+The boundary is **inclusive**: a target exactly at the threshold (24×24 for AA,
+44×44 for AAA) passes; one pixel under fails. Unit tests in
+`tests/rules.test.ts` (`touchTargetRule`) cover the exact-size, one-under,
+single-dimension, and adjacent-cluster cases.
+

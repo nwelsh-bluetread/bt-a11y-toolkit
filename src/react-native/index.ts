@@ -55,6 +55,28 @@ export interface ToA11yNodeOptions {
    * automatically as the adapter walks down the tree.
    */
   background?: string;
+  /**
+   * Component path of the parent, used to build {@link A11yNode.path}. Set
+   * automatically as the adapter walks down the tree.
+   */
+  path?: string;
+}
+
+/** How many trailing path segments to keep. Enough to locate, short enough to read. */
+const PATH_DEPTH = 5;
+
+/** The component name of a rendered element, as it appears in the source. */
+function displayNameOf(el: RnTestInstance): string {
+  const type = el.type;
+  if (typeof type === "string") return type;
+  const named = type as { displayName?: string; name?: string } | undefined;
+  return named?.displayName ?? named?.name ?? "Unknown";
+}
+
+/** Append a segment to a component path, keeping only the trailing segments. */
+function extendPath(parent: string | undefined, name: string): string {
+  const segments = parent ? [...parent.split(" > "), name] : [name];
+  return segments.slice(-PATH_DEPTH).join(" > ");
 }
 
 /** Maps RN `accessibilityRole` values onto the toolkit's normalized node types. */
@@ -101,10 +123,12 @@ export function toA11yNode(el: RnTestInstance, options: ToA11yNodeOptions = {}):
   const background =
     typeof style.backgroundColor === "string" ? style.backgroundColor : options.background;
 
-  const childOptions: ToA11yNodeOptions = { flatten: options.flatten, background };
+  const path = extendPath(options.path, displayNameOf(el));
+  const childOptions: ToA11yNodeOptions = { flatten: options.flatten, background, path };
 
   return {
     id: p.testID as string | undefined,
+    path,
     type: ROLE_TO_TYPE[role ?? ""] ?? inferType(el),
     role,
     accessibleName:
@@ -117,7 +141,7 @@ export function toA11yNode(el: RnTestInstance, options: ToA11yNodeOptions = {}):
       p.importantForAccessibility === "no-hide-descendants" ||
       p["aria-hidden"] === true ||
       p.accessibilityElementsHidden === true,
-    interactive: isPressable(el),
+    interactive: isPressable(el) && !delegatesPressToDescendant(el),
     liveRegion: (p.accessibilityLiveRegion ?? p["aria-live"]) as A11yNode["liveRegion"],
     state: {
       disabled: (state.disabled ?? p.disabled) as boolean | undefined,
@@ -237,6 +261,35 @@ function isPressable(el: RnTestInstance): boolean {
       p.role === "button" ||
       inferType(el) === "textinput",
   );
+}
+
+/**
+ * True when this element only looks pressable because it *passes* its handler
+ * to a descendant that does the pressing.
+ *
+ * One control is several nodes in a rendered RN tree: a wrapper component
+ * (`<TabItem onPress={f}>`) renders a `TouchableOpacity` with the same `f`,
+ * which renders a host view with the same `f` again. Treating all three as
+ * interactive triples every finding for a single control and inflates both the
+ * counts and the remediation estimate.
+ *
+ * The handler's *identity* is what identifies the chain — a distinct control
+ * has a distinct function. The innermost node is the one kept, because it
+ * carries the fully resolved props (`accessibilityRole`, `accessibilityLabel`)
+ * and is what the platform accessibility tree actually exposes.
+ */
+function delegatesPressToDescendant(el: RnTestInstance): boolean {
+  const handler = el.props?.onPress ?? el.props?.onLongPress;
+  if (typeof handler !== "function") return false;
+
+  const stack = [...childrenOf(el)];
+  while (stack.length > 0) {
+    const child = stack.pop()!;
+    const p = child.props ?? {};
+    if (p.onPress === handler || p.onLongPress === handler) return true;
+    stack.push(...childrenOf(child));
+  }
+  return false;
 }
 
 /** Text contributed directly by this node. */
