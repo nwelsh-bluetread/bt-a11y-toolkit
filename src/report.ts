@@ -60,7 +60,7 @@ export function formatMarkdown(assessment: Assessment): string {
   lines.push(`# Accessibility Assessment`);
   lines.push("");
   lines.push(`- **Generated:** ${generatedAt}`);
-  lines.push(`- **Platform:** ${platform}`);
+  lines.push(`- **Platform:** ${assessment.platforms?.join(", ") ?? platform}`);
   lines.push(`- **Target WCAG level:** ${targetLevel}`);
   lines.push(`- **Overall score:** ${overallScore}%`);
   lines.push("");
@@ -105,14 +105,29 @@ export function formatMarkdown(assessment: Assessment): string {
       if (f.nodeId || f.nodeType) {
         lines.push(`- **Element:** ${f.nodeType ?? "unknown"}${f.nodeId ? ` (\`${f.nodeId}\`)` : ""}`);
       }
+      if (f.platforms?.length) lines.push(`- **Platforms:** ${f.platforms.join(", ")}`);
+      if (f.source) lines.push(`- **Source:** ${f.source}`);
       lines.push(`- **Description:** ${f.description}`);
       if (f.remediation) lines.push(`- **Remediation:** ${f.remediation}`);
+      for (const key of EVIDENCE_KEYS) {
+        const value = f.evidence?.[key];
+        if (typeof value === "string" && value) lines.push(`- **${EVIDENCE_LABEL[key]}:** ${value}`);
+      }
       lines.push("");
     }
   }
 
   return lines.join("\n");
 }
+
+/** Evidence fields worth surfacing to a human reader, in display order. */
+const EVIDENCE_KEYS = ["page", "screen", "screenshot", "notes"] as const;
+const EVIDENCE_LABEL: Record<(typeof EVIDENCE_KEYS)[number], string> = {
+  page: "Page",
+  screen: "Screen",
+  screenshot: "Evidence",
+  notes: "Notes",
+};
 
 const SEVERITY_RANK: Record<Severity, number> = { critical: 0, high: 1, medium: 2, low: 3 };
 

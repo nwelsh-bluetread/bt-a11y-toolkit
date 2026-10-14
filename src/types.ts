@@ -164,6 +164,8 @@ export interface Assessment {
   /** ISO timestamp of when the assessment ran. */
   generatedAt: string;
   platform: Platform;
+  /** Every platform covered, when an audit spans more than one (e.g. iOS + Android). */
+  platforms?: Platform[];
   targetLevel: WcagLevel;
   overallScore: number; // 0-100
   counts: Record<Severity, number>;

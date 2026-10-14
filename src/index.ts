@@ -35,6 +35,8 @@ export {
 export type { CategorizedRule, RuleCategory } from "./rules.js";
 export {
   runAudit,
+  findingsToAssessment,
+  categoriesFromFindings,
   computeOverallScore,
   computeWcagRollup,
   computeCategoryScores,
@@ -43,6 +45,8 @@ export {
 } from "./audit.js";
 export type { AuditOptions } from "./audit.js";
 export { formatConsole, formatJson, formatMarkdown, sortFindings } from "./report.js";
+export { MANUAL_CHECKLIST, checklistFor, howToFor } from "./checklist.js";
+export type { AuditTarget, ChecklistItem } from "./checklist.js";
 export {
   createJiraTickets,
   buildTicketPayload,

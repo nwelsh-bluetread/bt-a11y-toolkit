@@ -10,6 +10,7 @@ import type {
   WcagLevel,
 } from "./types.js";
 import { flatten } from "./utils.js";
+import { WCAG } from "./wcag.js";
 import { defaultRules, type CategorizedRule } from "./rules.js";
 
 export interface AuditOptions {
@@ -65,6 +66,69 @@ export function runAudit(tree: A11yNode | A11yNode[], options: AuditOptions = {}
     topIssues: computeTopIssues(findings),
     findings,
   };
+}
+
+/**
+ * Build an assessment from findings gathered outside the rule engine — scanner
+ * results, manual testing, or a mix. There are no per-node pass counts here, so
+ * category scores use the same per-finding deduction as the scanner
+ * integrations. Pass `wcag` when the caller knows real pass rates (e.g. from a
+ * manual checklist); otherwise each level reports the share of its known
+ * criteria with no findings.
+ */
+export function findingsToAssessment(
+  findings: Finding[],
+  options: {
+    platform?: Platform;
+    platforms?: Platform[];
+    targetLevel?: WcagLevel;
+    wcag?: Record<WcagLevel, number>;
+  } = {},
+): Assessment {
+  const platforms = options.platforms;
+  return {
+    generatedAt: new Date().toISOString(),
+    platform: options.platform ?? platforms?.[0] ?? "web",
+    ...(platforms && platforms.length > 1 ? { platforms } : {}),
+    targetLevel: options.targetLevel ?? "AA",
+    overallScore: computeOverallScore(findings, 100),
+    counts: countBySeverity(findings),
+    wcag: options.wcag ?? wcagRollupFromFindings(findings),
+    categories: categoriesFromFindings(findings),
+    topIssues: computeTopIssues(findings),
+    findings,
+  };
+}
+
+/** Share of known criteria at or below each level that have no findings. */
+function wcagRollupFromFindings(findings: Finding[]): Record<WcagLevel, number> {
+  const failing = new Set(findings.flatMap((f) => f.wcag.map((c) => c.id)));
+  const rollup = { A: 100, AA: 100, AAA: 100 } as Record<WcagLevel, number>;
+  for (const level of ["A", "AA", "AAA"] as WcagLevel[]) {
+    const criteria = Object.values(WCAG).filter((c) => levelIncludes(level, c.level));
+    const passing = criteria.filter((c) => !failing.has(c.id)).length;
+    rollup[level] = criteria.length === 0 ? 100 : Math.round((passing / criteria.length) * 100);
+  }
+  return rollup;
+}
+
+/** Per-category scorecard from findings alone (15 points off per finding). */
+export function categoriesFromFindings(findings: Finding[]): CategoryScore[] {
+  const map = new Map<string, Finding[]>();
+  for (const f of findings) {
+    const key = f.category ?? "Semantics";
+    const list = map.get(key) ?? [];
+    list.push(f);
+    map.set(key, list);
+  }
+  return [...map.entries()]
+    .map(([category, list]) => ({
+      category,
+      score: Math.max(0, 100 - list.length * 15),
+      severity: worstSeverity(list),
+      findingCount: list.length,
+    }))
+    .sort((a, b) => a.score - b.score);
 }
 
 export function countBySeverity(findings: Finding[]): Record<Severity, number> {

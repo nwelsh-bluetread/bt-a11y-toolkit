@@ -23,6 +23,11 @@ specific criteria, not the whole app).
 Log every manual finding as a `Finding` with `source: "manual"` so it flows into
 the same scorecard, WCAG rollup, and Jira tickets as the automated results.
 
+> The guided audit (`bt-a11y start`) walks testers through these checks one at a
+> time and logs findings for you. Its checklist lives in
+> [`src/checklist.ts`](../src/checklist.ts) — **update both files together**
+> when adding or changing a check.
+
 ---
 
 ## Level A — must pass (minimum)
@@ -38,6 +43,9 @@ the same scorecard, WCAG rollup, and Jira tickets as the automated results.
 | Labels/instructions present for inputs | 3.3.2 | Confirm each field has a spoken label |
 | Captions for prerecorded video/audio | 1.2.2 | Play media; verify captions |
 | Content meaning doesn't rely on shape/position/sound alone | 1.3.3 | "Tap the round button" style instructions have text equivalents |
+| Link/button purpose clear in context | 2.4.4 | "Read more" etc. makes sense to a screen reader user |
+| Gestures (swipe/pinch/drag) have a single-pointer alternative | 2.5.1 | Try each gesture's tap/button alternative |
+| Actions fire on release; dragging off cancels | 2.5.2 | Press, slide off the control, release — nothing should happen |
 
 ## Level AA — standard target (also requires all A)
 
@@ -52,7 +60,6 @@ the same scorecard, WCAG rollup, and Jira tickets as the automated results.
 | Headings & labels are descriptive | 2.4.6 | Review heading text and control labels for clarity |
 | Orientation not locked (unless essential) | 1.3.4 | Rotate device portrait ⇄ landscape |
 | Touch target minimum 24×24 | 2.5.8 | Measure small/closely-spaced controls |
-| Link/button purpose clear in context | 2.4.4 | "Read more" etc. makes sense to a screen reader user |
 | Consistent navigation & identification | 3.2.3 / 3.2.4 | Nav and components behave the same across screens |
 | Error suggestions provided when known | 3.3.3 | Validation tells the user how to fix it |
 

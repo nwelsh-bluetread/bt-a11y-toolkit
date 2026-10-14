@@ -15,6 +15,48 @@ npm install @bluetread/accessibility-toolkit
 > [`docs/MANUAL_TESTING.md`](docs/MANUAL_TESTING.md) for what to test by hand
 > (by WCAG level) after the automated scans run.
 
+## Guided audit (start here)
+
+The fastest way to run an audit: install the toolkit into the repo you're
+auditing and let it walk you through everything.
+
+```bash
+cd path/to/client-repo
+npm install -D github:nwelsh-bluetread/bt-a11y-toolkit
+npx bt-a11y
+```
+
+> No repo to audit (e.g. a native app you only have a TestFlight build of)?
+> Run it from any empty folder: `mkdir acme-audit && cd acme-audit && npm init -y`,
+> then the two commands above.
+
+`npx bt-a11y` (same as `npx bt-a11y start`) asks a few questions and then
+guides you step by step:
+
+1. **Setup** — project name, **website / mobile app / both**, which mobile
+   platforms (iOS, Android), how the app is built, and the **WCAG level**
+   (A / AA / AAA). Offers to add `a11y-audit/` to `.gitignore`.
+2. **Automated scans**
+   - **Website:** pick pages (URLs, a URL file, or a sitemap) and scanners
+     (axe, Lighthouse). If a scanner's packages aren't installed, it offers to
+     install them for you.
+   - **iOS / Android:** shows step-by-step instructions for Accessibility
+     Inspector / Accessibility Scanner and lets you log what they find.
+3. **Manual checklist** — one check at a time, filtered to your platform and
+   WCAG level, with platform-specific "how to test" instructions. Mark each
+   **Pass / Fail / N/A / Skip**; a failure prompts for the details (screen,
+   what happened, severity, fix, screenshot).
+4. **Other findings** — anything else (code review, client-reported issues).
+5. **Generate audit report** — writes `a11y-audit/report.md` and
+   `a11y-audit/report.json`, prints a summary, and optionally files Jira
+   tickets.
+
+Everything is saved to `a11y-audit/session.json` as you answer, so you can quit
+any time (Ctrl+C or **Save & exit**) and run `npx bt-a11y` again to pick up
+where you left off. The menu always highlights the next unfinished step. To
+rebuild the report from the saved session without prompts:
+`npx bt-a11y report`.
+
 ## Why
 
 Manual audits are slow and inconsistent. This toolkit turns the repeatable parts
@@ -118,35 +160,28 @@ time for VoiceOver/TalkBack testing.
 
 ### Team setup
 
-1. **Clone and install** (Node 18+). The `prepare` hook builds `dist/`
-   automatically; run `npm run build` if `bt-a11y` isn't found.
-
-   ```bash
-   git clone https://github.com/nwelsh-bluetread/bt-a11y-toolkit.git
-   cd bt-a11y-toolkit
-   npm install
-   ```
-
-2. **Smoke-test the CLI** — no device, browser, or network needed:
-
-   ```bash
-   node dist/cli.js audit ./examples/login-screen.json --platform react-native
-   ```
-
-3. **Skip the browser drivers.** Playwright, Chrome, and Lighthouse are optional
-   peer dependencies and only matter if the app also has web surfaces
-   (marketing site, web views, account portal).
-4. **Jira (optional)** — each person puts their own credentials in `.env`
-   (already gitignored). Never commit tokens.
+1. **Install and run the [guided audit](#guided-audit-start-here)** (Node 18+)
+   in the client repo, or in an empty folder if you only have app builds.
+   Choose **Mobile app** and your platform(s). It walks you through the
+   on-device scans and the manual checklist and writes the report for you.
+2. **Skip the browser drivers.** Playwright, Chrome, and Lighthouse only matter
+   if the app also has web surfaces (marketing site, web views, account
+   portal). The guided audit only asks for them when you scan a website.
+3. **Jira (optional)** — each person puts their own credentials in a `.env`
+   file in the folder they run `bt-a11y` from. The CLI loads it automatically
+   on Node 20.12+; on older Node, `export` the variables instead. Make sure
+   `.env` is gitignored and never commit tokens.
 
    ```bash
    JIRA_BASE_URL=https://bluetread.atlassian.net
    JIRA_EMAIL=you@bluetread.com
    JIRA_API_TOKEN=...
+   JIRA_PROJECT_KEY=ACME
    ```
 
-   Always pass `--min-severity` the first time so you don't file a ticket for
-   every low-severity finding.
+   The guided audit asks for a minimum severity before filing; on the command
+   line, always pass `--min-severity` so you don't file a ticket for every
+   low-severity finding.
 
 ### Devices & tools per tester
 
@@ -176,7 +211,10 @@ differ.
 
 - **Split by platform, not by screen.** One person owns iOS + VoiceOver,
   another owns Android + TalkBack. Behavior diverges enough that per-platform
-  ownership keeps findings consistent.
+  ownership keeps findings consistent. The guided audit tracks a separate
+  checklist per platform, so each tester can work through just theirs.
+  (Each tester's session is saved on their own machine. If you test on
+  separate machines, pick one person to enter the final results.)
 - **Work flow by flow.** For each screen: run the automated scanner first
   (Inspector / Accessibility Scanner), then walk it with the screen reader, then
   check text scaling (Dynamic Type / Android font size), orientation, and
@@ -190,7 +228,9 @@ differ.
 
 ### Logging findings
 
-Record every finding in the toolkit's `Finding` shape from day one — this is
+The guided audit records findings in this shape for you. If you log findings
+some other way (a script, a spreadsheet import), record every finding in the
+toolkit's `Finding` shape from day one — this is
 what makes consolidation, scoring, and Jira tickets near-instant later. Tag the
 platform so one report can be filtered to iOS, Android, or both:
 
@@ -211,13 +251,13 @@ platform so one report can be filtered to iOS, Android, or both:
 ```
 
 Use `source` to record where it came from (`manual-voiceover`,
-`manual-talkback`, `ios-inspector`, `android-scanner`, …). `category` should be
-one of the scorecard categories: `Semantics`, `Images/Icons`, `Touch Targets`,
-`Forms`, `Screen Reader`, or `Contrast`. In code, the [`wcag()`](src/wcag.ts)
-helper looks up criteria by id, but it only covers the criteria the baseline
-rules use and throws on anything else. For mobile-specific criteria such as
-1.3.4 Orientation or 2.5.1 Pointer Gestures, write the criterion object inline
-(as above) or add it to `WCAG` in `src/wcag.ts`. Keep evidence
+`manual-talkback`, `ios-inspector`, `android-scanner`, …). `category` is the
+scorecard row the finding rolls up into. Reuse the guided audit's categories
+(`Screen Reader`, `Keyboard & Focus`, `Forms`, `Images/Icons`, `Contrast`,
+`Visual`, `Touch Targets`, `Gestures & Touch`, `Layout & Zoom`, `Content`,
+`Media & Motion`, `Semantics`) so rows line up. In code, the
+[`wcag()`](src/wcag.ts) helper looks up criteria by id and throws on ids that
+aren't in `WCAG` in `src/wcag.ts`; add any missing criterion there. Keep evidence
 and generated reports **outside the repo** or under `reports/` (gitignored) so
 client data is never committed.
 
@@ -282,8 +322,11 @@ console.log(formatConsole(assessment));
 
 ## Quick start (CLI)
 
-The CLI has two commands: `audit` (audits an `A11yNode` tree JSON) and
-`lighthouse` (runs Lighthouse against live pages or a saved result).
+Run `bt-a11y` with no arguments for the interactive
+[guided audit](#guided-audit-start-here). The scripted commands below are for
+CI and one-off scans: `audit` (audits an `A11yNode` tree JSON), `lighthouse`
+and `axe` (scan live pages or convert a saved result), and `report`
+(rebuilds the guided audit's report).
 
 ```bash
 # Audit an exported node tree:
@@ -623,6 +666,11 @@ src/
   rules.ts           The 13 baseline automated rules
   audit.ts           Audit runner, scoring, scorecard, WCAG rollups
   report.ts          console / json / markdown formatters
+  checklist.ts       Manual testing checklist as data (per level + platform)
+  wizard/            Guided audit (bt-a11y start)
+    index.ts         The interactive flow: setup, scans, checklist, report
+    session.ts       Saved progress (a11y-audit/session.json) + report output
+    prompts.ts       Prompt interface (inquirer in the CLI, scripted in tests)
   integrations/
     jira.ts          Jira ticket creation
     lighthouse.ts    Lighthouse LHR -> Finding/Assessment (pure)

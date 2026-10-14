@@ -7,6 +7,8 @@
  * Jira tickets from the findings.
  *
  * Usage:
+ *   bt-a11y start                    (interactive guided audit; also the default)
+ *   bt-a11y report                   (regenerate the report from a saved audit)
  *   bt-a11y audit <tree.json> [--platform web|ios|android|react-native]
  *                             [--level A|AA|AAA]
  *                             [--format console|json|markdown]
@@ -14,6 +16,7 @@
  *                             [--min-target <px>]
  *                             [--jira --min-severity high]
  */
+import { spawn } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { runAudit } from "./audit.js";
 import { formatConsole, formatJson, formatMarkdown } from "./report.js";
@@ -95,6 +98,9 @@ function parseArgs(argv: string[]): ParsedArgs {
 const HELP = `bt-a11y — BlueTread Accessibility Toolkit
 
 Usage:
+  bt-a11y                       Same as 'bt-a11y start'
+  bt-a11y start                 Guided audit: setup → scans → manual checklist → report
+  bt-a11y report                Regenerate the report from a saved guided audit
   bt-a11y audit <tree.json> [options]
   bt-a11y lighthouse <url> [<url> ...] [options]
   bt-a11y lighthouse --urls <file> [options]
@@ -106,6 +112,11 @@ Usage:
   bt-a11y axe --axe <result.json> [options]
 
 Commands:
+  start         Interactive audit for a website and/or mobile app. Asks what you're
+                auditing and the WCAG level, runs the right scans, walks you
+                through the manual checklist, and writes a11y-audit/report.md.
+                Progress is saved, so you can quit and resume any time.
+  report        Rebuild a11y-audit/report.md + report.json from the saved audit.
   audit         Audit an A11yNode tree exported by a platform adapter.
   lighthouse    Run Lighthouse against one or many live pages (or a saved LHR)
                 and produce one combined accessibility report.
@@ -131,7 +142,7 @@ Live Lighthouse scans require optional deps:
 Live axe scans require optional deps:
   npm install -D playwright @axe-core/playwright && npx playwright install chromium
 
-Environment (for --jira):
+Environment (for --jira and the guided audit's Jira step; read from ./.env too):
   JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN, JIRA_PROJECT_KEY
 `;
 
@@ -267,15 +278,97 @@ async function runAxeCommand(args: ParsedArgs): Promise<void> {
   await report(assessment, args);
 }
 
+async function runStartCommand(): Promise<void> {
+  const [{ runWizard }, { inquirerPrompter, isPromptExit }, lighthouseRunner] = await Promise.all([
+    import("./wizard/index.js"),
+    import("./wizard/prompts.js"),
+    import("./integrations/lighthouse-runner.js"),
+  ]);
+  const cwd = process.cwd();
+  try {
+    await runWizard({
+      prompter: await inquirerPrompter(),
+      cwd,
+      out: (text) => process.stdout.write(text + "\n"),
+      env: process.env,
+      resolveUrls: lighthouseRunner.resolveUrls,
+      scanAxe: async (urls, level, onProgress) => {
+        const { scanUrlsWithAxe } = await import("./integrations/axe-runner.js");
+        return (await scanUrlsWithAxe(urls, { targetLevel: level, onProgress })).assessment;
+      },
+      scanLighthouse: async (urls, level, onProgress) =>
+        (await lighthouseRunner.scanUrls(urls, { targetLevel: level, onProgress })).assessment,
+      hasModule: async (name) => {
+        try {
+          await import(name);
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      runCommand: (cmd, cmdArgs) =>
+        new Promise((resolve) => {
+          const child = spawn(cmd, cmdArgs, { cwd, stdio: "inherit", shell: process.platform === "win32" });
+          child.on("close", (code) => resolve(code ?? 1));
+          child.on("error", () => resolve(1));
+        }),
+      createJiraTickets: (assessment, minSeverity) => {
+        const { JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN, JIRA_PROJECT_KEY } = process.env;
+        return createJiraTickets(
+          assessment,
+          { baseUrl: JIRA_BASE_URL!, email: JIRA_EMAIL!, apiToken: JIRA_API_TOKEN!, projectKey: JIRA_PROJECT_KEY! },
+          { minSeverity },
+        );
+      },
+    });
+  } catch (err) {
+    if (!isPromptExit(err)) throw err;
+    process.stdout.write("\n\nStopped. Your progress is saved — run 'bt-a11y start' to resume.\n");
+  }
+}
+
+async function runReportCommand(): Promise<void> {
+  const { loadSession, writeReports } = await import("./wizard/session.js");
+  const session = loadSession(process.cwd());
+  if (!session) {
+    process.stderr.write("No saved audit found in ./a11y-audit. Run 'bt-a11y start' first.\n");
+    process.exitCode = 1;
+    return;
+  }
+  const { assessment, markdown, json } = writeReports(process.cwd(), session);
+  process.stdout.write(`${formatConsole(assessment)}\n\nReport written:\n  ${markdown}\n  ${json}\n`);
+}
+
+/** Load ./.env (e.g. JIRA_* credentials) when present. Needs Node 20.12+; existing env vars win. */
+function loadDotEnv(): void {
+  try {
+    process.loadEnvFile?.(".env");
+  } catch {
+    // No .env file — nothing to load.
+  }
+}
+
 async function main(): Promise<void> {
+  loadDotEnv();
   const argv = process.argv.slice(2);
-  if (argv.length === 0 || argv.includes("-h") || argv.includes("--help")) {
+  if (argv.includes("-h") || argv.includes("--help")) {
     process.stdout.write(HELP);
+    return;
+  }
+  if (argv.length === 0) {
+    if (process.stdin.isTTY) await runStartCommand();
+    else process.stdout.write(HELP);
     return;
   }
 
   const args = parseArgs(argv);
   switch (args.command) {
+    case "start":
+      await runStartCommand();
+      break;
+    case "report":
+      await runReportCommand();
+      break;
     case "audit":
       await runAuditCommand(args);
       break;
