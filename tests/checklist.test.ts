@@ -15,6 +15,12 @@ describe("MANUAL_CHECKLIST", () => {
     }
   });
 
+  it("covers all 86 WCAG 2.2 success criteria", () => {
+    expect(Object.keys(WCAG)).toHaveLength(86);
+    const covered = new Set(MANUAL_CHECKLIST.flatMap((i) => i.wcag));
+    expect(Object.keys(WCAG).filter((id) => !covered.has(id))).toEqual([]);
+  });
+
   it("has unique ids and instructions for every item", () => {
     const ids = MANUAL_CHECKLIST.map((i) => i.id);
     expect(new Set(ids).size).toBe(ids.length);
@@ -38,9 +44,9 @@ describe("checklistFor", () => {
 
   it("leaves out web-only checks for mobile apps", () => {
     const ios = checklistFor("ios", "AA").map((i) => i.id);
-    expect(ios).not.toContain("reflow");
+    expect(ios).not.toContain("bypass-blocks");
     expect(ios).not.toContain("text-spacing");
-    expect(checklistFor("web", "AA").map((i) => i.id)).toContain("reflow");
+    expect(checklistFor("web", "AA").map((i) => i.id)).toContain("bypass-blocks");
   });
 
   it("uses platform-specific instructions when available", () => {

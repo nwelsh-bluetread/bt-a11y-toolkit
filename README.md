@@ -1,7 +1,7 @@
 # @bluetread/accessibility-toolkit
 
 BlueTread's internal, repeatable accessibility testing toolkit. Every audit uses
-this as a baseline: a guided interactive audit, reusable automated a11y checks,
+this as a baseline: a guided audit (a few questions, then automated scans and a per-screen checklist), reusable automated a11y checks,
 a manual testing checklist, WCAG-mapped scoring, a report generator, and Jira
 ticket creation — for **websites** and **mobile apps (iOS / Android)**.
 
@@ -32,32 +32,133 @@ npx bt-a11y
 > Run it from any empty folder: `mkdir acme-audit && cd acme-audit && npm init -y`,
 > then the two commands above.
 
-`npx bt-a11y` (same as `npx bt-a11y start`) asks a few questions and then
-guides you step by step:
+`npx bt-a11y` (same as `npx bt-a11y start`) works in three parts:
 
-1. **Setup** — project name, **website / mobile app / both**, which mobile
-   platforms (iOS, Android), how the app is built, and the **WCAG level**
-   (A / AA / AAA). Offers to add `a11y-audit/` to `.gitignore`.
-2. **Automated scans**
-   - **Website:** pick pages (URLs, a URL file, or a sitemap) and scanners
-     (axe, Lighthouse). If a scanner's packages aren't installed, it offers to
-     install them for you.
-   - **iOS / Android:** shows step-by-step instructions for Accessibility
-     Inspector / Accessibility Scanner and lets you log what they find.
-3. **Manual checklist** — one check at a time, filtered to your platform and
-   WCAG level, with platform-specific "how to test" instructions. Mark each
-   **Pass / Fail / N/A / Skip**; a failure prompts for the details (screen,
-   what happened, severity, fix, screenshot).
-4. **Other findings** — anything else (code review, client-reported issues).
-5. **Generate audit report** — writes `a11y-audit/report.md` and
-   `a11y-audit/report.json`, prints a summary, and optionally files Jira
-   tickets.
+**1. A few questions** — the only interactive part:
 
-Everything is saved to `a11y-audit/session.json` as you answer, so you can quit
-any time (Ctrl+C or **Save & exit**) and run `npx bt-a11y` again to pick up
-where you left off. The menu always highlights the next unfinished step. To
-rebuild the report from the saved session without prompts:
-`npx bt-a11y report`.
+- Project / client name
+- **Mobile app (iOS + Android)**, **website**, or **both**
+- Target **WCAG level** (A / AA / AAA)
+- **Screens** — for a React Native repo, it finds them in the navigation code
+  (`<Stack.Screen>`, static navigator configs, or expo-router's `app/` folder)
+  and shows what each one contains (form inputs, images, gestures…). Confirm
+  the list or edit it. For other mobile apps, type the screen names.
+- **Pages** (websites) — URLs, a sitemap URL, or a URL list file. If the axe /
+  Lighthouse packages aren't installed, it offers to install them.
+
+**2. Automated checks run on their own** — the React Native
+[code scan](#react-native-code-scan) (iOS + Android) and/or axe + Lighthouse
+on each page. Code findings are mapped to every screen that renders the
+affected file.
+
+**3. The manual checklist, per screen** — printed in the terminal and written
+to `a11y-audit/checklist.md`. Each screen gets the checks every screen needs
+plus checks for what it contains (a screen with inputs gets the form checks, a
+screen with swipe gestures gets the gesture checks, and so on); app-wide
+checks like orientation and language are listed once. Under each check:
+platform-specific "how to test" steps, and ⚑ lines for anything the scans
+found or flagged on that screen.
+
+Testers fill in `checklist.md`, marking each platform line:
+
+```markdown
+## Screen: Login
+
+### Every input has a label or instructions (not just placeholder text) · 3.3.2 · `input-labels`
+- [x] iOS
+- [!] Android: Email field is announced as "edit box" with no label (high)
+  - Password field has no label either (medium)
+
+### Sign-in doesn't require a memory or puzzle test; password managers and paste work · 3.3.8 · `accessible-auth`
+- [-] iOS
+- [ ] Android
+```
+
+`[x]` pass · `[!]` fail (describe the issue after the platform, optional
+`(severity)` and `[criterion]`) · `[-]` not applicable · `[ ]` not checked
+yet. Issues that don't fit a check go under **Other findings** at the bottom.
+
+Then **`npx bt-a11y report`** reads the scans + checklist and writes
+`a11y-audit/report.md` and `report.json`: score, findings (with screen and
+platform), and the [WCAG 2.2 coverage matrix](#wcag-22-coverage-all-86-criteria).
+It warns about lines it can't read (with line numbers). Run it as often as you
+like; add `--jira --min-severity high` to file tickets.
+
+Running `npx bt-a11y` again offers to re-run the scans (e.g. after the client
+ships fixes) and regenerates the checklist **keeping every answer already
+filled in**.
+
+## React Native code scan
+
+`bt-a11y code [folder]` (or step 1 of the guided audit) statically reads a
+React Native project — JS/TS/JSX source plus `app.json` / `app.config.*`,
+`ios/*/Info.plist`, and `android/.../AndroidManifest.xml`. Nothing is run or
+built; it doesn't need a device, simulator, or the app's dependencies
+installed. A ~100-file app scans in well under a second.
+
+| Rule | Checks | WCAG |
+| --- | --- | --- |
+| `rn-control-name` | Pressable/Touchable with no text and no `accessibilityLabel` (icon-only buttons) | 4.1.2, 1.1.1 |
+| `rn-control-role` | Pressable/Touchable with no `accessibilityRole` / `role` | 4.1.2 |
+| `rn-control-state` | `checkbox` / `switch` / `radio` / `tab` role with no `accessibilityState` | 4.1.2 |
+| `rn-label-in-name` | `accessibilityLabel` that doesn't contain the visible text | 2.5.3 |
+| `rn-hidden-control` | Touchable inside `aria-hidden` / `accessibilityElementsHidden` / `no-hide-descendants` | 4.1.2 |
+| `rn-image-alt` | `Image` with no label and not explicitly marked decorative | 1.1.1 |
+| `rn-input-label` | `TextInput` with no label (placeholder only) | 3.3.2, 4.1.2, 1.3.1 |
+| `rn-input-purpose` | Email/phone/name/password field with no `autoComplete` / `textContentType` | 1.3.5 |
+| `rn-paste-blocked` | Password field with `contextMenuHidden` (blocks password managers) | 3.3.8 |
+| `rn-font-scaling` / `-cap` / `-global` | `allowFontScaling={false}`, `maxFontSizeMultiplier` < 2, or app-wide `defaultProps` overrides | 1.4.4 |
+| `rn-target-size` | Touchable styled smaller than 24×24 (44×44 at AAA) with no `hitSlop` | 2.5.8 / 2.5.5 |
+| `rn-contrast` | Text color vs. container background (from inline styles / `StyleSheet.create`) below 4.5:1 / 3:1 | 1.4.3 / 1.4.6 |
+| `rn-heading-role` | Text styled as a title/heading without `accessibilityRole="header"` | 1.3.1 |
+| `rn-orientation-lock` | Portrait/landscape lock in Expo config, Info.plist, AndroidManifest, or code | 1.3.4 |
+| `rn-reduce-motion` *(AAA)* | Animations with no Reduce Motion check anywhere | 2.3.3 |
+
+It also raises **"verify by hand" signals** for code that a person must check:
+gesture handlers and long-press (2.5.1 / 2.5.7), video players (1.2.x / 1.4.2),
+looping Lottie animations (2.2.2), modals (2.4.3), WebViews, long timers
+(2.2.1), and an app with no live regions or announcements at all (4.1.3). In
+the guided audit these appear on the matching manual checks.
+
+**How to read the results.** Findings are grouped per rule per file, with line
+numbers, so one finding ≈ one fix ≈ one ticket. The scan only reports what's
+written literally in code: when text comes from a variable, or props are
+spread (`{...props}`) into a component, it skips rather than guesses. That
+keeps false positives low, and it means **no findings ≠ passing** — those
+criteria show as "Scan clear — verify" until the manual checklist confirms
+them.
+
+```bash
+npx bt-a11y code                          # scan the current folder
+npx bt-a11y code ./mobile --format markdown --out code-scan.md
+npx bt-a11y code --level AAA --jira --min-severity high
+```
+
+## WCAG 2.2 coverage (all 86 criteria)
+
+WCAG 2.2 has **86 success criteria** (31 A, 24 AA, 31 AAA). No tool can test
+all of them automatically — automation reliably covers roughly a quarter to a
+third — so the guided audit combines three sources and tracks every criterion:
+
+| Source | Covers |
+| --- | --- |
+| React Native code scan | 11 criteria at AA (14 at AAA) — see rules above |
+| axe / Lighthouse (websites) | ~22 criteria |
+| Manual checklist (`src/checklist.ts`) | **All 86** — 70 checks, grouped where criteria are tested together; filtered by level and platform, and tailored per screen |
+
+The report's coverage matrix lists each in-scope criterion (55 at AA) per
+platform with one status:
+
+| Status | Meaning |
+| --- | --- |
+| ❌ Fail (n) | n findings map to it (from any source) |
+| ✅ Pass | Every checklist line covering it (on every screen) is answered and none failed it |
+| ➖ N/A | The tester marked it not applicable (e.g. no video) |
+| 🔎 Scan clear — verify | An automated check covers it and found nothing; still needs manual confirmation |
+| ⬜ Not tested | Nothing has looked at it yet |
+| — Doesn't apply | Not applicable to the platform (Bypass Blocks, Multiple Ways, and Text Spacing on native apps) |
+
+`report.json` includes the same matrix under `coverage`.
 
 ## Why
 
@@ -155,17 +256,21 @@ use the mobile toolchain below. The audit is inherently **more manual** than web
 — there is no DOM-style automated scanner for native mobile — so budget extra
 time for VoiceOver/TalkBack testing.
 
-> **What this repo does for a mobile audit today:** scoring, WCAG mapping,
-> reports, and Jira tickets. The testing itself happens on devices with the
-> platform tools below. The React Native adapter and native result imports
-> (XCUITest, Espresso) are still on the [roadmap](#roadmap).
+> **What this repo does for a mobile audit today:** for **React Native** apps,
+> an automated [source-code scan](#react-native-code-scan); for every app, the
+> full manual checklist (all 86 WCAG 2.2 criteria), scoring, a
+> [criteria coverage matrix](#wcag-22-coverage-all-86-criteria), reports, and
+> Jira tickets. Screen-reader testing still happens on real devices. Code
+> scanners for native Swift/Kotlin and Flutter, and imports for XCUITest /
+> Espresso results, are on the [roadmap](#roadmap).
 
 ### Team setup
 
 1. **Install and run the [guided audit](#guided-audit-start-here)** (Node 18+)
    in the client repo, or in an empty folder if you only have app builds.
-   Choose **Mobile app** and your platform(s). It walks you through the
-   on-device scans and the manual checklist and writes the report for you.
+   Choose **Mobile app**. For a React Native repo it finds the screens and
+   scans the code; then it writes the per-screen checklist for testers to fill
+   in.
 2. **Skip the browser drivers.** Playwright, Chrome, and Lighthouse only matter
    if the app also has web surfaces (marketing site, web views, account
    portal). The guided audit only asks for them when you scan a website.
@@ -213,14 +318,15 @@ differ.
 
 - **Split by platform, not by screen.** One person owns iOS + VoiceOver,
   another owns Android + TalkBack. Behavior diverges enough that per-platform
-  ownership keeps findings consistent. The guided audit tracks a separate
-  checklist per platform, so each tester can work through just theirs.
-  (Each tester's session is saved on their own machine. If you test on
-  separate machines, pick one person to enter the final results.)
-- **Work flow by flow.** For each screen: run the automated scanner first
-  (Inspector / Accessibility Scanner), then walk it with the screen reader, then
-  check text scaling (Dynamic Type / Android font size), orientation, and
-  contrast.
+  ownership keeps findings consistent. Every check in `checklist.md` has a
+  separate `iOS` and `Android` line, so the iOS tester fills in only the iOS
+  lines and the Android tester only the Android lines — share the one file
+  (shared drive, or a branch; edits on different lines merge cleanly) and run
+  `npx bt-a11y report` once both are done.
+- **Work screen by screen** through `checklist.md`: walk each screen with the
+  screen reader, then check text scaling (Dynamic Type / Android font size) and
+  contrast. Optionally run Accessibility Inspector / Accessibility Scanner on
+  each screen first and log real issues under the matching check.
 - **Follow [`docs/MANUAL_TESTING.md`](docs/MANUAL_TESTING.md)** for what to
   test at each WCAG level, and
   [`docs/DEVELOPMENT_CHECKLISTS.md`](docs/DEVELOPMENT_CHECKLISTS.md) for the
@@ -230,8 +336,8 @@ differ.
 
 ### Logging findings
 
-The guided audit records findings in this shape for you. If you log findings
-some other way (a script, a spreadsheet import), record every finding in the
+The guided audit turns `checklist.md` into findings in this shape for you. If
+you log findings some other way (a script, a spreadsheet import), record every finding in the
 toolkit's `Finding` shape from day one — this is
 what makes consolidation, scoring, and Jira tickets near-instant later. Tag the
 platform so one report can be filtered to iOS, Android, or both:
@@ -267,7 +373,7 @@ client data is never committed.
 
 | Stack | Static / source | On-device automated | Manual (required) |
 | --- | --- | --- | --- |
-| **React Native** | `eslint-plugin-react-native-a11y` + this toolkit's RN adapter → rules | iOS Accessibility Inspector, Android Accessibility Scanner | VoiceOver + TalkBack |
+| **React Native** | **`bt-a11y code`** (this toolkit's [code scan](#react-native-code-scan)) | iOS Accessibility Inspector, Android Accessibility Scanner | VoiceOver + TalkBack |
 | **Native iOS** (Swift/UIKit/SwiftUI) | — | Xcode Accessibility Inspector Audit, XCUITest `performAccessibilityAudit()` | VoiceOver |
 | **Native Android** (Kotlin/Java/Compose) | — | Accessibility Scanner, Espresso `AccessibilityChecks.enable()` | TalkBack |
 | **Flutter** | Flutter a11y lints | Semantics debugger + native tools | VoiceOver + TalkBack |
@@ -275,10 +381,9 @@ client data is never committed.
 ### Three-layer workflow
 
 1. **Static / source analysis** (automated, no device) — for React Native,
-   `eslint-plugin-react-native-a11y` flags missing `accessibilityLabel`,
-   `accessibilityRole`, and `accessibilityState` in source, and this toolkit's
-   RN adapter serializes the element tree into `A11yNode`s so the existing
-   [baseline rules](#baseline-automated-rules) run on mobile.
+   `bt-a11y code` flags missing labels, roles, and states, disabled font
+   scaling, locked orientation, low-contrast styles, small targets, and more
+   (see [React Native code scan](#react-native-code-scan)).
 2. **On-device automated scans** — Xcode Accessibility Inspector / XCUITest on
    iOS; Accessibility Scanner / Espresso on Android. These catch labels,
    contrast, touch-target size, and traits per screen.
@@ -291,19 +396,17 @@ client data is never committed.
 ```
 Discovery ─► confirm RN version, screens, flows, test accounts
 
-Phase 1 Assessment:
-  1. Static   → eslint-plugin-react-native-a11y (CI)
-  2. Toolkit  → RN adapter → A11yNode → baseline rules → Finding[] → report + Jira
-  3. iOS      → Accessibility Inspector Audit + XCUITest performAccessibilityAudit
-  4. Android  → Accessibility Scanner + Espresso checks
-  5. Manual   → VoiceOver + TalkBack through all flows
-  6. Consolidate all Finding[] → scorecard + executive report
+Phase 1 Assessment (all inside `npx bt-a11y`):
+  1. Code     → bt-a11y code: RN source + native config → Finding[] + signals
+  2. iOS      → Accessibility Inspector Audit (optional, logged in the wizard)
+  3. Android  → Accessibility Scanner (optional, logged in the wizard)
+  4. Manual   → VoiceOver + TalkBack checklist, per platform, all in-scope criteria
+  5. Report   → scorecard + findings + WCAG 2.2 coverage matrix + Jira
 ```
 
 Every layer normalizes into the same `Finding` model, so a mobile-only
-engagement still produces one unified scorecard, WCAG rollup, and Jira tickets —
-no web tooling involved. (The React Native adapter and native result-import
-modules are on the [roadmap](#roadmap).)
+engagement still produces one unified scorecard, WCAG rollup, coverage matrix,
+and Jira tickets — no web tooling involved.
 
 ## Quick start (library)
 
@@ -346,11 +449,11 @@ for (const item of checklistFor("ios", "AA")) {
 
 ## Quick start (CLI)
 
-Run `bt-a11y` with no arguments for the interactive
+Run `bt-a11y` with no arguments for the
 [guided audit](#guided-audit-start-here). The scripted commands below are for
 CI and one-off scans: `audit` (audits an `A11yNode` tree JSON), `lighthouse`
-and `axe` (scan live pages or convert a saved result), and `report`
-(rebuilds the guided audit's report).
+and `axe` (scan live pages or convert a saved result), `code` (scans React
+Native source), and `report` (rebuilds the guided audit's report).
 
 ```bash
 # Audit an exported node tree:
@@ -557,11 +660,15 @@ Available after `npm run build` as `node dist/cli.js` or, once installed, `bt-a1
 Reads `./.env` automatically on Node 20.12+ (for `JIRA_*` variables).
 
 ```bash
-# Guided interactive audit (same as plain `bt-a11y`); resumes if one is saved:
+# Guided audit (same as plain `bt-a11y`): questions → scans → per-screen checklist:
 node dist/cli.js start
 
-# Rebuild a11y-audit/report.md + report.json from the saved guided audit:
+# Build the audit from the scans + filled-in a11y-audit/checklist.md:
 node dist/cli.js report
+node dist/cli.js report --jira --min-severity high
+
+# Scan a React Native project's source code:
+node dist/cli.js code ./path/to/rn-app --format markdown --out code-scan.md
 
 # Audit a node tree, print the console report:
 node dist/cli.js audit ./examples/login-screen.json --platform react-native
@@ -645,8 +752,12 @@ Each file can be run on its own with `npx vitest run tests/<file>`.
 | `tests/lighthouse.test.ts` | Lighthouse → `Finding`/`Assessment` conversion and mappings. | `npm run test:lighthouse` |
 | `tests/lighthouse-runner.test.ts` | URL discovery: URL list files, sitemaps, and sitemap indexes. | `npx vitest run tests/lighthouse-runner.test.ts` |
 | `tests/axe.test.ts` | axe-core → `Finding`/`Assessment` conversion, WCAG tag mapping, multi-page merge. | `npx vitest run tests/axe.test.ts` |
-| `tests/checklist.test.ts` | Manual checklist data (valid WCAG ids, level stacking, platform filtering) and `findingsToAssessment`. | `npx vitest run tests/checklist.test.ts` |
-| `tests/wizard.test.ts` | The guided audit end to end with scripted answers: mobile + web flows, scanner install, resume, report output. | `npx vitest run tests/wizard.test.ts` |
+| `tests/checklist.test.ts` | Manual checklist data (covers all 86 criteria, valid WCAG ids, level stacking, platform filtering) and `findingsToAssessment`. | `npx vitest run tests/checklist.test.ts` |
+| `tests/rn-code-scan.test.ts` | The React Native code scanner against a generated mini-app: every rule, native config, signals, and no-guess cases (dynamic text, spread props). | `npx vitest run tests/rn-code-scan.test.ts` |
+| `tests/screens.test.ts` | Screen discovery: React Navigation (barrels, path aliases, `getComponent`, nested navigators skipped), static configs, expo-router, folder fallback, feature detection. | `npx vitest run tests/screens.test.ts` |
+| `tests/checklist-md.test.ts` | The per-screen checklist file: planning (feature-tailored checks), rendering (⚑ findings on the right screen), parsing marks/issues/Other findings, and keeping answers on regenerate. | `npx vitest run tests/checklist-md.test.ts` |
+| `tests/coverage.test.ts` | The WCAG 2.2 coverage matrix: level scoping and every status. | `npx vitest run tests/coverage.test.ts` |
+| `tests/wizard.test.ts` | The guided audit end to end with scripted answers: React Native, non-RN mobile, and web flows; only setup prompts; checklist written and displayed; filled-in checklist → report; re-run keeps answers. | `npx vitest run tests/wizard.test.ts` |
 | `tests/fixtures.ts` | Shared sample `A11yNode` tree used by rule/audit tests (not a test itself). | — |
 | `tests/fixtures.lighthouse.ts` | Shared sample Lighthouse Result used by the Lighthouse test (not a test itself). | — |
 | `tests/fixtures.axe.ts` | Shared sample axe result used by the axe test (not a test itself). | — |
@@ -685,6 +796,11 @@ only what you need, not everything at once. To add one, follow this pattern:
    `MOBILE_SCANNER` (mobile) in `src/wizard/index.ts`, wire its runner into
    `runStartCommand` in `src/cli.ts`, and extend `tests/wizard.test.ts`.
 
+To add a **code-scan rule**, add it to `RN_RULES` and the checks in
+`checkElement` in `src/code-scan/react-native.ts`, plus a case in the
+`PROJECT` fixture in `tests/rn-code-scan.test.ts`. Its WCAG ids automatically
+count toward the coverage matrix.
+
 To add or change a **manual check**, edit `MANUAL_CHECKLIST` in
 `src/checklist.ts` *and* the matching table in
 [`docs/MANUAL_TESTING.md`](docs/MANUAL_TESTING.md). Any new WCAG criterion must
@@ -707,16 +823,21 @@ console.log(formatConsole(assessment));
 ```
 src/
   types.ts           A11yNode, Finding, Rule, Assessment types
-  wcag.ts            Curated WCAG 2.2 criteria map
+  wcag.ts            All 86 WCAG 2.2 success criteria
   utils.ts           Tree traversal + node predicates
   contrast.ts        WCAG contrast math (no deps)
   rules.ts           The 13 baseline automated rules
   audit.ts           Audit runner, scoring, scorecard, WCAG rollups
   report.ts          console / json / markdown formatters
-  checklist.ts       Manual testing checklist as data (per level + platform)
+  checklist.ts       Manual testing checklist as data — covers all 86 criteria
+  code-scan/
+    react-native.ts  React Native source-code scanner (bt-a11y code)
+    screens.ts       Screen discovery from navigation code + what each screen contains
   wizard/            Guided audit (bt-a11y start)
-    index.ts         The interactive flow: setup, scans, checklist, report
-    session.ts       Saved progress (a11y-audit/session.json) + report output
+    index.ts         The flow: setup questions → automated checks → per-screen checklist
+    checklist-md.ts  Plan, render, and parse a11y-audit/checklist.md
+    session.ts       Setup + scan results (a11y-audit/session.json) + report output
+    coverage.ts      WCAG 2.2 coverage matrix (status per criterion per platform)
     prompts.ts       Prompt interface (inquirer in the CLI, scripted in tests)
   integrations/
     jira.ts          Jira ticket creation
@@ -797,6 +918,7 @@ Physical-device + manual SR findings ──────────────�
 
 ## Roadmap
 
+- Code scanners for native iOS (Swift/SwiftUI/UIKit), Android (Kotlin/Compose/XML), and Flutter (React Native is done)
 - Platform adapters (`@bluetread/accessibility-toolkit/adapters/react-native`, `/web`)
 - Native mobile result imports (XCUITest `performAccessibilityAudit`, Android Espresso/ATF)
 - WAVE result import (axe and Lighthouse are done)

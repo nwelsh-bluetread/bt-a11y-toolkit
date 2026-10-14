@@ -2,19 +2,18 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { checklistFor } from "../src/checklist.js";
+import type { CodeScanResult } from "../src/code-scan/react-native.js";
+import type { ScreenInfo } from "../src/code-scan/screens.js";
+import type { Assessment } from "../src/types.js";
+import { wcag } from "../src/wcag.js";
 import { runWizard, type WizardDeps } from "../src/wizard/index.js";
 import type { Choice, Prompter } from "../src/wizard/prompts.js";
-import { loadSession, sessionWcagRollup } from "../src/wizard/session.js";
-import type { Assessment } from "../src/types.js";
+import { loadSession, writeReports } from "../src/wizard/session.js";
 
 type Answer = (message: string, choices?: Choice<unknown>[]) => unknown;
 
-/**
- * A prompter driven by `[pattern, answer]` rules: the first rule whose pattern
- * matches the prompt message answers it. Rules marked `once` are consumed.
- */
-function scripted(rules: Array<{ match: RegExp; answer: unknown | Answer; once?: boolean }>): Prompter & { log: string[] } {
+/** A prompter driven by `{ match, answer }` rules; the first matching rule answers. `once` rules are consumed. */
+function scripted(rules: Array<{ match: RegExp; answer: unknown; once?: boolean }>): Prompter & { log: string[] } {
   const log: string[] = [];
   const respond = (message: string, choices?: Choice<unknown>[]) => {
     log.push(message);
@@ -33,25 +32,46 @@ function scripted(rules: Array<{ match: RegExp; answer: unknown | Answer; once?:
   };
 }
 
-/** Pick a menu choice whose label contains `text`. */
-const choose = (text: string): Answer => (_, choices) => {
-  const c = choices!.find((ch) => ch.name.includes(text));
-  if (!c) throw new Error(`No choice containing "${text}"`);
-  return c.value;
+const SCREENS: ScreenInfo[] = [
+  { name: "Login", kind: "mobile", file: "src/Login.tsx", files: ["src/Login.tsx"], features: ["inputs", "auth"] },
+  { name: "Inbox", kind: "mobile", file: "src/Inbox.tsx", files: ["src/Inbox.tsx"], features: ["gestures"] },
+];
+
+const SCAN: CodeScanResult = {
+  root: "",
+  filesScanned: 42,
+  checked: ["1.1.1", "1.4.4", "3.3.2", "4.1.2"],
+  signals: [{ id: "gestures", criteria: ["2.5.1", "2.5.7"], message: "Gesture interaction", locations: [{ file: "src/Inbox.tsx", line: 9 }] }],
+  findings: [
+    {
+      ruleId: "rn-input-label",
+      title: "Text input has no accessible label — src/Login.tsx",
+      description: "",
+      severity: "high",
+      wcag: wcag("3.3.2", "4.1.2"),
+      platforms: ["ios", "android"],
+      source: "rn-code-scan",
+      nodeId: "src/Login.tsx:12",
+      evidence: { file: "src/Login.tsx", lines: [12] },
+    },
+  ],
 };
 
-function deps(cwd: string, prompter: Prompter, overrides: Partial<WizardDeps> = {}): WizardDeps {
-  const fail = async (): Promise<Assessment> => {
-    throw new Error("scanner should not run");
+function deps(cwd: string, prompter: Prompter, overrides: Partial<WizardDeps> = {}): WizardDeps & { output: string[] } {
+  const output: string[] = [];
+  const fail = async (): Promise<never> => {
+    throw new Error("should not run");
   };
   return {
+    output,
     prompter,
     cwd,
-    out: () => {},
-    env: {},
+    out: (t) => output.push(t),
     resolveUrls: async (o) => o.urls ?? [],
     scanAxe: fail,
     scanLighthouse: fail,
+    scanCode: async () => SCAN,
+    discoverScreens: async () => ({ screens: SCREENS, method: "react-navigation" }),
     hasModule: async () => true,
     runCommand: async () => 0,
     ...overrides,
@@ -64,108 +84,118 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(cwd, { recursive: true, force: true }));
 
-describe("runWizard — mobile app", () => {
-  it("runs setup, the iOS checklist with one failure, and writes a report", async () => {
+const rnPackage = () => writeFileSync(join(cwd, "package.json"), JSON.stringify({ name: "acme-rn", dependencies: { "react-native": "0.76.0" } }));
+const read = (file: string) => readFileSync(join(cwd, "a11y-audit", file), "utf8");
+
+describe("runWizard — React Native app", () => {
+  it("asks only setup questions, then scans, and writes + prints a per-screen checklist", async () => {
+    rnPackage();
     mkdirSync(join(cwd, ".git"));
-    const iosItems = checklistFor("ios", "AA");
-    let checked = 0;
-
     const p = scripted([
-      { match: /Project \/ client name/, answer: "Acme Mobile" },
+      { match: /Project \/ client name/, answer: undefined }, // accept default
       { match: /What are you auditing/, answer: "mobile" },
-      { match: /Which mobile platforms/, answer: ["ios"] },
-      { match: /How is the app built/, answer: "react-native" },
       { match: /Target WCAG/, answer: "AA" },
+      { match: /Audit these screens/, answer: true },
       { match: /gitignore/, answer: true },
-      // Main menu: checklist first, then report, then exit.
-      { match: /What next/, answer: choose("Manual checklist — iOS"), once: true },
-      {
-        match: /^Result:/,
-        answer: () => (checked++ === 0 ? "fail" : "pass"),
-      },
-      { match: /Issue title/, answer: undefined }, // accept default (item title)
-      { match: /Screen \/ flow/, answer: "Login" },
-      { match: /What happens/, answer: "Sign-in button announced as 'button' with no name" },
-      { match: /^Severity/, answer: "critical" },
-      { match: /Suggested fix/, answer: "Add accessibilityLabel='Sign in'" },
-      { match: /Screenshot/, answer: "evidence/login.png" },
-      { match: /Log another issue for this check/, answer: false },
-      { match: /What next/, answer: choose("Generate audit report"), once: true },
-      { match: /What next/, answer: choose("Save & exit"), once: true },
     ]);
+    const d = deps(cwd, p);
+    await runWizard(d);
 
-    await runWizard(deps(cwd, p));
-
-    expect(checked).toBe(iosItems.length);
-    expect(readFileSync(join(cwd, ".gitignore"), "utf8")).toContain("a11y-audit/");
-
+    expect(p.log).toHaveLength(5);
     const session = loadSession(cwd)!;
-    expect(session.project).toMatchObject({ name: "Acme Mobile", type: "mobile", targets: ["ios"], targetLevel: "AA" });
-    const results = session.checklist.ios!;
-    expect(Object.keys(results)).toHaveLength(iosItems.length);
-    const failed = results[iosItems[0]!.id]!;
-    expect(failed.status).toBe("fail");
-    expect(failed.findings[0]).toMatchObject({
-      ruleId: `manual:${iosItems[0]!.id}`,
-      title: iosItems[0]!.title,
-      severity: "critical",
-      platforms: ["ios"],
-      source: "manual",
-      nodeId: "Login",
-      evidence: { screen: "Login", screenshot: "evidence/login.png" },
-    });
+    expect(session.project).toMatchObject({ name: "acme-rn", type: "mobile", targets: ["ios", "android"], stack: "react-native", targetLevel: "AA" });
+    expect(session.screens.map((s) => s.name)).toEqual(["Login", "Inbox"]);
+    expect(session.automated[0]).toMatchObject({ tool: "rn-code-scan", filesScanned: 42, targets: ["ios", "android"] });
 
-    const report = readFileSync(join(cwd, "a11y-audit", "report.md"), "utf8");
-    expect(report).toContain("# Accessibility Assessment — Acme Mobile");
-    expect(report).toContain("Sign-in button announced");
-    expect(report).toContain("**Screen:** Login");
-    expect(existsSync(join(cwd, "a11y-audit", "report.json"))).toBe(true);
+    const out = d.output.join("\n");
+    expect(out).toContain("Found 2 screens");
+    expect(out).toContain("React Native code scan");
+    expect(out).toMatch(/Manual checklist — Mobile app — iOS \+ Android · WCAG AA/);
+    expect(out).toMatch(/Login — every-screen checks, plus:\s+src\/Login\.tsx · form inputs, sign-in · ⚑ 1 automated finding/);
+    expect(out).toContain("☐ Swipe, pinch, and drag gestures have a single-tap alternative (2.5.1)");
+    expect(out).toMatch(/On every screen \(\d+ checks\)/);
+    expect(out).toContain("npx bt-a11y report");
+
+    const md = read("checklist.md");
+    expect(md).toContain("## Screen: Login");
+    expect(md).toContain("⚑ rn-code-scan: Text input has no accessible label (src/Login.tsx:12)");
+    expect(md).toContain("⚑ Verify: Gesture interaction (src/Inbox.tsx:9)");
+    expect(read("report.md")).toContain("## WCAG 2.2 criteria coverage");
+    expect(readFileSync(join(cwd, ".gitignore"), "utf8")).toContain("a11y-audit/");
   });
 
-  it("logs scanner findings for each mobile platform", async () => {
+  it("builds the audit from the filled-in checklist, and keeps answers on re-run", async () => {
+    rnPackage();
+    await runWizard(
+      deps(
+        cwd,
+        scripted([
+          { match: /Project \/ client name/, answer: "Acme" },
+          { match: /What are you auditing/, answer: "mobile" },
+          { match: /Target WCAG/, answer: "AA" },
+          { match: /Audit these screens/, answer: true },
+        ]),
+      ),
+    );
+
+    // A tester fills in the gestures check on the Inbox screen.
+    const path = join(cwd, "a11y-audit", "checklist.md");
+    const md = readFileSync(path, "utf8");
+    const gestures = md.indexOf("`pointer-gestures`", md.indexOf("## Screen: Inbox"));
+    const filled =
+      md.slice(0, gestures) +
+      md.slice(gestures).replace("- [ ] iOS", "- [!] iOS: Delete is swipe-only, no button (high)").replace("- [ ] Android", "- [x] Android");
+    writeFileSync(path, filled);
+
+    const { assessment, coverage } = writeReports(cwd, loadSession(cwd)!);
+    const manual = assessment.findings.find((f) => f.ruleId === "manual:pointer-gestures")!;
+    expect(manual).toMatchObject({ title: "Delete is swipe-only, no button", severity: "high", platforms: ["ios"], nodeId: "Inbox" });
+    const row = coverage.rows.find((r) => r.id === "2.5.1")!;
+    expect(row.byTarget.ios!.status).toBe("fail");
+    expect(row.byTarget.android!.status).toBe("pass");
+    expect(read("report.md")).toContain("Delete is swipe-only, no button");
+
+    // Re-run: no setup questions, answers kept.
+    const p = scripted([{ match: /What would you like to do/, answer: "rerun" }]);
+    const d = deps(cwd, p);
+    await runWizard(d);
+    expect(p.log).toEqual(["What would you like to do?"]);
+    expect(readFileSync(path, "utf8")).toContain("- [!] iOS: Delete is swipe-only, no button (high)");
+    expect(d.output.join("\n")).toContain("kept 2 answers");
+  });
+
+  it("lets the user type screens when the project isn't React Native", async () => {
     const p = scripted([
-      { match: /Project \/ client name/, answer: "Acme" },
+      { match: /Project \/ client name/, answer: "Acme Native" },
       { match: /What are you auditing/, answer: "mobile" },
-      { match: /Which mobile platforms/, answer: ["ios", "android"] },
-      { match: /How is the app built/, answer: "native" },
       { match: /Target WCAG/, answer: "A" },
-      { match: /What next/, answer: choose("Automated scans"), once: true },
-      { match: /Which platforms do you want to scan/, answer: ["ios", "android"] },
-      { match: /Did the scanner find real issues/, answer: "log", once: true },
-      { match: /Issue title/, answer: "Small close button" },
-      { match: /Screen \/ flow/, answer: "Settings" },
-      { match: /What happens/, answer: "Close button is 20x20" },
-      { match: /^Severity/, answer: "medium" },
-      { match: /WCAG criteria/, answer: "2.5.8" },
-      { match: /^Category/, answer: "Touch Targets" },
-      { match: /Suggested fix/, answer: "" },
-      { match: /Screenshot/, answer: "" },
-      { match: /Log another issue from the scanner/, answer: "done" },
-      { match: /Did the scanner find real issues/, answer: "done" },
-      { match: /What next/, answer: choose("Save & exit"), once: true },
+      { match: /Screens to audit/, answer: "Home, Checkout, Home" },
     ]);
-
-    await runWizard(deps(cwd, p));
-
+    await runWizard(
+      deps(cwd, p, {
+        scanCode: async () => {
+          throw new Error("no code scan for non-RN apps");
+        },
+      }),
+    );
     const session = loadSession(cwd)!;
-    expect(session.automated.map((r) => [r.tool, r.findings.length])).toEqual([
-      ["ios-accessibility-inspector", 1],
-      ["android-accessibility-scanner", 0],
+    expect(session.screens).toEqual([
+      { name: "Home", kind: "mobile" },
+      { name: "Checkout", kind: "mobile" },
     ]);
-    expect(session.automated[0]!.findings[0]).toMatchObject({
-      ruleId: "ios-inspector:small-close-button",
-      source: "ios-inspector",
-      wcag: [{ id: "2.5.8" }],
-      category: "Touch Targets",
-    });
+    expect(session.automated).toEqual([]);
+    const md = read("checklist.md");
+    expect(md).toContain("## Screen: Checkout");
+    // Screen contents are unknown, so feature checks are listed once app-wide.
+    expect(md).toMatch(/`input-labels` \*\(no form inputs found in code/);
   });
 });
 
 describe("runWizard — website", () => {
-  it("runs the selected scanners and offers to install missing ones", async () => {
+  it("asks for pages, installs missing scanners, and runs them without further prompts", async () => {
     const commands: string[] = [];
     const scanned: string[][] = [];
-    const fakeAssessment = (tool: string): Assessment => ({
+    const fake = (tool: string): Assessment => ({
       generatedAt: "",
       platform: "web",
       targetLevel: "AA",
@@ -174,21 +204,17 @@ describe("runWizard — website", () => {
       wcag: { A: 90, AA: 80, AAA: 70 },
       categories: [],
       topIssues: [],
-      findings: [{ ruleId: `${tool}:x`, title: "x", description: "", severity: "high", wcag: [], source: tool }],
+      findings: [
+        { ruleId: `${tool}:x`, title: "x", description: "", severity: "high", wcag: wcag("1.1.1"), source: tool, evidence: { page: "https://acme.test/about" } },
+      ],
     });
-
     const p = scripted([
       { match: /Project \/ client name/, answer: "Acme Web" },
       { match: /What are you auditing/, answer: "web" },
       { match: /Target WCAG/, answer: "AA" },
-      { match: /What next/, answer: choose("Automated scans"), once: true },
-      { match: /Which pages/, answer: "urls" },
-      { match: /^URLs/, answer: "https://acme.test https://acme.test/about" },
-      { match: /Which scanners/, answer: ["axe", "lighthouse"] },
-      { match: /needs playwright/, answer: true },
-      { match: /What next/, answer: choose("Save & exit"), once: true },
+      { match: /Pages to audit/, answer: "https://acme.test/ https://acme.test/about" },
+      { match: /need playwright/, answer: true },
     ]);
-
     await runWizard(
       deps(cwd, p, {
         hasModule: async (name) => !name.includes("playwright"),
@@ -198,44 +224,20 @@ describe("runWizard — website", () => {
         },
         scanAxe: async (urls) => {
           scanned.push(urls);
-          return fakeAssessment("axe");
+          return fake("axe");
         },
-        scanLighthouse: async () => fakeAssessment("lighthouse"),
+        scanLighthouse: async () => fake("lighthouse"),
       }),
     );
 
-    expect(commands).toEqual([
-      "npm install -D playwright @axe-core/playwright",
-      "npx playwright install chromium",
-    ]);
-    expect(scanned).toEqual([["https://acme.test", "https://acme.test/about"]]);
+    expect(commands).toEqual(["npm install -D playwright @axe-core/playwright", "npx playwright install chromium"]);
+    expect(scanned).toEqual([["https://acme.test/", "https://acme.test/about"]]);
     const session = loadSession(cwd)!;
-    expect(session.project.urls).toHaveLength(2);
-    expect(session.automated.map((r) => r.tool)).toEqual(["axe", "lighthouse"]);
-    expect(sessionWcagRollup(session)).toEqual({ A: 90, AA: 80, AAA: 70 });
-  });
-
-  it("resumes a saved audit instead of re-running setup", async () => {
-    mkdirSync(join(cwd, "a11y-audit"));
-    writeFileSync(
-      join(cwd, "a11y-audit", "session.json"),
-      JSON.stringify({
-        version: 1,
-        createdAt: "",
-        updatedAt: "",
-        project: { name: "Saved", type: "web", targets: ["web"], targetLevel: "AA" },
-        automated: [],
-        checklist: {},
-        extraFindings: [],
-      }),
-    );
-    const p = scripted([
-      { match: /What would you like to do/, answer: "continue" },
-      { match: /What next/, answer: choose("Save & exit") },
-    ]);
-
-    await runWizard(deps(cwd, p));
-
-    expect(p.log.some((m) => /Project \/ client name/.test(m))).toBe(false);
+    expect(session.screens.map((s) => s.name)).toEqual(["/", "/about"]);
+    expect(session.automated.map((r) => r.tool).sort()).toEqual(["axe", "lighthouse"]);
+    const md = read("checklist.md");
+    const about = md.slice(md.indexOf("## Page: /about"));
+    expect(about).toContain("⚑ axe: x (https://acme.test/about)");
+    expect(existsSync(join(cwd, "a11y-audit", "report.json"))).toBe(true);
   });
 });

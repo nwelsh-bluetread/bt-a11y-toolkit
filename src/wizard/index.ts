@@ -1,22 +1,27 @@
 /**
- * `bt-a11y start` — the guided, interactive audit.
+ * `bt-a11y start` — the guided audit.
  *
- *   setup ─► automated scans ─► manual checklist (per platform) ─► extra findings ─► report
+ *   1. A few questions: project name, website / mobile app, WCAG level, then the
+ *      screens (found in the code and confirmed) or pages to audit.
+ *   2. The automated checks run on their own: React Native code scan, axe, Lighthouse.
+ *   3. A per-screen manual checklist is printed and written to a11y-audit/checklist.md,
+ *      tailored to what each screen contains. Testers fill it in, then run
+ *      `bt-a11y report` to build the audit.
  *
- * Every answer is saved to `a11y-audit/session.json` as soon as it's given, so
- * the tester can quit at any point (Ctrl+C or "Save & exit") and pick up where
- * they left off by running `bt-a11y start` again.
+ * Re-running keeps answers already filled in to checklist.md.
  */
-import { appendFileSync, existsSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
-import { checklistFor, howToFor, type AuditTarget, type ChecklistItem } from "../checklist.js";
-import { formatConsole } from "../report.js";
-import { WCAG } from "../wcag.js";
+import type { AuditTarget } from "../checklist.js";
+import { isReactNativeProject, RN_RULES, type CodeScanResult } from "../code-scan/react-native.js";
+import { FEATURE_LABEL, isFile, screensFromUrls, type ScreenDiscovery, type ScreenInfo } from "../code-scan/screens.js";
+import { LIGHTHOUSE_AUDIT_MAP } from "../integrations/lighthouse.js";
 import type { Assessment, Finding, Severity, WcagLevel } from "../types.js";
-import type { Choice, Prompter } from "./prompts.js";
+import { findingOnSection, planChecklist, renderChecklist, type PlannedGroup } from "./checklist-md.js";
+import type { Prompter } from "./prompts.js";
 import {
-  allFindings,
-  checklistProgress,
+  checklistPath,
+  loadChecklist,
   loadSession,
   newSession,
   saveSession,
@@ -40,49 +45,28 @@ export interface WizardDeps {
   prompter: Prompter;
   cwd: string;
   out: (text: string) => void;
-  env: Record<string, string | undefined>;
   resolveUrls: (opts: { urls?: string[]; urlsFile?: string; sitemap?: string }) => Promise<string[]>;
   scanAxe: Scanner;
   scanLighthouse: Scanner;
+  scanCode: (root: string, level: WcagLevel, platforms: AuditTarget[]) => Promise<CodeScanResult>;
+  discoverScreens: (root: string) => Promise<ScreenDiscovery>;
   /** Whether an optional package can be imported. */
   hasModule: (name: string) => Promise<boolean>;
   /** Run a command in `cwd` with inherited stdio; resolves to the exit code. */
   runCommand: (cmd: string, args: string[]) => Promise<number>;
-  createJiraTickets?: (assessment: Assessment, minSeverity: Severity) => Promise<Array<{ key: string; finding: Finding }>>;
 }
 
 const TARGET_LABEL: Record<AuditTarget, string> = { web: "Website", ios: "iOS", android: "Android" };
-
-const SEVERITY_CHOICES: Choice<Severity>[] = [
-  { name: "Critical", value: "critical", description: "Blocks a task entirely for some users" },
-  { name: "High", value: "high", description: "Major barrier; workaround is difficult" },
-  { name: "Medium", value: "medium", description: "Causes friction; workaround exists" },
-  { name: "Low", value: "low", description: "Minor or cosmetic" },
-];
-
-const CATEGORY_CHOICES = [
-  "Screen Reader",
-  "Keyboard & Focus",
-  "Forms",
-  "Images/Icons",
-  "Contrast",
-  "Visual",
-  "Touch Targets",
-  "Gestures & Touch",
-  "Layout & Zoom",
-  "Content",
-  "Media & Motion",
-  "Semantics",
-].map((c) => ({ name: c, value: c }));
+const MAX_PAGES = 25;
 
 const SCANNERS = {
   axe: {
-    label: "axe-core (via Playwright)",
+    label: "axe-core",
     packages: ["playwright", "@axe-core/playwright"],
     postInstall: ["npx", ["playwright", "install", "chromium"]] as const,
   },
   lighthouse: {
-    label: "Lighthouse (via Chrome)",
+    label: "Lighthouse",
     packages: ["lighthouse", "chrome-launcher"],
     postInstall: undefined,
   },
@@ -90,93 +74,79 @@ const SCANNERS = {
 
 type ScannerId = keyof typeof SCANNERS;
 
-const MOBILE_SCANNER: Record<"ios" | "android", { tool: string; source: string; steps: string[] }> = {
-  ios: {
-    tool: "ios-accessibility-inspector",
-    source: "ios-inspector",
-    steps: [
-      "Connect the iPhone (or boot a Simulator) and open the app.",
-      "In Xcode: Xcode → Open Developer Tool → Accessibility Inspector.",
-      "Pick the device in the Inspector's target menu, then open the Audit tab (⚠ icon).",
-      "On each screen in your flow list, click Run Audit and review each warning.",
-      "Log the real issues below (skip false positives). Screenshot icons in the audit help.",
-    ],
-  },
-  android: {
-    tool: "android-accessibility-scanner",
-    source: "android-scanner",
-    steps: [
-      "Install Accessibility Scanner from the Play Store on the test device.",
-      "Turn it on: Settings → Accessibility → Accessibility Scanner → Use Accessibility Scanner.",
-      "Open the app, go to each screen in your flow list, and tap the blue check button.",
-      "Choose Snapshot (one screen) or Record (a flow) and review each suggestion.",
-      "Log the real issues below (skip false positives). The Scanner can export screenshots.",
-    ],
-  },
+/** Criteria each web scanner has rules for (axe-core 4.x; Lighthouse runs a subset of axe). */
+const WEB_CHECKED: Record<ScannerId, string[]> = {
+  axe: [
+    "1.1.1", "1.2.2", "1.3.1", "1.3.4", "1.3.5", "1.4.1", "1.4.2", "1.4.3", "1.4.4", "1.4.12",
+    "2.1.1", "2.2.1", "2.2.2", "2.4.1", "2.4.2", "2.4.4", "2.5.3", "2.5.8", "3.1.1", "3.1.2", "3.3.2", "4.1.2",
+  ],
+  lighthouse: [...new Set(Object.values(LIGHTHOUSE_AUDIT_MAP).flatMap((m) => m.wcag))],
 };
 
 export async function runWizard(deps: WizardDeps): Promise<void> {
   const { prompter: p, cwd, out } = deps;
-  out(`\n${bold("BlueTread Accessibility Audit")}\n${dim(`Progress is saved to ${SESSION_DIR}/ as you go.`)}\n`);
+  out(`\n${bold("BlueTread Accessibility Audit")}\n`);
 
   let session = loadSession(cwd);
+  let fresh = false;
   if (session) {
-    out(`Found an audit in progress: ${bold(session.project.name)} (${describeProject(session)}).\n`);
+    out(`Found an audit for ${bold(session.project.name)} (${describeProject(session)}, ${session.screens.length} screens).`);
     const action = await p.select("What would you like to do?", [
-      { name: "Continue this audit", value: "continue" },
-      { name: "Start a new audit", value: "new", description: "Replaces the saved session and its findings" },
+      { name: "Re-run the scans and refresh the checklist", value: "rerun", description: "Keeps answers already filled in to checklist.md" },
+      { name: "Start a new audit", value: "new", description: "Replaces the saved setup and screen list" },
     ]);
-    if (action === "new" && (await p.confirm("Discard the saved audit and start over?", { default: false }))) {
-      session = undefined;
-    }
+    if (action === "new") session = undefined;
   }
 
   if (!session) {
     session = await setup(deps);
-    saveSession(cwd, session);
-    await offerGitignore(deps);
+    fresh = true;
+  } else if (session.screens.some((s) => s.kind === "mobile" && s.file)) {
+    session.screens = await refreshScreens(deps, session.screens);
   }
+  saveSession(cwd, session);
 
-  await mainMenu(deps, session);
+  const scanners = session.project.targets.includes("web") ? await webScannersToRun(deps) : [];
+  if (fresh) await offerGitignore(deps);
+
+  // ── Everything below runs without prompts ──
+  await runAutomated(deps, session, scanners);
+  saveSession(cwd, session);
+
+  const groups = planChecklist(session.screens, session.project.targets, session.project.targetLevel);
+  const previous = loadChecklist(cwd);
+  writeFileSync(
+    checklistPath(cwd),
+    renderChecklist({
+      projectName: session.project.name,
+      targetLevel: session.project.targetLevel,
+      groups,
+      runs: session.automated,
+      previous,
+    }),
+    "utf8",
+  );
+  const { markdown } = writeReports(cwd, session);
+
+  displayChecklist(deps, session, groups);
+  const answered = previous.rows.filter((r) => r.status !== "open").length;
+  out("");
+  out(green(`✓ Checklist: ${checklistPath(cwd)}`) + (answered ? dim(` (kept ${answered} answers)`) : ""));
+  out(green(`✓ Report so far (automated results): ${markdown}`));
+  out(`\nNext: test each screen and mark the checklist, then run ${bold("npx bt-a11y report")} to build the audit.\n`);
 }
 
-// ── Setup ────────────────────────────────────────────────────────────────────
+// ── 1. Setup ─────────────────────────────────────────────────────────────────
 
 async function setup(deps: WizardDeps): Promise<AuditSession> {
-  const { prompter: p, cwd } = deps;
+  const { prompter: p, cwd, out } = deps;
 
   const name = await p.input("Project / client name:", { default: detectProjectName(cwd), required: true });
-
   const type = await p.select<ProjectType>("What are you auditing?", [
+    { name: "Mobile app (iOS + Android)", value: "mobile" },
     { name: "Website / web app", value: "web" },
-    { name: "Mobile app (iOS / Android)", value: "mobile" },
     { name: "Both", value: "both" },
   ]);
-
-  const targets: AuditTarget[] = type === "mobile" ? [] : ["web"];
-  let stack: MobileStack | undefined;
-  if (type !== "web") {
-    const mobile = await p.checkbox<AuditTarget>(
-      "Which mobile platforms?",
-      [
-        { name: "iOS", value: "ios", checked: true },
-        { name: "Android", value: "android", checked: true },
-      ],
-      { required: true },
-    );
-    targets.push(...mobile);
-    stack = await p.select<MobileStack>(
-      "How is the app built?",
-      [
-        { name: "React Native", value: "react-native" },
-        { name: "Native (Swift / Kotlin)", value: "native" },
-        { name: "Flutter", value: "flutter" },
-        { name: "Not sure", value: "unknown" },
-      ],
-      { default: detectStack(cwd) },
-    );
-  }
-
   const targetLevel = await p.select<WcagLevel>(
     "Target WCAG compliance level?",
     [
@@ -187,7 +157,139 @@ async function setup(deps: WizardDeps): Promise<AuditSession> {
     { default: "AA" },
   );
 
-  return newSession({ name, type, targets, stack, targetLevel });
+  const targets: AuditTarget[] = [];
+  if (type !== "web") targets.push("ios", "android");
+  if (type !== "mobile") targets.push("web");
+  const stack: MobileStack | undefined = type === "web" ? undefined : detectStack(cwd);
+
+  const screens: ScreenInfo[] = [];
+  if (type !== "web") screens.push(...(await mobileScreens(deps, stack!)));
+  let urls: string[] | undefined;
+  if (type !== "mobile") {
+    urls = await webPages(deps);
+    screens.push(...screensFromUrls(urls));
+  }
+  out("");
+  return newSession({ name, type, targets, stack, targetLevel, urls }, screens);
+}
+
+/** Find screens in the navigation code and let the user confirm or edit the list. */
+async function mobileScreens(deps: WizardDeps, stack: MobileStack): Promise<ScreenInfo[]> {
+  const { prompter: p, cwd, out } = deps;
+  let detected: ScreenInfo[] = [];
+
+  if (stack === "react-native") {
+    out(dim("\nLooking for screens in the navigation code…"));
+    try {
+      detected = (await deps.discoverScreens(cwd)).screens;
+    } catch (err) {
+      out(red(`Couldn't read the navigation code: ${message(err)}`));
+    }
+  } else {
+    out(dim(`\nNo React Native project here${stack === "unknown" ? "" : ` (looks like ${stack})`} — the code scan only supports React Native, so list the screens yourself.`));
+  }
+
+  if (detected.length > 0) {
+    out(`\nFound ${bold(String(detected.length))} screens:`);
+    for (const s of detected) {
+      const features = s.features?.length ? dim(` · ${s.features.map((f) => FEATURE_LABEL[f]).join(", ")}`) : "";
+      out(`  • ${s.name.padEnd(24)} ${dim(s.file ?? "")}${features}`);
+    }
+    if (await p.confirm("Audit these screens?", { default: true })) return detected;
+  } else if (stack === "react-native") {
+    out(dim("No screens found in the navigation code."));
+  }
+
+  const raw = await p.input("Screens to audit (comma-separated):", {
+    default: detected.map((s) => s.name).join(", ") || undefined,
+    required: true,
+  });
+  return splitNames(raw).map((name) => detected.find((s) => s.name === name) ?? { name, kind: "mobile" as const });
+}
+
+/** Re-discover screens on a re-run, keeping the user's list and refreshing files/features. */
+async function refreshScreens(deps: WizardDeps, saved: ScreenInfo[]): Promise<ScreenInfo[]> {
+  let fresh: ScreenInfo[] = [];
+  try {
+    fresh = (await deps.discoverScreens(deps.cwd)).screens;
+  } catch {
+    return saved;
+  }
+  return saved.map((s) => (s.kind === "mobile" ? (fresh.find((f) => f.name === s.name) ?? s) : s));
+}
+
+async function webPages(deps: WizardDeps): Promise<string[]> {
+  const { prompter: p, cwd, out } = deps;
+  for (;;) {
+    const raw = await p.input("Pages to audit — URLs (space-separated), a sitemap URL, or a URL list file:", {
+      default: existsSync(join(cwd, "urls.txt")) ? "urls.txt" : undefined,
+      required: true,
+    });
+    const tokens = splitList(raw);
+    let urls: string[] = [];
+    try {
+      if (tokens.length === 1 && !/^https?:\/\//.test(tokens[0]!)) {
+        if (!isFile(join(cwd, tokens[0]!))) {
+          out(red(`Not a URL or a file: ${tokens[0]}`));
+          continue;
+        }
+        urls = await deps.resolveUrls({ urlsFile: join(cwd, tokens[0]!) });
+      } else if (tokens.length === 1 && /sitemap|\.xml$/i.test(tokens[0]!)) {
+        out(dim("Reading sitemap…"));
+        urls = await deps.resolveUrls({ sitemap: tokens[0]! });
+      } else {
+        const bad = tokens.filter((t) => !/^https?:\/\//.test(t));
+        if (bad.length) {
+          out(red(`Each URL must start with http:// or https:// (${bad.join(", ")})`));
+          continue;
+        }
+        urls = await deps.resolveUrls({ urls: tokens });
+      }
+    } catch (err) {
+      out(red(`Couldn't get the page list: ${message(err)}`));
+      continue;
+    }
+    if (urls.length === 0) {
+      out(red("No pages found."));
+      continue;
+    }
+    if (urls.length > MAX_PAGES && !(await p.confirm(`Found ${urls.length} pages. Audit all of them? (No = first ${MAX_PAGES})`, { default: false }))) {
+      urls = urls.slice(0, MAX_PAGES);
+    }
+    out(dim(`${urls.length} page(s).`));
+    return urls;
+  }
+}
+
+/** Check scanner packages up front so the automated run needs no prompts. */
+async function webScannersToRun(deps: WizardDeps): Promise<ScannerId[]> {
+  const { prompter: p, out } = deps;
+  const ready: ScannerId[] = [];
+  const missing: ScannerId[] = [];
+  for (const id of Object.keys(SCANNERS) as ScannerId[]) {
+    const present = await Promise.all(SCANNERS[id].packages.map((pkg) => deps.hasModule(pkg)));
+    (present.every(Boolean) ? ready : missing).push(id);
+  }
+  if (missing.length === 0) return ready;
+
+  const pkgs = missing.flatMap((id) => [...SCANNERS[id].packages]);
+  if (!(await p.confirm(`The website scanners need ${pkgs.join(", ")}. Install them as dev dependencies now?`, { default: true }))) {
+    out(dim(`Skipping ${missing.map((id) => SCANNERS[id].label).join(" and ")}. Install later with: npm install -D ${pkgs.join(" ")}`));
+    return ready;
+  }
+  if ((await deps.runCommand("npm", ["install", "-D", ...pkgs])) !== 0) {
+    out(red(`Install failed. Try manually: npm install -D ${pkgs.join(" ")}`));
+    return ready;
+  }
+  for (const id of missing) {
+    const post = SCANNERS[id].postInstall;
+    if (post && (await deps.runCommand(post[0], [...post[1]])) !== 0) {
+      out(red(`Setup failed. Try manually: ${post[0]} ${post[1].join(" ")}`));
+      continue;
+    }
+    ready.push(id);
+  }
+  return ready;
 }
 
 async function offerGitignore(deps: WizardDeps): Promise<void> {
@@ -202,406 +304,116 @@ async function offerGitignore(deps: WizardDeps): Promise<void> {
   }
 }
 
-// ── Main menu ────────────────────────────────────────────────────────────────
+// ── 2. Automated checks ──────────────────────────────────────────────────────
 
-type MenuAction =
-  | { kind: "automated" }
-  | { kind: "checklist"; target: AuditTarget }
-  | { kind: "extra" }
-  | { kind: "report" }
-  | { kind: "exit" };
+async function runAutomated(deps: WizardDeps, session: AuditSession, scanners: ScannerId[]): Promise<void> {
+  const { out, cwd } = deps;
+  const { targets, targetLevel, stack, urls } = session.project;
+  const mobile = targets.filter((t) => t !== "web");
+  out(bold("\nRunning automated checks…"));
 
-async function mainMenu(deps: WizardDeps, session: AuditSession): Promise<void> {
-  const { prompter: p, out } = deps;
-  for (;;) {
-    out(`\n${bold(session.project.name)} ${dim(`— ${describeProject(session)}`)}`);
-
-    const choices: Choice<MenuAction>[] = [];
-    const runs = session.automated;
-    choices.push({
-      name: `1. Automated scans ${status(runs.length > 0, runs.length > 0 ? `${runs.length} run · ${count(runs.flatMap((r) => r.findings))}` : "not started")}`,
-      value: { kind: "automated" },
-    });
-    for (const target of session.project.targets) {
-      const prog = checklistProgress(session, target);
-      choices.push({
-        name: `2. Manual checklist — ${TARGET_LABEL[target]} ${status(prog.done === prog.total, `${prog.done}/${prog.total} checked${prog.failed ? ` · ${prog.failed} failed` : ""}`)}`,
-        value: { kind: "checklist", target },
-      });
-    }
-    choices.push({
-      name: `3. Add other findings ${dim(`(${count(session.extraFindings)})`)}`,
-      value: { kind: "extra" },
-    });
-    choices.push({ name: `4. Generate audit report ${dim(`(${count(allFindings(session))} total)`)}`, value: { kind: "report" } });
-    choices.push({ name: "Save & exit", value: { kind: "exit" } });
-
-    const action = await p.select("What next?", choices, { default: nextStep(session, choices) });
-    switch (action.kind) {
-      case "automated":
-        await automatedStep(deps, session);
-        break;
-      case "checklist":
-        await checklistStep(deps, session, action.target);
-        break;
-      case "extra":
-        await extraFindingsStep(deps, session);
-        break;
-      case "report":
-        await reportStep(deps, session);
-        break;
-      case "exit":
-        saveSession(deps.cwd, session);
-        out(`\nSaved. Run ${bold("bt-a11y start")} to pick up where you left off.\n`);
-        return;
-    }
-  }
-}
-
-/** The first unfinished step, so pressing Enter always moves the audit forward. */
-function nextStep(session: AuditSession, choices: Choice<MenuAction>[]): MenuAction {
-  const find = (pred: (a: MenuAction) => boolean) => choices.find((c) => pred(c.value))!.value;
-  if (session.automated.length === 0) return find((a) => a.kind === "automated");
-  for (const target of session.project.targets) {
-    const prog = checklistProgress(session, target);
-    if (prog.done < prog.total) return find((a) => a.kind === "checklist" && a.target === target);
-  }
-  return find((a) => a.kind === "report");
-}
-
-// ── Step 1: automated scans ─────────────────────────────────────────────────
-
-async function automatedStep(deps: WizardDeps, session: AuditSession): Promise<void> {
-  const { prompter: p, out } = deps;
-  const targets = session.project.targets;
-  const chosen =
-    targets.length === 1
-      ? targets
-      : await p.checkbox<AuditTarget>(
-          "Which platforms do you want to scan now?",
-          targets.map((t) => ({ name: TARGET_LABEL[t], value: t, checked: true })),
-          { required: true },
-        );
-
-  for (const target of chosen) {
-    if (target === "web") await webScans(deps, session);
-    else await mobileScan(deps, session, target);
-  }
-  out(green("\n✓ Automated step saved."));
-}
-
-async function webScans(deps: WizardDeps, session: AuditSession): Promise<void> {
-  const { prompter: p, out, cwd } = deps;
-  out(`\n${bold("Website scans")}`);
-
-  const saved = session.project.urls;
-  const source = await p.select<"saved" | "urls" | "file" | "sitemap">("Which pages should be scanned?", [
-    ...(saved?.length ? [{ name: `Same pages as last time (${saved.length})`, value: "saved" as const }] : []),
-    { name: "Enter one or more URLs", value: "urls" },
-    { name: "A URL list file (one URL per line)", value: "file" },
-    { name: "A sitemap.xml (or sitemap index)", value: "sitemap" },
-  ]);
-
-  let urls: string[];
-  try {
-    if (source === "saved") urls = saved!;
-    else if (source === "urls") {
-      const raw = await p.input("URLs (separate with spaces or commas):", {
-        required: true,
-        validate: (v) => (splitList(v).every((u) => /^https?:\/\//.test(u)) ? true : "Each URL must start with http:// or https://"),
-      });
-      urls = await deps.resolveUrls({ urls: splitList(raw) });
-    } else if (source === "file") {
-      const file = await p.input("Path to the URL list file:", {
-        default: existsSync(join(cwd, "urls.txt")) ? "urls.txt" : undefined,
-        validate: (v) => (existsSync(join(cwd, v)) ? true : "File not found"),
-      });
-      urls = await deps.resolveUrls({ urlsFile: join(cwd, file) });
-    } else {
-      const sitemap = await p.input("Sitemap URL:", {
-        validate: (v) => (/^https?:\/\//.test(v) ? true : "Must start with http:// or https://"),
-      });
-      out(dim("Reading sitemap…"));
-      urls = await deps.resolveUrls({ sitemap });
-    }
-  } catch (err) {
-    out(red(`Couldn't get the page list: ${message(err)}`));
-    return;
-  }
-
-  if (urls.length === 0) {
-    out(red("No pages found to scan."));
-    return;
-  }
-  if (urls.length > 25) {
-    const limit = await p.select(`Found ${urls.length} pages. Scan all of them?`, [
-      { name: `First 25 pages`, value: 25, description: "Quicker; good for a first pass" },
-      { name: `All ${urls.length} pages`, value: urls.length, description: "Roughly 10–60 seconds per page per tool" },
-    ]);
-    urls = urls.slice(0, limit);
-  }
-  session.project.urls = urls;
-  saveSession(cwd, session);
-
-  const tools = await p.checkbox<ScannerId>(
-    "Which scanners?",
-    [
-      { name: SCANNERS.axe.label, value: "axe", checked: true, description: "Most precise WCAG rule mapping" },
-      { name: SCANNERS.lighthouse.label, value: "lighthouse", checked: true, description: "Google's audit; overall score per page" },
-    ],
-    { required: true },
-  );
-
-  for (const tool of tools) {
-    if (!(await ensureScanner(deps, tool))) continue;
-    const scan = tool === "axe" ? deps.scanAxe : deps.scanLighthouse;
-    out(`\n${bold(SCANNERS[tool].label)}`);
+  if (mobile.length > 0 && (stack === "react-native" || isReactNativeProject(cwd))) {
     try {
-      const assessment = await scan(urls, session.project.targetLevel, (e) => {
+      const result = await deps.scanCode(cwd, targetLevel, mobile);
+      upsertRun(session, {
+        tool: "rn-code-scan",
+        targets: mobile,
+        ranAt: new Date().toISOString(),
+        filesScanned: result.filesScanned,
+        checked: result.checked,
+        signals: result.signals,
+        findings: result.findings,
+      });
+      out(`\n${green("✓")} React Native code scan ${dim(`— ${result.filesScanned} files · ${result.checked.length} WCAG criteria checked`)}`);
+      printFindingSummary(out, result.findings);
+    } catch (err) {
+      out(red(`\n✗ Code scan failed: ${message(err)}`));
+    }
+  } else if (mobile.length > 0) {
+    out(dim("\n– No code scan (not a React Native project). The manual checklist covers every criterion."));
+  }
+
+  for (const tool of scanners) {
+    out(`\n${bold(SCANNERS[tool].label)} ${dim(`— ${urls!.length} page(s)`)}`);
+    const scan = tool === "axe" ? deps.scanAxe : deps.scanLighthouse;
+    try {
+      const assessment = await scan(urls!, targetLevel, (e) => {
         if (e.type === "page") out(dim(`  [${e.index + 1}/${e.total}] ${e.url}`));
         else if (e.type === "skip") out(red(`  ! skipped ${e.url} (${e.error})`));
       });
       upsertRun(session, {
         tool,
-        target: "web",
+        targets: ["web"],
         ranAt: new Date().toISOString(),
-        pages: urls.length,
+        pages: urls!.length,
         wcag: assessment.wcag,
+        checked: WEB_CHECKED[tool],
         findings: assessment.findings,
       });
-      saveSession(cwd, session);
-      out(green(`  ✓ ${count(assessment.findings)}`));
+      out(`${green("✓")} ${SCANNERS[tool].label} ${dim(`— ${count(assessment.findings)}`)}`);
     } catch (err) {
-      out(red(`  ${SCANNERS[tool].label} failed: ${message(err)}`));
+      out(red(`✗ ${SCANNERS[tool].label} failed: ${message(err)}`));
     }
   }
 }
 
-/** Make sure a scanner's optional packages are installed, offering to install them. */
-async function ensureScanner(deps: WizardDeps, tool: ScannerId): Promise<boolean> {
-  const { prompter: p, out } = deps;
-  const { label, packages, postInstall } = SCANNERS[tool];
-  const missing: string[] = [];
-  for (const pkg of packages) if (!(await deps.hasModule(pkg))) missing.push(pkg);
-  if (missing.length === 0) return true;
-
-  const install = await p.confirm(
-    `${label} needs ${missing.join(" + ")}, which aren't installed. Install them as dev dependencies now?`,
-    { default: true },
-  );
-  if (!install) {
-    out(dim(`Skipping ${label}. To install later: npm install -D ${packages.join(" ")}`));
-    return false;
-  }
-  if ((await deps.runCommand("npm", ["install", "-D", ...packages])) !== 0) {
-    out(red(`Install failed. Try manually: npm install -D ${packages.join(" ")}`));
-    return false;
-  }
-  if (postInstall && (await deps.runCommand(postInstall[0], [...postInstall[1]])) !== 0) {
-    out(red(`Setup failed. Try manually: ${postInstall[0]} ${postInstall[1].join(" ")}`));
-    return false;
-  }
-  return true;
-}
-
-async function mobileScan(deps: WizardDeps, session: AuditSession, target: "ios" | "android"): Promise<void> {
-  const { prompter: p, out, cwd } = deps;
-  const scanner = MOBILE_SCANNER[target];
-  out(`\n${bold(`${TARGET_LABEL[target]} — on-device scan`)}`);
-  out(dim("There's no command-line scanner for native apps; run the platform tool and log what it finds."));
-  scanner.steps.forEach((s, i) => out(`  ${i + 1}. ${s}`));
-  if (session.project.stack === "react-native") {
-    out(dim("\n  Tip: with source access, also run eslint-plugin-react-native-a11y to catch missing labels/roles in code."));
-  }
-
-  const existing = session.automated.find((r) => r.tool === scanner.tool && r.target === target);
-  const findings = [...(existing?.findings ?? [])];
-  if (existing) out(dim(`\n  ${count(findings)} already logged from an earlier run.`));
-
-  for (;;) {
-    const next = await p.select(findings.length ? "Log another issue from the scanner?" : "Did the scanner find real issues?", [
-      { name: "Yes — log an issue", value: "log" },
-      { name: findings.length ? "No — done with this scan" : "No issues found — done", value: "done" },
-    ]);
-    if (next === "done") break;
-    findings.push(await captureFinding(deps, { platforms: [target], source: scanner.source, rulePrefix: scanner.source }));
-    upsertRun(session, { tool: scanner.tool, target, ranAt: new Date().toISOString(), findings });
-    saveSession(cwd, session);
-  }
-  upsertRun(session, { tool: scanner.tool, target, ranAt: new Date().toISOString(), findings });
-  saveSession(cwd, session);
-}
-
-// ── Step 2: manual checklist ────────────────────────────────────────────────
-
-async function checklistStep(deps: WizardDeps, session: AuditSession, target: AuditTarget): Promise<void> {
-  const { prompter: p, out, cwd } = deps;
-  const items = checklistFor(target, session.project.targetLevel);
-  const results = (session.checklist[target] ??= {});
-
-  out(`\n${bold(`Manual checklist — ${TARGET_LABEL[target]} (WCAG ${session.project.targetLevel})`)}`);
-  out(dim(`${items.length} checks. Test each across your primary flows, then record the result.`));
-
-  let queue = items.filter((i) => !results[i.id]);
-  if (queue.length === 0) {
-    const redo = await p.select<string | null>(
-      "Every check is recorded. Revisit one?",
-      [
-        ...items.map((i) => ({ name: `${statusIcon(results[i.id]!.status)} ${i.title}`, value: i.id })),
-        { name: "← Back to menu", value: null },
-      ],
-      { default: null },
-    );
-    if (redo === null) return;
-    queue = items.filter((i) => i.id === redo);
-  }
-
-  for (const item of queue) {
-    const position = items.indexOf(item) + 1;
-    out(`\n${bold(`[${position}/${items.length}] ${item.title}`)}`);
-    out(dim(`WCAG ${item.wcag.map((id) => `${id} ${WCAG[id]?.name ?? ""}`.trim()).join(", ")} · Level ${item.level}`));
-    out(`How to test: ${howToFor(item, target)}`);
-
-    const result = await p.select<"pass" | "fail" | "na" | "skip" | "menu">("Result:", [
-      { name: "✓ Pass", value: "pass" },
-      { name: "✗ Fail — log the issue(s)", value: "fail" },
-      { name: "– Not applicable", value: "na" },
-      { name: "Skip for now", value: "skip", description: "Leave it unanswered and come back later" },
-      { name: "Save & back to menu", value: "menu" },
-    ]);
-    if (result === "menu") return;
-    if (result === "skip") continue;
-
-    const findings: Finding[] = [];
-    if (result === "fail") {
-      do {
-        findings.push(await captureFinding(deps, { platforms: [target], source: "manual", item }));
-      } while (await p.confirm("Log another issue for this check (e.g. on a different screen)?", { default: false }));
-    }
-    results[item.id] = { status: result, findings, testedAt: new Date().toISOString() };
-    saveSession(cwd, session);
-  }
-
-  const prog = checklistProgress(session, target);
-  out(
-    prog.done === prog.total
-      ? green(`\n✓ ${TARGET_LABEL[target]} checklist complete — ${prog.failed} failed.`)
-      : dim(`\n${prog.done}/${prog.total} checked. Skipped items stay open for later.`),
-  );
-}
-
-// ── Step 3: extra findings ──────────────────────────────────────────────────
-
-async function extraFindingsStep(deps: WizardDeps, session: AuditSession): Promise<void> {
-  const { prompter: p, out, cwd } = deps;
-  out(`\n${bold("Other findings")}`);
-  out(dim("Anything not covered above — code review, BrowserStack, client-reported issues, etc."));
-
-  for (;;) {
-    const platforms =
-      session.project.targets.length === 1
-        ? session.project.targets
-        : await p.checkbox<AuditTarget>(
-            "Which platforms does this issue affect?",
-            session.project.targets.map((t) => ({ name: TARGET_LABEL[t], value: t })),
-            { required: true },
-          );
-    const source = await p.input("Where did it come from?", { default: "manual" });
-    session.extraFindings.push(await captureFinding(deps, { platforms, source, rulePrefix: "manual" }));
-    saveSession(cwd, session);
-    if (!(await p.confirm("Add another finding?", { default: false }))) break;
-  }
-}
-
-// ── Step 4: report ──────────────────────────────────────────────────────────
-
-async function reportStep(deps: WizardDeps, session: AuditSession): Promise<void> {
-  const { prompter: p, out, cwd, env } = deps;
-
-  const open = session.project.targets
-    .map((t) => ({ t, prog: checklistProgress(session, t) }))
-    .filter(({ prog }) => prog.done < prog.total);
-  if (open.length > 0) {
-    out(`\n${bold("Heads up:")} the manual checklist isn't finished:`);
-    for (const { t, prog } of open) out(`  ${TARGET_LABEL[t]}: ${prog.total - prog.done} check(s) left`);
-    if (!(await p.confirm("Generate a draft report anyway?", { default: true }))) return;
-  }
-
-  const { assessment, markdown, json } = writeReports(cwd, session);
-  out(`\n${formatConsole(assessment)}\n`);
-  out(green(`✓ Report written:`));
-  out(`  ${markdown}`);
-  out(`  ${json}`);
-
-  if (assessment.findings.length === 0 || !deps.createJiraTickets) return;
-  const { JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN, JIRA_PROJECT_KEY } = env;
-  if (!JIRA_BASE_URL || !JIRA_EMAIL || !JIRA_API_TOKEN || !JIRA_PROJECT_KEY) {
-    out(dim("\nTo file Jira tickets from here, set JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN, JIRA_PROJECT_KEY."));
+function printFindingSummary(out: (t: string) => void, findings: Finding[]): void {
+  const byRule = new Map<string, Finding[]>();
+  for (const f of findings) byRule.set(f.ruleId, [...(byRule.get(f.ruleId) ?? []), f]);
+  if (byRule.size === 0) {
+    out(dim("  No issues found in code — the manual checklist still needs to confirm."));
     return;
   }
-  if (!(await p.confirm(`File Jira tickets in ${JIRA_PROJECT_KEY}?`, { default: false }))) return;
-  const minSeverity = await p.select<Severity>("Only file tickets at or above:", SEVERITY_CHOICES, { default: "high" });
-  try {
-    const created = await deps.createJiraTickets(assessment, minSeverity);
-    out(green(`\n✓ Created ${created.length} Jira ticket(s):`));
-    for (const t of created) out(`  ${t.key} — ${t.finding.title}`);
-  } catch (err) {
-    out(red(`Jira failed: ${message(err)}`));
+  const ordered = [...byRule].sort((a, b) => SEVERITY_ORDER[a[1][0]!.severity] - SEVERITY_ORDER[b[1][0]!.severity]);
+  for (const [ruleId, list] of ordered) {
+    const places = list.reduce((n, f) => n + ((f.evidence?.lines as number[] | undefined)?.length ?? 1), 0);
+    out(`  ${red("✗")} ${RN_RULES[ruleId]?.title ?? ruleId} ${dim(`— ${places} place${places === 1 ? "" : "s"} in ${list.length} file${list.length === 1 ? "" : "s"} · ${list[0]!.severity}`)}`);
   }
 }
 
-// ── Finding capture ─────────────────────────────────────────────────────────
+// ── 3. Display the checklist ─────────────────────────────────────────────────
 
-async function captureFinding(
-  deps: WizardDeps,
-  ctx: { platforms: AuditTarget[]; source: string; item?: ChecklistItem; rulePrefix?: string },
-): Promise<Finding> {
-  const { prompter: p } = deps;
-  const { item } = ctx;
-  const isWeb = ctx.platforms.length === 1 && ctx.platforms[0] === "web";
+function displayChecklist(deps: WizardDeps, session: AuditSession, groups: PlannedGroup[]): void {
+  const { out } = deps;
+  for (const group of groups) {
+    const screenSections = group.sections.filter((s) => s.screen);
+    const total = group.sections.reduce((n, s) => n + s.checks.length, 0);
+    const noun = group.kind === "web" ? "page" : "screen";
+    out(`\n${bold(`Manual checklist — ${group.title} · WCAG ${session.project.targetLevel}`)}`);
+    out(dim(`${screenSections.length} ${noun}${screenSections.length === 1 ? "" : "s"} · ${total} checks per platform`));
 
-  const title = await p.input("Issue title:", { default: item?.title, required: true });
-  const where = await p.input(isWeb ? "Page / URL where it happens:" : "Screen / flow where it happens:", {
-    required: true,
-  });
-  const description = await p.input("What happens? (what you heard/saw vs. what you expected)", {
-    required: true,
-  });
-  const severity = await p.select("Severity:", SEVERITY_CHOICES, { default: item?.severity ?? "medium" });
+    // Checks every screen shares are listed once; each screen then shows only its extras.
+    const shared = screenSections.length
+      ? screenSections[0]!.checks.filter((c) => screenSections.every((s) => s.checks.some((o) => o.item.id === c.item.id)))
+      : [];
+    const sharedIds = new Set(shared.map((c) => c.item.id));
+    if (shared.length) {
+      out(`\n  ${bold(`On every ${noun}`)} ${dim(`(${shared.length} checks)`)}`);
+      for (const { item } of shared) out(`    ☐ ${item.title} ${dim(`(${item.wcag.join(", ")})`)}`);
+    }
 
-  let wcagIds = item?.wcag ?? [];
-  if (!item) {
-    const raw = await p.input("WCAG criteria (comma-separated, e.g. 1.1.1, 4.1.2; blank if unsure):", {
-      validate: (v) => {
-        const unknown = splitList(v).filter((id) => !WCAG[id]);
-        return unknown.length === 0 ? true : `Unknown criteria: ${unknown.join(", ")}`;
-      },
-    });
-    wcagIds = splitList(raw);
+    const screens = screenSections.map((s) => s.screen!);
+    for (const section of group.sections) {
+      const extras = section.screen ? section.checks.filter((c) => !sharedIds.has(c.item.id)) : section.checks;
+      const findings = session.automated.flatMap((r) => r.findings).filter((f) => findingOnSection(f, section, screens)).length;
+      const meta = [
+        section.screen?.file,
+        section.screen?.features?.length ? section.screen.features.map((f) => FEATURE_LABEL[f]).join(", ") : undefined,
+        findings ? yellow(`⚑ ${findings} automated finding${findings === 1 ? "" : "s"}`) : undefined,
+      ].filter(Boolean);
+      if (!section.screen && extras.length === 0) continue;
+      const title = section.screen ? `${section.screen.name}${shared.length ? ` — every-${noun} checks${extras.length ? ", plus:" : ""}` : ""}` : "App-wide (check once)";
+      out(`\n  ${bold(title)}${meta.length ? dim(`  ${meta.join(" · ")}`) : ""}`);
+      for (const { item, ifPresent } of extras) {
+        out(`    ☐ ${item.title} ${dim(`(${item.wcag.join(", ")})`)}${ifPresent ? dim(" — if present") : ""}`);
+      }
+    }
   }
-  const category = item?.category ?? (await p.select("Category:", CATEGORY_CHOICES, { default: "Semantics" }));
-  const remediation = await p.input("Suggested fix (optional):");
-  const screenshot = await p.input("Screenshot / recording path (optional):");
-
-  const evidence: Record<string, unknown> = { [isWeb ? "page" : "screen"]: where };
-  if (screenshot) evidence.screenshot = screenshot;
-
-  return {
-    ruleId: item ? `manual:${item.id}` : `${ctx.rulePrefix ?? "manual"}:${slug(title)}`,
-    title,
-    description,
-    severity,
-    wcag: wcagIds.map((id) => WCAG[id]!),
-    nodeId: where,
-    platforms: ctx.platforms,
-    category,
-    source: ctx.source,
-    ...(remediation ? { remediation } : {}),
-    evidence,
-  };
 }
 
-// ── Helpers ─────────────────────────────────────────────────────────────────
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+const SEVERITY_ORDER: Record<Severity, number> = { critical: 0, high: 1, medium: 2, low: 3 };
 
 function describeProject(session: AuditSession): string {
   return `${session.project.targets.map((t) => TARGET_LABEL[t]).join(" + ")} · WCAG ${session.project.targetLevel}`;
@@ -618,13 +430,8 @@ function detectProjectName(cwd: string): string {
 }
 
 function detectStack(cwd: string): MobileStack {
+  if (isReactNativeProject(cwd)) return "react-native";
   if (existsSync(join(cwd, "pubspec.yaml"))) return "flutter";
-  try {
-    const pkg = JSON.parse(readFileSync(join(cwd, "package.json"), "utf8")) as Record<string, Record<string, string>>;
-    if (pkg.dependencies?.["react-native"] || pkg.devDependencies?.["react-native"]) return "react-native";
-  } catch {
-    // Not a JS project.
-  }
   if (existsSync(join(cwd, "ios")) || existsSync(join(cwd, "android"))) return "native";
   return "unknown";
 }
@@ -633,8 +440,8 @@ function splitList(value: string): string[] {
   return value.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
 }
 
-function slug(text: string): string {
-  return text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "finding";
+function splitNames(value: string): string[] {
+  return [...new Set(value.split(",").map((s) => s.trim()).filter(Boolean))];
 }
 
 function count(findings: Finding[]): string {
@@ -645,17 +452,10 @@ function message(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-function statusIcon(s: "pass" | "fail" | "na"): string {
-  return s === "pass" ? green("✓") : s === "fail" ? red("✗") : dim("–");
-}
-
-function status(done: boolean, text: string): string {
-  return done ? green(`✓ ${text}`) : dim(`(${text})`);
-}
-
 const color = process.stdout.isTTY && !process.env.NO_COLOR;
 const ansi = (code: string) => (s: string) => (color ? `\x1b[${code}m${s}\x1b[0m` : s);
 const bold = ansi("1");
 const dim = ansi("2");
 const green = ansi("32");
 const red = ansi("31");
+const yellow = ansi("33");

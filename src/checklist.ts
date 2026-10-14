@@ -8,6 +8,18 @@ import type { Platform, Severity, WcagLevel } from "./types.js";
 /** A platform the manual checklist can be run against. */
 export type AuditTarget = Extract<Platform, "web" | "ios" | "android">;
 
+/** Things a screen can contain that make extra checks relevant (detected from code). */
+export type ScreenFeature =
+  | "inputs"
+  | "images"
+  | "media"
+  | "gestures"
+  | "modals"
+  | "animation"
+  | "auth"
+  | "status"
+  | "webview";
+
 export interface ChecklistItem {
   id: string;
   title: string;
@@ -23,11 +35,17 @@ export interface ChecklistItem {
   severity: Severity;
   /** How to test it. `default` is used when there's no platform-specific text. */
   howTo: Partial<Record<AuditTarget | "default", string>>;
+  /**
+   * Where the check is done: on every screen, or once for the whole app.
+   * With `when`, it's done only on screens that contain one of those features.
+   */
+  scope: "screen" | "app";
+  when?: ScreenFeature[];
 }
 
 const ALL: ChecklistItem["appliesTo"] = ["web", "mobile"];
 
-export const MANUAL_CHECKLIST: ChecklistItem[] = [
+const ITEMS: Array<Omit<ChecklistItem, "scope" | "when">> = [
   // ── Level A ────────────────────────────────────────────────────────────────
   {
     id: "sr-name-role-value",
@@ -193,6 +211,194 @@ export const MANUAL_CHECKLIST: ChecklistItem[] = [
     },
   },
 
+  {
+    id: "media-alternatives",
+    title: "Audio-only and video-only content has a text alternative; video has audio description or a transcript",
+    wcag: ["1.2.1", "1.2.3"],
+    level: "A",
+    appliesTo: ALL,
+    category: "Media & Motion",
+    severity: "high",
+    howTo: {
+      default: "For each prerecorded clip: audio-only (podcasts, voice notes) needs a transcript; silent video needs a text or audio description; video with important visuals needs audio description or a full text alternative. Mark N/A if there's no media.",
+    },
+  },
+  {
+    id: "info-relationships",
+    title: "Structure is exposed to assistive tech: headings, lists, groups, and label–field relationships",
+    wcag: ["1.3.1"],
+    level: "A",
+    appliesTo: ALL,
+    category: "Semantics",
+    severity: "medium",
+    howTo: {
+      web: "With the screen reader, list headings and landmarks, and check lists are announced as lists, tables have headers, and each field announces its label and group (e.g. radio group name).",
+      ios: "With VoiceOver, use the rotor (Headings) to confirm section titles are headings. Cards and list rows should read as one coherent item, and each field should announce its label.",
+      android: "With TalkBack, use reading controls (Headings) to confirm section titles are headings. Cards and list rows should read as one coherent item, and each field should announce its label.",
+    },
+  },
+  {
+    id: "audio-control",
+    title: "Audio that plays automatically for more than 3 seconds can be paused or muted",
+    wcag: ["1.4.2"],
+    level: "A",
+    appliesTo: ALL,
+    category: "Media & Motion",
+    severity: "high",
+    howTo: {
+      default: "Open each screen that might autoplay sound (video, background music, onboarding). Sound longer than 3 seconds must have a pause/mute control that's reachable with the screen reader. Mark N/A if nothing autoplays.",
+    },
+  },
+  {
+    id: "character-shortcuts",
+    title: "Single-key keyboard shortcuts can be turned off or remapped",
+    wcag: ["2.1.4"],
+    level: "A",
+    appliesTo: ALL,
+    category: "Keyboard & Focus",
+    severity: "medium",
+    howTo: {
+      web: "Press single letter/number keys (outside text fields). If any trigger actions, there must be a way to turn them off, remap them, or limit them to when a control has focus.",
+      default: "With an external keyboard, press single letter keys outside text fields. If any trigger actions, they must be configurable. Mark N/A if the app has no keyboard shortcuts.",
+    },
+  },
+  {
+    id: "timing-adjustable",
+    title: "Time limits can be turned off, adjusted, or extended",
+    wcag: ["2.2.1"],
+    level: "A",
+    appliesTo: ALL,
+    category: "Content",
+    severity: "high",
+    howTo: {
+      default: "Look for session timeouts, OTP countdowns, timed quizzes, and auto-advancing screens. The user must be warned and able to extend (at least 10x or with a simple action) unless the limit is essential.",
+    },
+  },
+  {
+    id: "pause-stop-hide",
+    title: "Moving, blinking, scrolling, or auto-updating content can be paused, stopped, or hidden",
+    wcag: ["2.2.2"],
+    level: "A",
+    appliesTo: ALL,
+    category: "Media & Motion",
+    severity: "medium",
+    howTo: {
+      default: "Find carousels that auto-advance, looping animations, tickers, and live-updating feeds. Anything that moves for more than 5 seconds needs a pause/stop control.",
+    },
+  },
+  {
+    id: "flashing",
+    title: "Nothing flashes more than three times per second",
+    wcag: ["2.3.1"],
+    level: "A",
+    appliesTo: ALL,
+    category: "Media & Motion",
+    severity: "critical",
+    howTo: {
+      default: "Watch animations, videos, loading effects, and transitions. Nothing should flash more than 3 times in any one second (use PEAT for video content if unsure).",
+    },
+  },
+  {
+    id: "bypass-blocks",
+    title: "A skip link or landmarks let users bypass repeated content",
+    wcag: ["2.4.1"],
+    level: "A",
+    appliesTo: ["web"],
+    category: "Keyboard & Focus",
+    severity: "medium",
+    howTo: {
+      web: "Press Tab on page load: a \"Skip to content\" link should appear and work. Landmarks (header, nav, main) should be listed by the screen reader.",
+    },
+  },
+  {
+    id: "page-titled",
+    title: "Every page or screen has a descriptive title",
+    wcag: ["2.4.2"],
+    level: "A",
+    appliesTo: ALL,
+    category: "Content",
+    severity: "medium",
+    howTo: {
+      web: "Check the browser tab title on every page. Each should be unique and describe the page (\"Checkout – Acme\", not just \"Acme\").",
+      default: "Navigate between screens with the screen reader on. Each new screen should announce a descriptive title (usually the navigation header) when it opens.",
+    },
+  },
+  {
+    id: "label-in-name",
+    title: "The accessible name includes the visible label text",
+    wcag: ["2.5.3"],
+    level: "A",
+    appliesTo: ALL,
+    category: "Screen Reader",
+    severity: "medium",
+    howTo: {
+      web: "For buttons and links with visible text, the screen reader name should contain that same text (ideally at the start). Try voice control: \"Click <visible label>\".",
+      ios: "Turn on Voice Control (Settings → Accessibility → Voice Control) and say \"Tap <visible label>\" for buttons. Also listen with VoiceOver: the spoken name should contain the visible text.",
+      android: "Turn on Voice Access and say \"Tap <visible label>\" for buttons. Also listen with TalkBack: the spoken name should contain the visible text.",
+    },
+  },
+  {
+    id: "motion-actuation",
+    title: "Shake or tilt actions have an on-screen alternative and can be turned off",
+    wcag: ["2.5.4"],
+    level: "A",
+    appliesTo: ALL,
+    category: "Gestures & Touch",
+    severity: "medium",
+    howTo: {
+      default: "Look for shake-to-undo, shake-to-report, tilt-to-scroll, or motion-based features. Each needs a button alternative and a way to disable the motion trigger. Mark N/A if none.",
+    },
+  },
+  {
+    id: "language",
+    title: "The language of the page or app is set correctly",
+    wcag: ["3.1.1"],
+    level: "A",
+    appliesTo: ALL,
+    category: "Content",
+    severity: "medium",
+    howTo: {
+      web: "Check <html lang> matches the page language. With the screen reader, text should be pronounced with the correct voice/accent.",
+      default: "Listen with the screen reader: text should be read with the correct language voice. Switch the device language to another supported locale and confirm the app follows.",
+    },
+  },
+  {
+    id: "on-focus-input",
+    title: "Focusing or changing a control doesn't cause unexpected changes of context",
+    wcag: ["3.2.1", "3.2.2"],
+    level: "A",
+    appliesTo: ALL,
+    category: "Content",
+    severity: "medium",
+    howTo: {
+      default: "Move focus through controls and change pickers, toggles, and fields. Nothing should navigate away, submit, or open a new screen unless the user activates a clearly labeled control (or is told in advance).",
+    },
+  },
+  {
+    id: "consistent-help",
+    title: "Help options (contact, chat, FAQ) appear in the same place on every screen",
+    wcag: ["3.2.6"],
+    level: "A",
+    appliesTo: ALL,
+    category: "Content",
+    severity: "low",
+    howTo: {
+      default: "Where help mechanisms exist (support link, chat button, phone number), they should appear in the same relative position across screens. Mark N/A if there are none.",
+    },
+  },
+  {
+    id: "redundant-entry",
+    title: "Users aren't asked to re-enter information they've already given in the same flow",
+    wcag: ["3.3.7"],
+    level: "A",
+    appliesTo: ALL,
+    category: "Forms",
+    severity: "medium",
+    howTo: {
+      default: "Walk multi-step flows (checkout, sign-up, applications). Previously entered info (e.g. shipping address for billing) should be auto-filled or selectable, unless re-entry is essential for security.",
+    },
+  },
+
   // ── Level AA ───────────────────────────────────────────────────────────────
   {
     id: "focus-visible",
@@ -237,14 +443,15 @@ export const MANUAL_CHECKLIST: ChecklistItem[] = [
   },
   {
     id: "reflow",
-    title: "Content reflows at 320px wide with no horizontal scrolling",
+    title: "Content reflows without two-way scrolling (320px wide / largest text)",
     wcag: ["1.4.10"],
     level: "AA",
-    appliesTo: ["web"],
+    appliesTo: ALL,
     category: "Layout & Zoom",
     severity: "medium",
     howTo: {
       web: "Set the browser to 1280px wide and zoom to 400% (or use a 320px-wide responsive viewport). Content should stack into one column with no sideways scrolling.",
+      default: "Set the largest system text size and try each screen in portrait and landscape. Text should wrap rather than require scrolling both vertically and horizontally (maps, tables, and carousels are exempt).",
     },
   },
   {
@@ -337,6 +544,132 @@ export const MANUAL_CHECKLIST: ChecklistItem[] = [
     },
   },
 
+  {
+    id: "live-media-description",
+    title: "Live audio/video has captions; prerecorded video has audio description",
+    wcag: ["1.2.4", "1.2.5"],
+    level: "AA",
+    appliesTo: ALL,
+    category: "Media & Motion",
+    severity: "medium",
+    howTo: {
+      default: "Live streams need real-time captions. Prerecorded video with important visual information needs an audio-described version. Mark N/A if there's no media.",
+    },
+  },
+  {
+    id: "input-purpose",
+    title: "Personal-data fields identify their purpose so autofill works",
+    wcag: ["1.3.5"],
+    level: "AA",
+    appliesTo: ALL,
+    category: "Forms",
+    severity: "medium",
+    howTo: {
+      web: "Check name, email, phone, address, and payment fields have the right autocomplete attribute — the browser should offer autofill.",
+      ios: "Tap into name, email, phone, address, and password fields. iOS should offer AutoFill suggestions (requires textContentType).",
+      android: "Tap into name, email, phone, address, and password fields. Android Autofill / Google should offer suggestions (requires autoComplete / importantForAutofill).",
+    },
+  },
+  {
+    id: "images-of-text",
+    title: "Text is real text, not images of text",
+    wcag: ["1.4.5"],
+    level: "AA",
+    appliesTo: ALL,
+    category: "Visual",
+    severity: "medium",
+    howTo: {
+      default: "Look for banners, buttons, headings, or promos rendered as images. Text should be real text (logos are exempt). Increase text size: image text won't scale.",
+    },
+  },
+  {
+    id: "hover-focus-content",
+    title: "Tooltips and popovers are dismissible, hoverable, and stay visible",
+    wcag: ["1.4.13"],
+    level: "AA",
+    appliesTo: ALL,
+    category: "Visual",
+    severity: "medium",
+    howTo: {
+      web: "Hover/focus each tooltip or popover. It must be dismissible with Esc without moving the pointer, stay open while the pointer moves onto it, and persist until dismissed.",
+      default: "Check tooltips or popovers that appear on focus or long-press. They must be dismissible and stay visible until the user dismisses them. Mark N/A if none.",
+    },
+  },
+  {
+    id: "multiple-ways",
+    title: "There's more than one way to find a page (navigation, search, sitemap)",
+    wcag: ["2.4.5"],
+    level: "AA",
+    appliesTo: ["web"],
+    category: "Content",
+    severity: "low",
+    howTo: {
+      web: "Confirm at least two ways to reach content pages: e.g. main navigation plus search, a sitemap, or related links.",
+    },
+  },
+  {
+    id: "focus-not-obscured",
+    title: "Focused elements aren't hidden behind sticky headers, footers, or overlays",
+    wcag: ["2.4.11"],
+    level: "AA",
+    appliesTo: ALL,
+    category: "Keyboard & Focus",
+    severity: "medium",
+    howTo: {
+      web: "Tab through long pages. The focused element must never be fully hidden by sticky headers, cookie banners, or chat widgets.",
+      default: "With an external keyboard or the screen reader, move focus through long screens. The focused item must never be fully hidden behind tab bars, sticky buttons, or the keyboard.",
+    },
+  },
+  {
+    id: "dragging",
+    title: "Dragging actions have a single-tap/click alternative",
+    wcag: ["2.5.7"],
+    level: "AA",
+    appliesTo: ALL,
+    category: "Gestures & Touch",
+    severity: "medium",
+    howTo: {
+      default: "Find drag-to-reorder, sliders, swipe-to-dismiss, and map panning. Each needs a non-dragging alternative (buttons, tap-to-select, menu actions). Mark N/A if none.",
+    },
+  },
+  {
+    id: "language-parts",
+    title: "Passages in a different language are marked with that language",
+    wcag: ["3.1.2"],
+    level: "AA",
+    appliesTo: ALL,
+    category: "Content",
+    severity: "low",
+    howTo: {
+      default: "Find phrases or sections in another language (e.g. a Spanish link on an English screen). The screen reader should switch voices for them.",
+    },
+  },
+  {
+    id: "error-prevention",
+    title: "Legal, financial, or data-changing submissions can be reviewed, corrected, or reversed",
+    wcag: ["3.3.4"],
+    level: "AA",
+    appliesTo: ALL,
+    category: "Forms",
+    severity: "high",
+    howTo: {
+      default: "For payments, purchases, account deletion, and legal agreements: there must be a review/confirm step, a way to correct input, or a way to undo.",
+    },
+  },
+  {
+    id: "accessible-auth",
+    title: "Sign-in doesn't require a memory or puzzle test; password managers and paste work",
+    wcag: ["3.3.8"],
+    level: "AA",
+    appliesTo: ALL,
+    category: "Forms",
+    severity: "high",
+    howTo: {
+      web: "On login/sign-up: paste into password and code fields, and let the password manager fill them. CAPTCHAs must offer a non-puzzle alternative (e.g. object recognition or passkey).",
+      default: "On login/sign-up: paste into password and OTP fields, use the password manager / AutoFill, and confirm biometrics or passkeys work. No puzzles or memory tests should be required.",
+    },
+  },
+
   // ── Level AAA ──────────────────────────────────────────────────────────────
   {
     id: "contrast-enhanced",
@@ -404,7 +737,271 @@ export const MANUAL_CHECKLIST: ChecklistItem[] = [
     severity: "low",
     howTo: { default: "Check complex forms for hints, examples, or help links next to fields." },
   },
+  {
+    id: "media-enhanced",
+    title: "Extended audio description, full media alternatives, and live audio alternatives",
+    wcag: ["1.2.7", "1.2.8", "1.2.9"],
+    level: "AAA",
+    appliesTo: ALL,
+    category: "Media & Motion",
+    severity: "low",
+    howTo: {
+      default: "Prerecorded video has extended audio description (pausing where needed) and a full text alternative; live audio-only content has a text alternative. Mark N/A if there's no media.",
+    },
+  },
+  {
+    id: "identify-purpose",
+    title: "The purpose of icons, regions, and components can be programmatically determined",
+    wcag: ["1.3.6"],
+    level: "AAA",
+    appliesTo: ALL,
+    category: "Semantics",
+    severity: "low",
+    howTo: {
+      default: "Icons and regions expose their purpose (roles, landmarks, labels) so assistive tech or personalization tools can adapt them.",
+    },
+  },
+  {
+    id: "background-audio",
+    title: "Speech recordings have little or no background audio",
+    wcag: ["1.4.7"],
+    level: "AAA",
+    appliesTo: ALL,
+    category: "Media & Motion",
+    severity: "low",
+    howTo: {
+      default: "Prerecorded speech has no background sound, or it can be turned off, or it's at least 20 dB quieter than the speech.",
+    },
+  },
+  {
+    id: "visual-presentation",
+    title: "Blocks of text can be customized and are easy to read",
+    wcag: ["1.4.8"],
+    level: "AAA",
+    appliesTo: ALL,
+    category: "Visual",
+    severity: "low",
+    howTo: {
+      default: "Users can choose text/background colors; lines are 80 characters or fewer; text isn't justified; line spacing is at least 1.5; text resizes to 200% without horizontal scrolling.",
+    },
+  },
+  {
+    id: "images-of-text-strict",
+    title: "No images of text at all (except logos and essential cases)",
+    wcag: ["1.4.9"],
+    level: "AAA",
+    appliesTo: ALL,
+    category: "Visual",
+    severity: "low",
+    howTo: {
+      default: "Confirm no text is presented as an image except logos or where a particular presentation is essential.",
+    },
+  },
+  {
+    id: "keyboard-no-exception",
+    title: "Everything works with a keyboard, with no exceptions",
+    wcag: ["2.1.3"],
+    level: "AAA",
+    appliesTo: ALL,
+    category: "Keyboard & Focus",
+    severity: "low",
+    howTo: {
+      default: "Repeat the keyboard check with no exceptions — even path-dependent input (drawing, signatures) must have a keyboard method.",
+    },
+  },
+  {
+    id: "interruptions-timeouts",
+    title: "Interruptions can be postponed, and users are warned about data-loss timeouts",
+    wcag: ["2.2.4", "2.2.6"],
+    level: "AAA",
+    appliesTo: ALL,
+    category: "Content",
+    severity: "low",
+    howTo: {
+      default: "Non-emergency alerts, popups, and updates can be postponed or turned off. Users are told how long inactivity can last before data is lost (unless data is kept for 20+ hours).",
+    },
+  },
+  {
+    id: "three-flashes",
+    title: "Nothing flashes more than three times per second, regardless of size or color",
+    wcag: ["2.3.2"],
+    level: "AAA",
+    appliesTo: ALL,
+    category: "Media & Motion",
+    severity: "low",
+    howTo: {
+      default: "Same as the flashing check, with no size or brightness exceptions.",
+    },
+  },
+  {
+    id: "navigation-enhanced",
+    title: "Location is shown, link text alone is clear, and content uses section headings",
+    wcag: ["2.4.8", "2.4.9", "2.4.10"],
+    level: "AAA",
+    appliesTo: ALL,
+    category: "Content",
+    severity: "low",
+    howTo: {
+      default: "Users can tell where they are (breadcrumbs, selected tab, screen title). Each link makes sense from its text alone. Long content is organized with section headings.",
+    },
+  },
+  {
+    id: "focus-enhanced",
+    title: "Focus is never partially obscured and the focus indicator is large and high-contrast",
+    wcag: ["2.4.12", "2.4.13"],
+    level: "AAA",
+    appliesTo: ALL,
+    category: "Keyboard & Focus",
+    severity: "low",
+    howTo: {
+      default: "No part of the focused element is hidden by other content. The focus indicator is at least as large as a 2px outline around the control with 3:1 contrast between focused and unfocused states.",
+    },
+  },
+  {
+    id: "concurrent-input",
+    title: "Users can switch between touch, keyboard, voice, and switch input at any time",
+    wcag: ["2.5.6"],
+    level: "AAA",
+    appliesTo: ALL,
+    category: "Gestures & Touch",
+    severity: "low",
+    howTo: {
+      default: "While using touch, connect a keyboard or turn on Switch/Voice Control. The app shouldn't block or ignore the other input methods.",
+    },
+  },
+  {
+    id: "language-enhanced",
+    title: "Unusual words, abbreviations, reading level, and pronunciation are supported",
+    wcag: ["3.1.3", "3.1.4", "3.1.5", "3.1.6"],
+    level: "AAA",
+    appliesTo: ALL,
+    category: "Content",
+    severity: "low",
+    howTo: {
+      default: "Jargon and idioms are defined; abbreviations are expanded; content beyond lower-secondary reading level has a simpler version; ambiguous pronunciations are clarified.",
+    },
+  },
+  {
+    id: "change-on-request",
+    title: "Changes of context only happen when the user asks for them",
+    wcag: ["3.2.5"],
+    level: "AAA",
+    appliesTo: ALL,
+    category: "Content",
+    severity: "low",
+    howTo: {
+      default: "No automatic redirects, auto-opening screens, or unexpected new windows; all context changes are user-initiated (or can be turned off).",
+    },
+  },
+  {
+    id: "error-prevention-all",
+    title: "All submissions can be reviewed, corrected, or reversed",
+    wcag: ["3.3.6"],
+    level: "AAA",
+    appliesTo: ALL,
+    category: "Forms",
+    severity: "low",
+    howTo: {
+      default: "Extend the error-prevention check to every form, not just legal/financial ones.",
+    },
+  },
+  {
+    id: "accessible-auth-enhanced",
+    title: "Sign-in requires no cognitive test at all — not even object recognition",
+    wcag: ["3.3.9"],
+    level: "AAA",
+    appliesTo: ALL,
+    category: "Forms",
+    severity: "low",
+    howTo: {
+      default: "Confirm sign-in works without any cognitive function test, including image or object recognition CAPTCHAs.",
+    },
+  },
 ];
+
+/**
+ * Where each check happens. "screen" checks repeat on every screen; "app"
+ * checks are done once; `when` limits a check to screens containing that
+ * feature (if no screen has it, it's listed once app-wide as "if present").
+ */
+const SCOPES: Record<string, Pick<ChecklistItem, "scope" | "when">> = {
+  "sr-name-role-value": { scope: "screen" },
+  "focus-order": { scope: "screen" },
+  "modal-focus": { scope: "screen", when: ["modals"] },
+  "keyboard-operable": { scope: "screen" },
+  "alt-text-meaningful": { scope: "screen", when: ["images"] },
+  "color-alone": { scope: "screen" },
+  "errors-identified": { scope: "screen", when: ["inputs"] },
+  "input-labels": { scope: "screen", when: ["inputs"] },
+  "captions": { scope: "screen", when: ["media"] },
+  "sensory-characteristics": { scope: "screen" },
+  "link-purpose": { scope: "screen" },
+  "pointer-gestures": { scope: "screen", when: ["gestures"] },
+  "pointer-cancellation": { scope: "app" },
+  "media-alternatives": { scope: "screen", when: ["media"] },
+  "info-relationships": { scope: "screen" },
+  "audio-control": { scope: "screen", when: ["media"] },
+  "character-shortcuts": { scope: "app" },
+  "timing-adjustable": { scope: "app" },
+  "pause-stop-hide": { scope: "screen", when: ["animation"] },
+  "flashing": { scope: "app" },
+  "bypass-blocks": { scope: "screen" },
+  "page-titled": { scope: "screen" },
+  "label-in-name": { scope: "screen" },
+  "motion-actuation": { scope: "app" },
+  "language": { scope: "app" },
+  "on-focus-input": { scope: "screen", when: ["inputs"] },
+  "consistent-help": { scope: "app" },
+  "redundant-entry": { scope: "screen", when: ["inputs"] },
+  "focus-visible": { scope: "screen" },
+  "contrast": { scope: "screen" },
+  "resize-text": { scope: "screen" },
+  "reflow": { scope: "screen" },
+  "text-spacing": { scope: "screen" },
+  "status-messages": { scope: "screen", when: ["status"] },
+  "headings-labels": { scope: "screen" },
+  "orientation": { scope: "app" },
+  "target-size": { scope: "screen" },
+  "consistent-navigation": { scope: "app" },
+  "error-suggestion": { scope: "screen", when: ["inputs"] },
+  "live-media-description": { scope: "screen", when: ["media"] },
+  "input-purpose": { scope: "screen", when: ["inputs"] },
+  "images-of-text": { scope: "screen", when: ["images"] },
+  "hover-focus-content": { scope: "app" },
+  "multiple-ways": { scope: "app" },
+  "focus-not-obscured": { scope: "screen" },
+  "dragging": { scope: "screen", when: ["gestures"] },
+  "language-parts": { scope: "app" },
+  "error-prevention": { scope: "screen", when: ["inputs"] },
+  "accessible-auth": { scope: "screen", when: ["auth"] },
+  "contrast-enhanced": { scope: "screen" },
+  "target-size-enhanced": { scope: "screen" },
+  "motion": { scope: "screen", when: ["animation"] },
+  "sign-language": { scope: "screen", when: ["media"] },
+  "timing": { scope: "app" },
+  "help": { scope: "screen", when: ["inputs"] },
+  "media-enhanced": { scope: "screen", when: ["media"] },
+  "identify-purpose": { scope: "screen" },
+  "background-audio": { scope: "screen", when: ["media"] },
+  "visual-presentation": { scope: "app" },
+  "images-of-text-strict": { scope: "screen", when: ["images"] },
+  "keyboard-no-exception": { scope: "app" },
+  "interruptions-timeouts": { scope: "app" },
+  "three-flashes": { scope: "app" },
+  "navigation-enhanced": { scope: "app" },
+  "focus-enhanced": { scope: "screen" },
+  "concurrent-input": { scope: "app" },
+  "language-enhanced": { scope: "app" },
+  "change-on-request": { scope: "app" },
+  "error-prevention-all": { scope: "screen", when: ["inputs"] },
+  "accessible-auth-enhanced": { scope: "screen", when: ["auth"] },
+};
+
+export const MANUAL_CHECKLIST: ChecklistItem[] = ITEMS.map((item) => {
+  const scope = SCOPES[item.id];
+  if (!scope) throw new Error(`Checklist item "${item.id}" has no scope in SCOPES`);
+  return { ...item, ...scope };
+});
 
 const LEVEL_RANK: Record<WcagLevel, number> = { A: 1, AA: 2, AAA: 3 };
 

@@ -7,8 +7,9 @@
  * Jira tickets from the findings.
  *
  * Usage:
- *   bt-a11y start                    (interactive guided audit; also the default)
- *   bt-a11y report                   (regenerate the report from a saved audit)
+ *   bt-a11y start                    (guided audit: a few questions, then scans + per-screen checklist)
+ *   bt-a11y report                   (build the audit from scans + the filled-in checklist)
+ *   bt-a11y code [dir]               (scan React Native source code)
  *   bt-a11y audit <tree.json> [--platform web|ios|android|react-native]
  *                             [--level A|AA|AAA]
  *                             [--format console|json|markdown]
@@ -99,8 +100,9 @@ const HELP = `bt-a11y — BlueTread Accessibility Toolkit
 
 Usage:
   bt-a11y                       Same as 'bt-a11y start'
-  bt-a11y start                 Guided audit: setup → scans → manual checklist → report
-  bt-a11y report                Regenerate the report from a saved guided audit
+  bt-a11y start                 Guided audit: a few questions → scans → per-screen checklist
+  bt-a11y report [options]      Build the audit from the scans + filled-in a11y-audit/checklist.md
+  bt-a11y code [dir] [options]  Scan React Native source code (default: current folder)
   bt-a11y audit <tree.json> [options]
   bt-a11y lighthouse <url> [<url> ...] [options]
   bt-a11y lighthouse --urls <file> [options]
@@ -112,11 +114,16 @@ Usage:
   bt-a11y axe --axe <result.json> [options]
 
 Commands:
-  start         Interactive audit for a website and/or mobile app. Asks what you're
-                auditing and the WCAG level, runs the right scans, walks you
-                through the manual checklist, and writes a11y-audit/report.md.
-                Progress is saved, so you can quit and resume any time.
-  report        Rebuild a11y-audit/report.md + report.json from the saved audit.
+  start         Asks for the project name, website vs. mobile app, WCAG level, and
+                the screens (found in the code) or pages to audit. Then runs the
+                automated checks on its own and writes a per-screen manual
+                checklist to a11y-audit/checklist.md for testers to fill in.
+  report        Reads the scans + a11y-audit/checklist.md and writes
+                a11y-audit/report.md + report.json (with the WCAG 2.2 coverage
+                matrix). Honors --jira and --min-severity.
+  code          Statically scan a React Native project's source (and app.json,
+                Info.plist, AndroidManifest.xml) for accessibility problems.
+                Honors --level, --format, --out, --jira, --min-severity.
   audit         Audit an A11yNode tree exported by a platform adapter.
   lighthouse    Run Lighthouse against one or many live pages (or a saved LHR)
                 and produce one combined accessibility report.
@@ -162,28 +169,31 @@ async function report(assessment: Assessment, args: ParsedArgs): Promise<void> {
     process.stdout.write(output + "\n");
   }
 
-  if (args.jira) {
-    const { JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN, JIRA_PROJECT_KEY } = process.env;
-    if (!JIRA_BASE_URL || !JIRA_EMAIL || !JIRA_API_TOKEN || !JIRA_PROJECT_KEY) {
-      process.stderr.write(
-        "\nError: --jira requires JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN, JIRA_PROJECT_KEY env vars.\n",
-      );
-      process.exitCode = 1;
-      return;
-    }
-    const created = await createJiraTickets(
-      assessment,
-      {
-        baseUrl: JIRA_BASE_URL,
-        email: JIRA_EMAIL,
-        apiToken: JIRA_API_TOKEN,
-        projectKey: JIRA_PROJECT_KEY,
-      },
-      { minSeverity: args.minSeverity },
+  if (args.jira) await fileJiraTickets(assessment, args);
+}
+
+/** Create Jira tickets for an assessment's findings (needs JIRA_* env vars). */
+async function fileJiraTickets(assessment: Assessment, args: ParsedArgs): Promise<void> {
+  const { JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN, JIRA_PROJECT_KEY } = process.env;
+  if (!JIRA_BASE_URL || !JIRA_EMAIL || !JIRA_API_TOKEN || !JIRA_PROJECT_KEY) {
+    process.stderr.write(
+      "\nError: --jira requires JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN, JIRA_PROJECT_KEY env vars.\n",
     );
-    process.stdout.write(`\nCreated ${created.length} Jira ticket(s):\n`);
-    for (const t of created) process.stdout.write(`  ${t.key} — ${t.finding.title}\n`);
+    process.exitCode = 1;
+    return;
   }
+  const created = await createJiraTickets(
+    assessment,
+    {
+      baseUrl: JIRA_BASE_URL,
+      email: JIRA_EMAIL,
+      apiToken: JIRA_API_TOKEN,
+      projectKey: JIRA_PROJECT_KEY,
+    },
+    { minSeverity: args.minSeverity },
+  );
+  process.stdout.write(`\nCreated ${created.length} Jira ticket(s):\n`);
+  for (const t of created) process.stdout.write(`  ${t.key} — ${t.finding.title}\n`);
 }
 
 async function runAuditCommand(args: ParsedArgs): Promise<void> {
@@ -290,7 +300,6 @@ async function runStartCommand(): Promise<void> {
       prompter: await inquirerPrompter(),
       cwd,
       out: (text) => process.stdout.write(text + "\n"),
-      env: process.env,
       resolveUrls: lighthouseRunner.resolveUrls,
       scanAxe: async (urls, level, onProgress) => {
         const { scanUrlsWithAxe } = await import("./integrations/axe-runner.js");
@@ -298,6 +307,14 @@ async function runStartCommand(): Promise<void> {
       },
       scanLighthouse: async (urls, level, onProgress) =>
         (await lighthouseRunner.scanUrls(urls, { targetLevel: level, onProgress })).assessment,
+      scanCode: async (root, level, platforms) => {
+        const { scanReactNative } = await import("./code-scan/react-native.js");
+        return scanReactNative(root, { targetLevel: level, platforms });
+      },
+      discoverScreens: async (root) => {
+        const { discoverScreens } = await import("./code-scan/screens.js");
+        return discoverScreens(root);
+      },
       hasModule: async (name) => {
         try {
           await import(name);
@@ -312,31 +329,46 @@ async function runStartCommand(): Promise<void> {
           child.on("close", (code) => resolve(code ?? 1));
           child.on("error", () => resolve(1));
         }),
-      createJiraTickets: (assessment, minSeverity) => {
-        const { JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN, JIRA_PROJECT_KEY } = process.env;
-        return createJiraTickets(
-          assessment,
-          { baseUrl: JIRA_BASE_URL!, email: JIRA_EMAIL!, apiToken: JIRA_API_TOKEN!, projectKey: JIRA_PROJECT_KEY! },
-          { minSeverity },
-        );
-      },
     });
   } catch (err) {
     if (!isPromptExit(err)) throw err;
-    process.stdout.write("\n\nStopped. Your progress is saved — run 'bt-a11y start' to resume.\n");
+    process.stdout.write("\n\nStopped. Run 'bt-a11y start' again to pick up.\n");
   }
 }
 
-async function runReportCommand(): Promise<void> {
+async function runCodeCommand(args: ParsedArgs): Promise<void> {
+  const { scanReactNative } = await import("./code-scan/react-native.js");
+  const { findingsToAssessment } = await import("./audit.js");
+  const root = args.file ?? ".";
+  const result = await scanReactNative(root, { targetLevel: args.level });
+  process.stderr.write(
+    `Scanned ${result.filesScanned} files in ${root} · checked ${result.checked.length} WCAG criteria: ${result.checked.join(", ")}\n`,
+  );
+  for (const s of result.signals) process.stderr.write(`  verify: ${s.message}\n`);
+  await report(
+    findingsToAssessment(result.findings, { platforms: ["ios", "android"], targetLevel: args.level }),
+    args,
+  );
+}
+
+async function runReportCommand(args: ParsedArgs): Promise<void> {
   const { loadSession, writeReports } = await import("./wizard/session.js");
+  const { coverageSummaryLines } = await import("./wizard/coverage.js");
   const session = loadSession(process.cwd());
   if (!session) {
-    process.stderr.write("No saved audit found in ./a11y-audit. Run 'bt-a11y start' first.\n");
+    process.stderr.write("No guided audit found in ./a11y-audit. Run 'bt-a11y start' first.\n");
     process.exitCode = 1;
     return;
   }
-  const { assessment, markdown, json } = writeReports(process.cwd(), session);
-  process.stdout.write(`${formatConsole(assessment)}\n\nReport written:\n  ${markdown}\n  ${json}\n`);
+  const { assessment, coverage, checklist, markdown, json } = writeReports(process.cwd(), session);
+  for (const w of checklist.warnings) process.stderr.write(`Checklist warning — ${w}\n`);
+  const rows = checklist.rows;
+  const done = rows.filter((r) => r.status !== "open").length;
+  process.stdout.write(`${formatConsole(assessment)}\n\n`);
+  process.stdout.write(`Checklist: ${done}/${rows.length} checks answered · ${rows.filter((r) => r.status === "fail").length} failed\n`);
+  process.stdout.write(`WCAG 2.2 criteria coverage:\n${coverageSummaryLines(coverage).map((l) => `  ${l}`).join("\n")}\n`);
+  process.stdout.write(`\nReport written:\n  ${markdown}\n  ${json}\n`);
+  if (args.jira) await fileJiraTickets(assessment, args);
 }
 
 /** Load ./.env (e.g. JIRA_* credentials) when present. Needs Node 20.12+; existing env vars win. */
@@ -367,7 +399,10 @@ async function main(): Promise<void> {
       await runStartCommand();
       break;
     case "report":
-      await runReportCommand();
+      await runReportCommand(args);
+      break;
+    case "code":
+      await runCodeCommand(args);
       break;
     case "audit":
       await runAuditCommand(args);

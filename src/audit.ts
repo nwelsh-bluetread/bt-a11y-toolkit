@@ -220,7 +220,9 @@ function worstSeverity(findings: Finding[]): Severity {
 export function computeTopIssues(findings: Finding[], limit = 5): string[] {
   const byRule = new Map<string, { title: string; count: number; weight: number }>();
   for (const f of findings) {
-    const entry = byRule.get(f.ruleId) ?? { title: f.title, count: 0, weight: 0 };
+    // Per-file findings (e.g. code scans) carry "— path" and "(n×)" in their titles; label by the issue itself.
+    const title = f.title.replace(/ \(\d+×\)/, "").split(" — ")[0]!;
+    const entry = byRule.get(f.ruleId) ?? { title, count: 0, weight: 0 };
     entry.count++;
     entry.weight += SEVERITY_WEIGHT[f.severity];
     byRule.set(f.ruleId, entry);

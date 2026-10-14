@@ -74,3 +74,17 @@ describe("formatters", () => {
     expect(md).toContain("## Accessibility Scorecard");
   });
 });
+
+describe("computeTopIssues", () => {
+  it("labels per-file findings by the issue, not the first file", async () => {
+    const { computeTopIssues } = await import("../src/audit.js");
+    const f = (file: string): Finding => ({
+      ruleId: "rn-image-alt",
+      title: `Image has no text alternative (3×) — ${file}`,
+      description: "",
+      severity: "medium",
+      wcag: wcag("1.1.1"),
+    });
+    expect(computeTopIssues([f("a.tsx"), f("b.tsx")])).toEqual(["Image has no text alternative (2)"]);
+  });
+});

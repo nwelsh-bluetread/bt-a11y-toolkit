@@ -23,8 +23,11 @@ specific criteria, not the whole app).
 Log every manual finding as a `Finding` with `source: "manual"` so it flows into
 the same scorecard, WCAG rollup, and Jira tickets as the automated results.
 
-> The guided audit (`bt-a11y start`) walks testers through these checks one at a
-> time and logs findings for you. Its checklist lives in
+> The guided audit (`bt-a11y start`) turns these checks into a per-screen
+> checklist (`a11y-audit/checklist.md`), tailored to what each screen contains;
+> `bt-a11y report` turns the filled-in file into findings. Together the tables cover **all 86 WCAG 2.2
+> success criteria** (the checklist test enforces this), and the guided audit's
+> report shows each criterion's status per platform. Its checklist lives in
 > [`src/checklist.ts`](../src/checklist.ts) — **update both files together**
 > when adding or changing a check.
 
@@ -46,6 +49,21 @@ the same scorecard, WCAG rollup, and Jira tickets as the automated results.
 | Link/button purpose clear in context | 2.4.4 | "Read more" etc. makes sense to a screen reader user |
 | Gestures (swipe/pinch/drag) have a single-pointer alternative | 2.5.1 | Try each gesture's tap/button alternative |
 | Actions fire on release; dragging off cancels | 2.5.2 | Press, slide off the control, release — nothing should happen |
+| Text alternatives for audio-only / video-only; audio description or transcript for video | 1.2.1 / 1.2.3 | Check every prerecorded clip |
+| Structure exposed: headings, lists, groups, label–field links | 1.3.1 | Navigate by headings; cards/rows read as one item |
+| Autoplaying audio (>3s) can be paused or muted | 1.4.2 | Open screens that may autoplay sound |
+| Single-key shortcuts can be turned off or remapped | 2.1.4 | Press letter keys outside text fields |
+| Time limits can be turned off, adjusted, or extended | 2.2.1 | Session timeouts, OTP countdowns, auto-advance |
+| Moving/auto-updating content can be paused, stopped, or hidden | 2.2.2 | Carousels, looping animations, tickers |
+| Nothing flashes more than 3 times per second | 2.3.1 | Watch animations and video |
+| Skip link / landmarks bypass repeated content *(web only)* | 2.4.1 | Tab on page load; list landmarks |
+| Every page/screen has a descriptive title | 2.4.2 | Browser tab title; screen title announced on navigation |
+| Accessible name includes the visible label | 2.5.3 | Voice Control / Voice Access: "Tap <visible label>" |
+| Shake/tilt actions have a UI alternative and can be disabled | 2.5.4 | Look for motion-triggered features |
+| Language of page/app is set correctly | 3.1.1 | Screen reader uses the right voice; app follows device locale |
+| Focus or input changes don't cause unexpected context changes | 3.2.1 / 3.2.2 | Move focus and change pickers/toggles |
+| Help appears in the same place on every screen | 3.2.6 | Support link, chat, phone number |
+| No re-entering information already given in the same flow | 3.3.7 | Multi-step checkout / sign-up |
 
 ## Level AA — standard target (also requires all A)
 
@@ -53,15 +71,25 @@ the same scorecard, WCAG rollup, and Jira tickets as the automated results.
 | --- | --- | --- |
 | Visible focus indicator on every control | 2.4.7 | Tab/navigate; confirm focus is always visible |
 | Text contrast 4.5:1 (3:1 large); UI/graphics 3:1 | 1.4.3 / 1.4.11 | Check hover, focus, disabled, over images/gradients |
-| Reflow at 320px width, no horizontal scroll | 1.4.10 | Zoom/narrow viewport; content stacks, nothing clipped |
+| Reflow at 320px width (web) / largest text + landscape (mobile), no two-way scrolling | 1.4.10 | Zoom/narrow viewport or max text size; content wraps, nothing clipped |
 | Text resizes to 200% without loss | 1.4.4 | Increase system/browser text size |
-| Text spacing overrides don't break layout | 1.4.12 | Apply spacing bookmarklet / OS setting |
+| Text spacing overrides don't break layout *(web only)* | 1.4.12 | Apply spacing bookmarklet |
 | Status messages announced without stealing focus | 4.1.3 | Trigger toasts/loading/results; confirm polite announcement |
 | Headings & labels are descriptive | 2.4.6 | Review heading text and control labels for clarity |
 | Orientation not locked (unless essential) | 1.3.4 | Rotate device portrait ⇄ landscape |
 | Touch target minimum 24×24 | 2.5.8 | Measure small/closely-spaced controls |
 | Consistent navigation & identification | 3.2.3 / 3.2.4 | Nav and components behave the same across screens |
 | Error suggestions provided when known | 3.3.3 | Validation tells the user how to fix it |
+| Live captions; audio description for prerecorded video | 1.2.4 / 1.2.5 | Live streams and video with important visuals |
+| Personal-data fields identify their purpose (autofill works) | 1.3.5 | Name/email/phone/address/password fields offer AutoFill |
+| Real text, not images of text | 1.4.5 | Banners, buttons, headings rendered as images |
+| Tooltips/popovers dismissible, hoverable, persistent | 1.4.13 | Hover/focus each tooltip; Esc dismisses |
+| More than one way to find a page *(web only)* | 2.4.5 | Navigation plus search, sitemap, or related links |
+| Focused element not hidden by sticky headers/footers/overlays | 2.4.11 | Tab through long screens |
+| Dragging has a single-pointer alternative | 2.5.7 | Reorder, sliders, swipe-to-dismiss, map panning |
+| Other-language passages marked with their language | 3.1.2 | Screen reader switches voice |
+| Legal/financial/data submissions can be reviewed, corrected, or reversed | 3.3.4 | Payments, purchases, deletions, agreements |
+| No memory/puzzle test to sign in; paste and password managers work | 3.3.8 | Paste into password/OTP fields; use AutoFill |
 
 ## Level AAA — enhanced (only if targeted; also requires A + AA)
 
@@ -73,6 +101,21 @@ the same scorecard, WCAG rollup, and Jira tickets as the automated results.
 | Sign language for prerecorded audio | 1.2.6 | Verify signed track where required |
 | No timing / re-authentication data loss | 2.2.3 / 2.2.5 | Remove or extend time limits |
 | Context-sensitive help available | 3.3.5 | Help text/affordances present where needed |
+| Extended audio description, media alternatives, live audio alternatives | 1.2.7 / 1.2.8 / 1.2.9 | Check all media |
+| Purpose of icons, regions, components is programmatically determinable | 1.3.6 | Roles, landmarks, labels |
+| Little or no background audio behind speech | 1.4.7 | Listen to recordings |
+| Text blocks customizable and readable | 1.4.8 | Colors, ≤80 chars, not justified, 1.5 spacing |
+| No images of text at all | 1.4.9 | Except logos/essential |
+| Keyboard with no exceptions | 2.1.3 | Including path-based input |
+| Interruptions postponable; data-loss timeouts disclosed | 2.2.4 / 2.2.6 | Alerts, popups, inactivity |
+| No flashing at all (3 flashes) | 2.3.2 | No size/brightness exception |
+| Location shown, link text alone clear, section headings | 2.4.8 / 2.4.9 / 2.4.10 | Breadcrumbs, selected tab, headings |
+| Focus never partially obscured; strong focus indicator | 2.4.12 / 2.4.13 | ≥2px outline-equivalent, 3:1 |
+| Switch input methods at any time | 2.5.6 | Touch + keyboard + switch + voice |
+| Unusual words, abbreviations, reading level, pronunciation | 3.1.3–3.1.6 | Definitions, expansions, simpler version |
+| Context changes only on request | 3.2.5 | No auto-redirects or surprise windows |
+| All submissions reviewable/reversible | 3.3.6 | Every form |
+| Sign-in with no cognitive test at all | 3.3.9 | Not even object recognition |
 
 ---
 
