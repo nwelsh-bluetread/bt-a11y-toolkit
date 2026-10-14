@@ -30,6 +30,7 @@ You'll need:
 - **Real phones** for screen-reader testing: an iPhone (VoiceOver) and/or an
   Android phone (TalkBack). Simulators aren't good enough for this part.
 - **Test builds and logins** from the client (TestFlight / APK, test accounts).
+- **Google Chrome** installed, to create the summary PDF at the end.
 
 ### Step 1: Install the toolkit (one time per project)
 
@@ -130,12 +131,32 @@ When you're done (or any time you want to see progress), run:
 npx bt-a11y report
 ```
 
-This creates `a11y-audit/report.md` with:
-- an overall score and a summary of problems by severity;
-- every finding, both automated and yours, with the screen and platform it
-  was found on;
-- a **WCAG coverage table** showing the status of every requirement: passed,
-  failed, not applicable, or not yet tested.
+This creates:
+
+- **`a11y-audit/a11y-audit-summary-<date>.pdf`**: the client-ready executive
+  summary. It has a one-page cover (score, issue counts, key takeaway, top
+  priorities, remediation path), results by WCAG principle, a plain-language
+  WCAG reference table, and every finding with its screens and fix.
+- **`a11y-audit/report.md`**: the working report, with an overall score, a
+  summary of problems by severity, every finding (automated and yours) with
+  the screen and platform it was found on, and a **WCAG coverage table**
+  showing the status of every requirement: passed, failed, not applicable, or
+  not yet tested.
+
+The PDF's "key takeaway" and principle summaries are written automatically
+from the findings. To use your own wording, create
+`a11y-audit/summary-overrides.json` and run the report again:
+
+```json
+{
+  "keyTakeaway": "Screen reader users can't sign in. Fix the login form labels first.",
+  "title": "Acme Mobile App"
+}
+```
+
+Any field in `a11y-audit/a11y-audit-summary.json` (the data the PDF is built
+from) can be overridden this way, including `principleSummaries`, `phases`,
+and `preparedBy`. Add `--no-pdf` to skip the PDF.
 
 If you made a typo in the checklist (for example `[y]` instead of `[x]`), it
 tells you which line to fix.
@@ -161,7 +182,8 @@ update their marks, and run `npx bt-a11y report` for the updated report.
 | Start an audit or re-run the scans | `npx bt-a11y` |
 | Build or refresh the report | `npx bt-a11y report` |
 | Find the checklist to fill in | `a11y-audit/checklist.md` |
-| Find the finished report | `a11y-audit/report.md` |
+| Find the client PDF | `a11y-audit/a11y-audit-summary-<date>.pdf` |
+| Find the working report | `a11y-audit/report.md` |
 
 ## Guided audit
 
@@ -225,10 +247,21 @@ Testers fill in `checklist.md`, marking each platform line:
 yet. Issues that don't fit a check go under **Other findings** at the bottom.
 
 Then **`npx bt-a11y report`** reads the scans + checklist and writes
-`a11y-audit/report.md` and `report.json`: score, findings (with screen and
-platform), and the [WCAG 2.2 coverage matrix](#wcag-22-coverage-all-86-criteria).
+`a11y-audit/report.md` and `report.json` (score, findings with screen and
+platform, and the [WCAG 2.2 coverage matrix](#wcag-22-coverage-all-86-criteria)),
+plus the executive-summary PDF `a11y-audit/a11y-audit-summary-<date>.pdf`.
 It warns about lines it can't read (with line numbers). Run it as often as you
-like; add `--jira --min-severity high` to file tickets.
+like; add `--jira --min-severity high` to file tickets, or `--no-pdf` to skip
+the PDF.
+
+**About the PDF.** It's rendered by `assets/pdf/render.mjs` (vendored from the
+`a11y-report-pdf` Claude skill) with headless Chrome; set `CHROME_PATH` if
+Chrome isn't in a standard location. When Python's `pikepdf` is available, the
+file is post-processed to pass **PDF/UA-1** (verify with
+`verapdf --flavour ua1 <pdf>`). Without it, the PDF is still tagged, but the
+report prints a warning with the one-line install command. Code findings are
+merged per rule, listing every screen and file they appear in; manual
+findings stay separate per issue.
 
 Running `npx bt-a11y` again offers to re-run the scans (e.g. after the client
 ships fixes) and regenerates the checklist **keeping every answer already
@@ -812,6 +845,7 @@ node dist/cli.js start
 # Build the audit from the scans + filled-in a11y-audit/checklist.md:
 node dist/cli.js report
 node dist/cli.js report --jira --min-severity high
+node dist/cli.js report --no-pdf          # skip the summary PDF
 
 # Scan a React Native project's source code:
 node dist/cli.js code ./path/to/rn-app --format markdown --out code-scan.md
@@ -902,6 +936,7 @@ Each file can be run on its own with `npx vitest run tests/<file>`.
 | `tests/rn-code-scan.test.ts` | The React Native code scanner against a generated mini-app: every rule, native config, signals, and no-guess cases (dynamic text, spread props). | `npx vitest run tests/rn-code-scan.test.ts` |
 | `tests/screens.test.ts` | Screen discovery: React Navigation (barrels, path aliases, `getComponent`, nested navigators skipped), static configs, expo-router, folder fallback, feature detection. | `npx vitest run tests/screens.test.ts` |
 | `tests/checklist-md.test.ts` | The per-screen checklist file: planning (feature-tailored checks), rendering (⚑ findings on the right screen), parsing marks/issues/Other findings, and keeping answers on regenerate. | `npx vitest run tests/checklist-md.test.ts` |
+| `tests/summary-pdf.test.ts` | Summary PDF data: cover fields, severity totals match the report, code findings named by screen, manual findings by screen + platform, overrides. | `npx vitest run tests/summary-pdf.test.ts` |
 | `tests/coverage.test.ts` | The WCAG 2.2 coverage matrix: level scoping and every status. | `npx vitest run tests/coverage.test.ts` |
 | `tests/wizard.test.ts` | The guided audit end to end with scripted answers: React Native, non-RN mobile, and web flows; only setup prompts; checklist written and displayed; filled-in checklist → report; re-run keeps answers. | `npx vitest run tests/wizard.test.ts` |
 | `tests/fixtures.ts` | Shared sample `A11yNode` tree used by rule/audit tests (not a test itself). | — |
@@ -991,9 +1026,12 @@ src/
     lighthouse-runner.ts  Live Lighthouse scans + URL/sitemap discovery
     axe.ts           axe-core results -> Finding/Assessment (pure)
     axe-runner.ts    Live axe scans via Playwright
+  pdf/
+    summary.ts       Audit → executive-summary PDF data, and running the renderer
   matchers/
     index.ts         Vitest/Jest assertion matchers
   cli.ts             bt-a11y command line
+assets/pdf/          PDF renderer (render.mjs, headless Chrome) + PDF/UA post-processor (pdfua_fix.py)
 scripts/             Standalone, per-tool runners
   lighthouse.ts      npm run scan:lighthouse
   axe.ts             npm run scan:axe
