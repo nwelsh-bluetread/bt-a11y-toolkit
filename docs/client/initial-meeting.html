@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Accessibility Assessment — Initial Meeting</title>
+<style>
+  @page { size: Letter; margin: 0.45in 0.5in; }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, "Helvetica Neue", Arial, sans-serif; color: #1a1a1a; font-size: 9.6pt; line-height: 1.32; margin: 0; }
+  header { border-bottom: 3px solid #0b4f8a; padding-bottom: 6px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: flex-end; }
+  h1 { font-size: 17pt; margin: 0; color: #0b4f8a; }
+  .sub { margin: 2px 0 0; color: #3d3d3d; }
+  .meta { text-align: right; color: #3d3d3d; font-size: 8.8pt; }
+  .meta span { display: inline-block; min-width: 150px; border-bottom: 1px solid #767676; }
+  h2 { font-size: 10.6pt; color: #fff; background: #0b4f8a; margin: 8px 0 4px; padding: 2px 6px; }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0 18px; }
+  ol, ul { margin: 0; padding-left: 24px; }
+  li { margin: 1px 0 2px; }
+  .opts { color: #3d3d3d; }
+  .opt { white-space: nowrap; }
+  .box { display: inline-block; width: 8px; height: 8px; border: 1px solid #333; margin: 0 2px 0 6px; vertical-align: -1px; }
+  .agenda { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin: 0; padding: 0; list-style: none; }
+  .agenda li { border-left: 3px solid #0b4f8a; padding: 2px 6px; background: #eef4fa; margin: 0; }
+  .agenda b { display: block; }
+  .note { background: #f5f5f5; border-left: 3px solid #767676; padding: 4px 8px; margin-top: 6px; font-size: 8.8pt; }
+  .notes { border: 1px solid #767676; height: 1.75in; margin-top: 8px; padding: 4px 8px; font-weight: bold; color: #3d3d3d; }
+  footer { margin-top: 6px; font-size: 8pt; color: #3d3d3d; text-align: center; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Accessibility Assessment — Initial Meeting</h1>
+    <p class="sub">BlueTread · Discovery &amp; scoping session</p>
+  </div>
+  <p class="meta">Client: <span></span><br>Date: <span></span></p>
+</header>
+
+<main>
+<h2>Agenda (45–60 min)</h2>
+<ol class="agenda">
+  <li><b>1. Introductions</b>Goals &amp; stakeholders</li>
+  <li><b>2. Current state</b>Requirements, history, risk</li>
+  <li><b>3. Scope</b>Platforms, pages, key flows</li>
+  <li><b>4. Access</b>Environments, accounts, code</li>
+  <li><b>5. Next steps</b>Timeline &amp; deliverables</li>
+</ol>
+
+<div class="cols">
+<section>
+<h2>Current state</h2>
+<ol>
+  <li>Is your application / customer portal publicly accessible?</li>
+  <li>Does your organization have accessibility requirements today?</li>
+  <li>Which conformance level are you targeting?<br>
+    <span class="opts"><span class="opt"><span class="box"></span>WCAG A</span>  <span class="opt"><span class="box"></span>AA</span>  <span class="opt"><span class="box"></span>AAA</span>  <span class="opt"><span class="box"></span>Not sure</span> </span><br>
+    Which version? <span class="opts"><span class="opt"><span class="box"></span>2.1</span>  <span class="opt"><span class="box"></span>2.2</span>  <span class="opt"><span class="box"></span>Not sure</span> </span></li>
+  <li>Have you completed an accessibility audit before? If so, when, by whom, and what has been fixed since?</li>
+  <li>Have you ever received:<br>
+    <span class="opts"><span class="opt"><span class="box"></span>Complaints</span>  <span class="opt"><span class="box"></span>Demand letters</span>  <span class="opt"><span class="box"></span>Legal inquiries</span>  <span class="opt"><span class="box"></span>Procurement requests (VPAT / ACR)</span> </span></li>
+  <li>Is there an active matter, deadline, or legal counsel involved?</li>
+  <li>What is your team's current accessibility knowledge?</li>
+</ol>
+
+<h2>Drivers &amp; regulations</h2>
+<ol start="8">
+  <li>Which markets do you serve? <span class="opts"><span class="opt"><span class="box"></span>US private</span>  <span class="opt"><span class="box"></span>Government / public</span>  <span class="opt"><span class="box"></span>Federal (508)</span>  <span class="opt"><span class="box"></span>EU (EAA)</span> </span></li>
+  <li>Is a date driving this (contract, RFP, launch, legal deadline)?</li>
+</ol>
+
+<h2>Users &amp; team</h2>
+<ol start="10">
+  <li>Do you know of users who rely on assistive technology?</li>
+  <li>Which browsers, devices, and OS versions do you support?</li>
+  <li>Who will remediate issues: in-house team, agency, or vendor?</li>
+  <li>Is accessibility part of your design process / design system?</li>
+</ol>
+<div class="notes">Notes / action items</div>
+</section>
+
+<section>
+<h2>Scope</h2>
+<ol start="14">
+  <li>Platforms in scope: <span class="opts"><span class="opt"><span class="box"></span>Web</span>  <span class="opt"><span class="box"></span>iOS</span>  <span class="opt"><span class="box"></span>Android</span> </span><br>
+    Mobile stack: <span class="opts"><span class="opt"><span class="box"></span>React Native</span>  <span class="opt"><span class="box"></span>Native</span>  <span class="opt"><span class="box"></span>Flutter</span>  <span class="opt"><span class="box"></span>Other</span> </span></li>
+  <li>Approximately how many pages / screens?</li>
+  <li>What are your 3–5 most critical user journeys (e.g., sign-up, login, checkout, payments, account settings)?</li>
+  <li>Do you have a sitemap.xml we can use for discovery?</li>
+  <li>Anything out of scope (third-party widgets, embedded payments, PDFs, video, marketing site)?</li>
+</ol>
+
+<h2>Access &amp; environments</h2>
+<ol start="19">
+  <li>Is the portal behind a login? Can you provide test accounts for each user role?</li>
+  <li>Is a staging / QA environment available for testing?</li>
+  <li>Will bot protection, CAPTCHA, MFA, or rate limiting block automated scans? Can our IP be allowlisted?</li>
+  <li>Can we get read access to the code repository? Which frontend framework do you use?</li>
+  <li>Which issue tracker do you use (e.g., Jira)? Can we file tickets directly?</li>
+</ol>
+
+<h2>Deliverables &amp; next steps</h2>
+<ol start="24">
+  <li>Who is the audience for the report (executive, legal, engineering, procurement)?</li>
+  <li>Interested in remediation support or ongoing monitoring beyond the assessment?</li>
+  <li>Who is the primary contact, and how should critical findings be shared?</li>
+</ol>
+
+<p class="note"><b>What to expect:</b> Our assessment combines automated scanning (axe, Lighthouse) with manual keyboard and screen-reader testing, because automated tools catch only about a third of WCAG issues. You'll receive prioritized findings mapped to WCAG success criteria, an executive summary, and remediation estimates. A typical medium-size web assessment takes 20–35 hours.</p>
+</section>
+</div>
+</main>
+
+<footer>BlueTread · Accessibility Product · Phase 1 — Accessibility Assessment</footer>
+</body>
+</html>
