@@ -1,12 +1,14 @@
 # @bluetread/accessibility-toolkit
 
 BlueTread's internal, repeatable accessibility testing toolkit. Every audit uses
-this as a baseline: reusable automated a11y checks, WCAG-mapped scoring, a report
-generator, and Jira ticket creation — for **web** and **React Native**
-applications.
+this as a baseline: a guided interactive audit, reusable automated a11y checks,
+a manual testing checklist, WCAG-mapped scoring, a report generator, and Jira
+ticket creation — for **websites** and **mobile apps (iOS / Android)**.
 
 ```bash
-npm install @bluetread/accessibility-toolkit
+# Private package — install from GitHub into the repo you're auditing:
+npm install -D github:nwelsh-bluetread/bt-a11y-toolkit
+npx bt-a11y
 ```
 
 > This repo backs all work for the Accessibility Product: unit tests, scripts,
@@ -320,6 +322,28 @@ console.log(formatConsole(assessment));
 // ...
 ```
 
+Findings from anywhere else (manual testing, native scanners, a spreadsheet)
+can be scored the same way, and the manual checklist is available as data:
+
+```ts
+import {
+  findingsToAssessment,
+  checklistFor,
+  howToFor,
+  formatMarkdown,
+} from "@bluetread/accessibility-toolkit";
+
+const assessment = findingsToAssessment(findings, {
+  platforms: ["ios", "android"],
+  targetLevel: "AA",
+});
+console.log(formatMarkdown(assessment));
+
+for (const item of checklistFor("ios", "AA")) {
+  console.log(item.title, item.wcag, howToFor(item, "ios"));
+}
+```
+
 ## Quick start (CLI)
 
 Run `bt-a11y` with no arguments for the interactive
@@ -529,10 +553,16 @@ passed through to the underlying script.
 
 ### CLI (`bt-a11y`)
 
-Audits a JSON file describing an `A11yNode` tree (from a platform adapter).
 Available after `npm run build` as `node dist/cli.js` or, once installed, `bt-a11y`.
+Reads `./.env` automatically on Node 20.12+ (for `JIRA_*` variables).
 
 ```bash
+# Guided interactive audit (same as plain `bt-a11y`); resumes if one is saved:
+node dist/cli.js start
+
+# Rebuild a11y-audit/report.md + report.json from the saved guided audit:
+node dist/cli.js report
+
 # Audit a node tree, print the console report:
 node dist/cli.js audit ./examples/login-screen.json --platform react-native
 
@@ -613,8 +643,13 @@ Each file can be run on its own with `npx vitest run tests/<file>`.
 | `tests/audit.test.ts` | The audit runner, scoring, WCAG rollups, scorecard, and report formatters. | `npx vitest run tests/audit.test.ts` |
 | `tests/jira.test.ts` | Jira payload building, severity filtering, and ticket creation (mocked fetch). | `npx vitest run tests/jira.test.ts` |
 | `tests/lighthouse.test.ts` | Lighthouse → `Finding`/`Assessment` conversion and mappings. | `npm run test:lighthouse` |
+| `tests/lighthouse-runner.test.ts` | URL discovery: URL list files, sitemaps, and sitemap indexes. | `npx vitest run tests/lighthouse-runner.test.ts` |
+| `tests/axe.test.ts` | axe-core → `Finding`/`Assessment` conversion, WCAG tag mapping, multi-page merge. | `npx vitest run tests/axe.test.ts` |
+| `tests/checklist.test.ts` | Manual checklist data (valid WCAG ids, level stacking, platform filtering) and `findingsToAssessment`. | `npx vitest run tests/checklist.test.ts` |
+| `tests/wizard.test.ts` | The guided audit end to end with scripted answers: mobile + web flows, scanner install, resume, report output. | `npx vitest run tests/wizard.test.ts` |
 | `tests/fixtures.ts` | Shared sample `A11yNode` tree used by rule/audit tests (not a test itself). | — |
 | `tests/fixtures.lighthouse.ts` | Shared sample Lighthouse Result used by the Lighthouse test (not a test itself). | — |
+| `tests/fixtures.axe.ts` | Shared sample axe result used by the axe test (not a test itself). | — |
 
 ### Common workflows
 
@@ -629,6 +664,10 @@ npx vitest tests/rules.test.ts  # just the rules, watch mode
 # Try the toolkit against sample data (no external tools required):
 node dist/cli.js audit ./examples/login-screen.json --platform react-native
 npm run scan:lighthouse -- --lhr ./examples/sample-lighthouse-result.json
+
+# Try the guided audit locally (run it from a scratch folder so the
+# a11y-audit/ output doesn't land in this repo):
+mkdir -p /tmp/demo-audit && cd /tmp/demo-audit && node ~/path/to/bt-a11y-toolkit/dist/cli.js
 ```
 
 ## Adding a new tool integration
@@ -642,6 +681,14 @@ only what you need, not everything at once. To add one, follow this pattern:
    unit-testable.
 2. `scripts/<tool>.ts` — a standalone runner; add a `"scan:<tool>"` npm script.
 3. `tests/<tool>.test.ts` — its own test; add a `"test:<tool>"` npm script.
+4. *(Optional)* Offer it in the guided audit: add it to `SCANNERS` (web) or
+   `MOBILE_SCANNER` (mobile) in `src/wizard/index.ts`, wire its runner into
+   `runStartCommand` in `src/cli.ts`, and extend `tests/wizard.test.ts`.
+
+To add or change a **manual check**, edit `MANUAL_CHECKLIST` in
+`src/checklist.ts` *and* the matching table in
+[`docs/MANUAL_TESTING.md`](docs/MANUAL_TESTING.md). Any new WCAG criterion must
+also be added to `src/wcag.ts` (the checklist test enforces this).
 
 Because every tool normalizes into the same `Finding` model, results from
 multiple sources can later be consolidated and deduplicated into one report.
@@ -674,14 +721,18 @@ src/
   integrations/
     jira.ts          Jira ticket creation
     lighthouse.ts    Lighthouse LHR -> Finding/Assessment (pure)
+    lighthouse-runner.ts  Live Lighthouse scans + URL/sitemap discovery
+    axe.ts           axe-core results -> Finding/Assessment (pure)
+    axe-runner.ts    Live axe scans via Playwright
   matchers/
     index.ts         Vitest/Jest assertion matchers
   cli.ts             bt-a11y command line
 scripts/             Standalone, per-tool runners
   lighthouse.ts      npm run scan:lighthouse
+  axe.ts             npm run scan:axe
 tests/               Unit tests + fixtures
-examples/            Sample A11yNode trees + Lighthouse result
-docs/                Engagement checklists
+examples/            Sample A11yNode trees + Lighthouse/axe results
+docs/                Engagement checklists + manual testing guide
 ```
 
 ## Tooling ecosystem (beyond this repo)
@@ -748,7 +799,9 @@ Physical-device + manual SR findings ──────────────�
 
 - Platform adapters (`@bluetread/accessibility-toolkit/adapters/react-native`, `/web`)
 - Native mobile result imports (XCUITest `performAccessibilityAudit`, Android Espresso/ATF)
-- Integrations with WAVE / axe / Lighthouse result imports for consolidation
+- WAVE result import (axe and Lighthouse are done)
+- Merge guided-audit sessions from multiple testers (e.g. iOS + Android on separate machines) into one report
+- PDF / executive-summary export from the guided audit
 - BrowserStack result import (`integrations/browserstack.ts`)
 - CI reporter (GitHub Actions annotations)
 - Before/after comparison for Phase 3 verification
