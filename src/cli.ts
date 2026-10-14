@@ -19,6 +19,7 @@
  */
 import { spawn } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { runAudit } from "./audit.js";
 import { formatConsole, formatJson, formatMarkdown } from "./report.js";
 import { createJiraTickets } from "./integrations/jira.js";
@@ -40,6 +41,7 @@ interface ParsedArgs {
   minTarget?: number;
   jira: boolean;
   minSeverity?: Severity;
+  pdf: boolean;
 }
 
 function parseArgs(argv: string[]): ParsedArgs {
@@ -49,6 +51,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     level: "AA",
     format: "console",
     jira: false,
+    pdf: true,
   };
   args.command = argv[0];
   const rest = argv.slice(1);
@@ -85,6 +88,9 @@ function parseArgs(argv: string[]): ParsedArgs {
       case "--jira":
         args.jira = true;
         break;
+      case "--no-pdf":
+        args.pdf = false;
+        break;
       case "--min-severity":
         args.minSeverity = rest[++i] as Severity;
         break;
@@ -120,7 +126,9 @@ Commands:
                 checklist to a11y-audit/checklist.md for testers to fill in.
   report        Reads the scans + a11y-audit/checklist.md and writes
                 a11y-audit/report.md + report.json (with the WCAG 2.2 coverage
-                matrix). Honors --jira and --min-severity.
+                matrix) and the executive-summary PDF
+                (a11y-audit/a11y-audit-summary-<date>.pdf, needs Chrome).
+                Honors --jira, --min-severity, and --no-pdf.
   code          Statically scan a React Native project's source (and app.json,
                 Info.plist, AndroidManifest.xml) for accessibility problems.
                 Honors --level, --format, --out, --jira, --min-severity.
@@ -140,6 +148,7 @@ Options:
   --format <console|json|markdown>             Report format (default: console)
   --out <file>                                 Write report to a file
   --min-target <px>                            Minimum touch target size (audit; default: 24 AA / 44 AAA)
+  --no-pdf                                     Skip the summary PDF (report)
   --jira                                       Create Jira tickets from findings
   --min-severity <critical|high|medium|low>    Only ticket findings at/above this severity
   -h, --help                                   Show this help
@@ -368,6 +377,22 @@ async function runReportCommand(args: ParsedArgs): Promise<void> {
   process.stdout.write(`Checklist: ${done}/${rows.length} checks answered · ${rows.filter((r) => r.status === "fail").length} failed\n`);
   process.stdout.write(`WCAG 2.2 criteria coverage:\n${coverageSummaryLines(coverage).map((l) => `  ${l}`).join("\n")}\n`);
   process.stdout.write(`\nReport written:\n  ${markdown}\n  ${json}\n`);
+
+  if (args.pdf) {
+    const { buildSummaryData, loadSummaryOverrides, renderSummaryPdf, summaryPdfName } = await import("./pdf/summary.js");
+    const dir = join(process.cwd(), "a11y-audit");
+    const dataPath = join(dir, "a11y-audit-summary.json");
+    const pdfPath = join(dir, summaryPdfName());
+    writeFileSync(dataPath, JSON.stringify(buildSummaryData(session, assessment, checklist, loadSummaryOverrides(dir)), null, 2) + "\n");
+    process.stdout.write("\nBuilding the summary PDF…\n");
+    try {
+      const log = await renderSummaryPdf(dataPath, pdfPath);
+      if (/NOT PDF\/UA/.test(log)) process.stderr.write(`${log.split("\n").filter((l) => /Warning|Fix:/.test(l)).join("\n")}\n`);
+      process.stdout.write(`  ${pdfPath}\n`);
+    } catch (err) {
+      process.stderr.write(`  Couldn't build the PDF: ${err instanceof Error ? err.message : String(err)}\n`);
+    }
+  }
   if (args.jira) await fileJiraTickets(assessment, args);
 }
 

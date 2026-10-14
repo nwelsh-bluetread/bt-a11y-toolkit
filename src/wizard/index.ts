@@ -133,7 +133,7 @@ export async function runWizard(deps: WizardDeps): Promise<void> {
   out("");
   out(green(`✓ Checklist: ${checklistPath(cwd)}`) + (answered ? dim(` (kept ${answered} answers)`) : ""));
   out(green(`✓ Report so far (automated results): ${markdown}`));
-  out(`\nNext: test each screen and mark the checklist, then run ${bold("npx bt-a11y report")} to build the audit.\n`);
+  out(`\nNext: test each screen and mark the checklist, then run ${bold("npx bt-a11y report")} to build the report and summary PDF.\n`);
 }
 
 // ── 1. Setup ─────────────────────────────────────────────────────────────────

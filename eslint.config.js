@@ -7,6 +7,11 @@ export default tseslint.config(
     ignores: ["dist/**", "node_modules/**", "coverage/**"],
   },
   js.configs.recommended,
+  {
+    // Plain Node scripts shipped as assets (e.g. the PDF renderer).
+    files: ["assets/**/*.mjs"],
+    languageOptions: { globals: { process: "readonly", console: "readonly", URL: "readonly" } },
+  },
   ...tseslint.configs.recommended,
   {
     languageOptions: {
