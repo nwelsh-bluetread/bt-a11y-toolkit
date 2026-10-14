@@ -17,7 +17,153 @@ npx bt-a11y
 > [`docs/MANUAL_TESTING.md`](docs/MANUAL_TESTING.md) for what to test by hand
 > (by WCAG level) after the automated scans run.
 
-## Guided audit (start here)
+## How to run an audit (step by step)
+
+A plain-language walkthrough from start to finish. For more technical detail,
+see [Guided audit](#guided-audit) below.
+
+### Before you start
+
+You'll need:
+- **The app's code** on your computer (for example, a cloned GitHub repo).
+- **Node.js** version 18 or newer. To check, run `node --version` in Terminal.
+- **Real phones** for screen-reader testing: an iPhone (VoiceOver) and/or an
+  Android phone (TalkBack). Simulators aren't good enough for this part.
+- **Test builds and logins** from the client (TestFlight / APK, test accounts).
+
+### Step 1: Install the toolkit (one time per project)
+
+In Terminal, go to the app's folder and install:
+
+```bash
+cd path/to/the-app
+npm install -D github:nwelsh-bluetread/bt-a11y-toolkit
+```
+
+### Step 2: Start the audit and answer the questions
+
+```bash
+npx bt-a11y
+```
+
+You'll be asked:
+1. **Project name.** Press Enter to accept the suggestion.
+2. **What you're auditing:** a mobile app, a website, or both.
+3. **The compliance level.** Choose **AA** unless told otherwise; it's the
+   legal standard.
+4. **Screens.** The toolkit finds the app's screens in its code and lists
+   them. Check that the list looks right, then press Enter. If something's
+   missing, say No and edit the list.
+   - For a website, you're asked for page addresses instead (or a sitemap
+     link).
+5. **Whether to add the audit folder to `.gitignore`.** Say Yes so client
+   findings never get committed to their code.
+
+That's all the questions.
+
+### Step 3: Let the automated checks run
+
+You don't need to do anything here. The toolkit:
+- **reads the app's code** and flags problems it can see, such as buttons with
+  no label, text that can't be enlarged, low-contrast colors, and locked
+  screen rotation;
+- **links each problem to the screens it affects**;
+- **prints a checklist for each screen**, and saves it as a file you'll fill
+  in: `a11y-audit/checklist.md`.
+
+The automated checks catch only part of the problems. The manual testing in
+the next step finds the rest.
+
+### Step 4: Test each screen by hand
+
+Open `a11y-audit/checklist.md` in any text editor (VS Code works well). It's
+organized by screen. Each screen lists the checks to do there, tailored to
+what's on it. For example, a login screen gets form checks, and a screen with
+swipe actions gets gesture checks. Checks that apply to the whole app, like
+screen rotation and language, are listed once at the end.
+
+For each check:
+1. **Read "How to test."** It has step-by-step instructions for iPhone and
+   Android.
+2. **Look at any ⚑ lines.** These show what the automated checks already found
+   on that screen. They're already in the report, so don't write them up
+   again.
+3. **Do the test on a real phone**, usually with VoiceOver or TalkBack turned
+   on.
+4. **Mark the result** on the line for the platform you tested:
+
+| You type | Meaning |
+| --- | --- |
+| `- [x] iOS` | Passed |
+| `- [!] iOS: what went wrong (high)` | Failed. Describe what happened; severity is optional |
+| `- [-] iOS` | Not applicable (e.g. no videos in the app) |
+| `- [ ] iOS` | Not tested yet (leave as is) |
+
+**Example:**
+```
+- [x] iOS
+- [!] Android: Email field is read out as "edit box" with no label (high)
+```
+
+**Severity guide:**
+- **critical:** someone can't complete the task at all
+- **high:** a major barrier that's hard to work around
+- **medium:** annoying, but there's a workaround
+- **low:** minor
+
+**Found something that doesn't fit any check?** Add it under **Other
+findings** at the bottom of the file:
+```
+- [!] iOS, Android · Welcome · 1.4.3 · Subtitle text is light grey on white (medium)
+```
+
+**Splitting the work?** Every check has a separate iOS line and Android line,
+so one person can do iPhone and another Android in the same file.
+
+Save the file as you go. You can stop and come back any time.
+
+### Step 5: Build the report
+
+When you're done (or any time you want to see progress), run:
+
+```bash
+npx bt-a11y report
+```
+
+This creates `a11y-audit/report.md` with:
+- an overall score and a summary of problems by severity;
+- every finding, both automated and yours, with the screen and platform it
+  was found on;
+- a **WCAG coverage table** showing the status of every requirement: passed,
+  failed, not applicable, or not yet tested.
+
+If you made a typo in the checklist (for example `[y]` instead of `[x]`), it
+tells you which line to fix.
+
+To also create Jira tickets for the serious issues:
+```bash
+npx bt-a11y report --jira --min-severity high
+```
+This needs your Jira login details set up first. See the Jira step in
+[Team setup](#team-setup).
+
+### Step 6: After the client fixes things
+
+Run `npx bt-a11y` again and choose **"Re-run the scans and refresh the
+checklist."** The automated checks run again on the updated code, and
+**everything you already marked is kept**. Re-test the items that failed,
+update their marks, and run `npx bt-a11y report` for the updated report.
+
+### Quick reference
+
+| I want to… | Run |
+| --- | --- |
+| Start an audit or re-run the scans | `npx bt-a11y` |
+| Build or refresh the report | `npx bt-a11y report` |
+| Find the checklist to fill in | `a11y-audit/checklist.md` |
+| Find the finished report | `a11y-audit/report.md` |
+
+## Guided audit
 
 The fastest way to run an audit: install the toolkit into the repo you're
 auditing and let it walk you through everything.
@@ -266,7 +412,7 @@ time for VoiceOver/TalkBack testing.
 
 ### Team setup
 
-1. **Install and run the [guided audit](#guided-audit-start-here)** (Node 18+)
+1. **Install and run the [guided audit](#guided-audit)** (Node 18+)
    in the client repo, or in an empty folder if you only have app builds.
    Choose **Mobile app**. For a React Native repo it finds the screens and
    scans the code; then it writes the per-screen checklist for testers to fill
@@ -450,7 +596,7 @@ for (const item of checklistFor("ios", "AA")) {
 ## Quick start (CLI)
 
 Run `bt-a11y` with no arguments for the
-[guided audit](#guided-audit-start-here). The scripted commands below are for
+[guided audit](#guided-audit). The scripted commands below are for
 CI and one-off scans: `audit` (audits an `A11yNode` tree JSON), `lighthouse`
 and `axe` (scan live pages or convert a saved result), `code` (scans React
 Native source), and `report` (rebuilds the guided audit's report).
