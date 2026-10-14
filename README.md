@@ -103,13 +103,123 @@ into `A11yNode`s, then the shared rules evaluate them identically.
 A11yNode tree ──► rules ──► findings ──► scoring ──► report / Jira tickets
 ```
 
-## Auditing mobile-only apps (no web)
+## Mobile app auditing (iOS & Android)
 
 WAVE, Lighthouse, and axe DevTools all require a **web DOM**, so they do **not**
 apply to native mobile apps. For a mobile-only project, ignore those tools and
 use the mobile toolchain below. The audit is inherently **more manual** than web
 — there is no DOM-style automated scanner for native mobile — so budget extra
 time for VoiceOver/TalkBack testing.
+
+> **What this repo does for a mobile audit today:** scoring, WCAG mapping,
+> reports, and Jira tickets. The testing itself happens on devices with the
+> platform tools below. The React Native adapter and native result imports
+> (XCUITest, Espresso) are still on the [roadmap](#roadmap).
+
+### Team setup
+
+1. **Clone and install** (Node 18+). The `prepare` hook builds `dist/`
+   automatically; run `npm run build` if `bt-a11y` isn't found.
+
+   ```bash
+   git clone https://github.com/nwelsh-bluetread/bt-a11y-toolkit.git
+   cd bt-a11y-toolkit
+   npm install
+   ```
+
+2. **Smoke-test the CLI** — no device, browser, or network needed:
+
+   ```bash
+   node dist/cli.js audit ./examples/login-screen.json --platform react-native
+   ```
+
+3. **Skip the browser drivers.** Playwright, Chrome, and Lighthouse are optional
+   peer dependencies and only matter if the app also has web surfaces
+   (marketing site, web views, account portal).
+4. **Jira (optional)** — each person puts their own credentials in `.env`
+   (already gitignored). Never commit tokens.
+
+   ```bash
+   JIRA_BASE_URL=https://bluetread.atlassian.net
+   JIRA_EMAIL=you@bluetread.com
+   JIRA_API_TOKEN=...
+   ```
+
+   Always pass `--min-severity` the first time so you don't file a ticket for
+   every low-severity finding.
+
+### Devices & tools per tester
+
+| Platform | Required | Helpful |
+| --- | --- | --- |
+| **iOS** | Mac with Xcode (Accessibility Inspector → Audit), a **physical iPhone** for VoiceOver | XCUITest `performAccessibilityAudit()` if you have source access |
+| **Android** | **Physical Android device** with TalkBack and the [Accessibility Scanner](https://play.google.com/store/apps/details?id=com.google.android.apps.accessibility.auditor) app | Android Studio Layout Inspector; Espresso `AccessibilityChecks.enable()` with source access |
+
+Simulators/emulators are fine for Inspector audits, but **screen-reader testing
+must be done on real hardware** — gestures, rotor, and announcement timing
+differ.
+
+### Before testing starts (get these from the client early)
+
+- **Stack** — React Native, native Swift/Kotlin, or Flutter? This decides the
+  toolchain (see the table below).
+- **Builds** — TestFlight invites (iOS) and an APK or Play internal-testing
+  track (Android). These usually take the longest to arrange.
+- **Test accounts** for every role/state you need to reach (new user, paid
+  user, empty state, error state).
+- **Source access** (optional but valuable) — enables static linting and
+  XCUITest/Espresso checks.
+- **Screen/flow inventory** — one shared list with the **same screen names on
+  both platforms** so iOS and Android findings line up in the report.
+
+### Running the audit as a team
+
+- **Split by platform, not by screen.** One person owns iOS + VoiceOver,
+  another owns Android + TalkBack. Behavior diverges enough that per-platform
+  ownership keeps findings consistent.
+- **Work flow by flow.** For each screen: run the automated scanner first
+  (Inspector / Accessibility Scanner), then walk it with the screen reader, then
+  check text scaling (Dynamic Type / Android font size), orientation, and
+  contrast.
+- **Follow [`docs/MANUAL_TESTING.md`](docs/MANUAL_TESTING.md)** for what to
+  test at each WCAG level, and
+  [`docs/DEVELOPMENT_CHECKLISTS.md`](docs/DEVELOPMENT_CHECKLISTS.md) for the
+  engagement phases.
+- **Capture evidence** as you go — a screenshot or screen recording (with
+  VoiceOver/TalkBack captions on) for every finding.
+
+### Logging findings
+
+Record every finding in the toolkit's `Finding` shape from day one — this is
+what makes consolidation, scoring, and Jira tickets near-instant later. Tag the
+platform so one report can be filtered to iOS, Android, or both:
+
+```json
+{
+  "ruleId": "manual-focus-order",
+  "title": "Checkout: focus jumps from 'Card number' to 'Place order'",
+  "description": "With VoiceOver, swiping right from the card number field skips expiry and CVV.",
+  "severity": "high",
+  "wcag": [{ "id": "2.4.3", "name": "Focus Order", "level": "A" }],
+  "nodeId": "Checkout > Payment",
+  "platforms": ["ios"],
+  "category": "Screen Reader",
+  "source": "manual-voiceover",
+  "remediation": "Group the expiry/CVV fields in reading order after card number.",
+  "evidence": { "screenshot": "evidence/ios/checkout-focus.mov" }
+}
+```
+
+Use `source` to record where it came from (`manual-voiceover`,
+`manual-talkback`, `ios-inspector`, `android-scanner`, …). `category` should be
+one of the scorecard categories: `Semantics`, `Images/Icons`, `Touch Targets`,
+`Forms`, `Screen Reader`, or `Contrast`. In code, the [`wcag()`](src/wcag.ts)
+helper looks up criteria by id, but it only covers the criteria the baseline
+rules use and throws on anything else. For mobile-specific criteria such as
+1.3.4 Orientation or 2.5.1 Pointer Gestures, write the criterion object inline
+(as above) or add it to `WCAG` in `src/wcag.ts`. Keep evidence
+and generated reports **outside the repo** or under `reports/` (gitignored) so
+client data is never committed.
 
 ### Pick the toolchain by stack
 
