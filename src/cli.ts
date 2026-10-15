@@ -110,6 +110,7 @@ Usage:
   bt-a11y report [options]      Build the audit from the scans + filled-in a11y-audit/checklist.md
   bt-a11y code [dir] [options]  Scan React Native source code (default: current folder)
   bt-a11y pdf-setup             Check/install what the summary PDF needs (Chrome, pikepdf, veraPDF)
+  bt-a11y update                Update the toolkit to the latest version from GitHub
   bt-a11y audit <tree.json> [options]
   bt-a11y lighthouse <url> [<url> ...] [options]
   bt-a11y lighthouse --urls <file> [options]
@@ -298,7 +299,53 @@ async function runAxeCommand(args: ParsedArgs): Promise<void> {
   await report(assessment, args);
 }
 
+/** Print a one-line notice when a newer toolkit version is on GitHub (silent otherwise). */
+async function notifyIfOutdated(): Promise<void> {
+  const { checkForUpdate } = await import("./update.js");
+  const update = await checkForUpdate();
+  if (update) {
+    process.stdout.write(
+      `\n  A newer version of bt-a11y is available (${update.installed.slice(0, 7)} → ${update.latest.slice(0, 7)}). Update with: npx bt-a11y update\n`,
+    );
+  }
+}
+
+/** Reinstall the toolkit from GitHub in the current project. */
+async function runUpdateCommand(): Promise<void> {
+  const { checkForUpdate, dependencySpec, INSTALL_SPEC, installedCommit, latestCommit } = await import("./update.js");
+  const cwd = process.cwd();
+  const spec = dependencySpec(cwd);
+  if (!spec) {
+    process.stderr.write(`This folder's package.json doesn't list the toolkit. Run this from the project you installed it in, or install it with:\n  npm install -D ${INSTALL_SPEC}\n`);
+    process.exitCode = 1;
+    return;
+  }
+  if (spec.includes("#")) {
+    process.stdout.write(`This project is pinned to ${spec}, so it stays on that version.\nTo move to the latest instead: npm install -D ${INSTALL_SPEC}\n`);
+    return;
+  }
+  const before = installedCommit();
+  if (before && !(await checkForUpdate()) && (await latestCommit())) {
+    process.stdout.write(`Already up to date (${before.slice(0, 7)}).\n`);
+    return;
+  }
+  process.stdout.write(`Updating from ${INSTALL_SPEC}…\n`);
+  const code = await new Promise<number>((resolve) => {
+    const child = spawn("npm", ["install", "-D", INSTALL_SPEC], { cwd, stdio: "inherit", shell: process.platform === "win32" });
+    child.on("close", (c) => resolve(c ?? 1));
+    child.on("error", () => resolve(1));
+  });
+  if (code !== 0) {
+    process.stderr.write(`Update failed. Try: npm install -D ${INSTALL_SPEC}\n`);
+    process.exitCode = 1;
+    return;
+  }
+  const after = await latestCommit();
+  process.stdout.write(`\n✓ Updated${before && after ? ` (${before.slice(0, 7)} → ${after.slice(0, 7)})` : ""}. Run npx bt-a11y as usual.\n`);
+}
+
 async function runStartCommand(): Promise<void> {
+  await notifyIfOutdated();
   const [{ runWizard }, { inquirerPrompter, isPromptExit }, lighthouseRunner] = await Promise.all([
     import("./wizard/index.js"),
     import("./wizard/prompts.js"),
@@ -474,6 +521,9 @@ async function main(): Promise<void> {
       break;
     case "pdf-setup":
       await runPdfSetupCommand();
+      break;
+    case "update":
+      await runUpdateCommand();
       break;
     case "audit":
       await runAuditCommand(args);

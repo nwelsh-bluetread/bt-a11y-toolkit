@@ -48,6 +48,10 @@ cd path/to/the-app
 npm install -D github:nwelsh-bluetread/bt-a11y-toolkit
 ```
 
+**Updating later:** run `npx bt-a11y update` in the same folder. You don't
+need to repeat the install command. `npx bt-a11y` also tells you when a newer
+version is available.
+
 ### Step 2: Start the audit and answer the questions
 
 ```bash
@@ -262,6 +266,7 @@ update their marks, and run `npx bt-a11y report` for the updated report.
 | Start an audit or re-run the scans | `npx bt-a11y` |
 | Build or refresh the report | `npx bt-a11y report` |
 | Check the PDF tools are set up | `npx bt-a11y pdf-setup` |
+| Get the latest version of the toolkit | `npx bt-a11y update` |
 | Find the checklist to fill in | `a11y-audit/checklist.md` |
 | Find the client PDF | `a11y-audit/a11y-audit-summary-<date>.pdf` |
 | Find the working report | `a11y-audit/report.md` |
@@ -951,6 +956,11 @@ node dist/cli.js report --no-pdf          # skip the summary PDF
 # Install/check what the summary PDF needs (Chrome, pikepdf, veraPDF):
 node dist/cli.js pdf-setup
 
+# Update the toolkit in the current project to the latest commit on GitHub
+# (respects a pinned version like #v0.4.0). `bt-a11y start` prints a notice
+# when an update is available; set BT_A11Y_NO_UPDATE_CHECK=1 to turn it off.
+node dist/cli.js update
+
 # Scan a React Native project's source code:
 node dist/cli.js code ./path/to/rn-app --format markdown --out code-scan.md
 
@@ -1038,6 +1048,7 @@ Each file can be run on its own with `npx vitest run tests/<file>`.
 | `tests/axe.test.ts` | axe-core → `Finding`/`Assessment` conversion, WCAG tag mapping, multi-page merge. | `npx vitest run tests/axe.test.ts` |
 | `tests/checklist.test.ts` | Manual checklist data (covers all 86 criteria, valid WCAG ids, level stacking, platform filtering) and `findingsToAssessment`. | `npx vitest run tests/checklist.test.ts` |
 | `tests/rn-code-scan.test.ts` | The React Native code scanner against a generated mini-app: every rule, native config, signals, and no-guess cases (dynamic text, spread props). | `npx vitest run tests/rn-code-scan.test.ts` |
+| `tests/update.test.ts` | Reading the installed commit from the project's lockfile, and pinned versions, for `bt-a11y update`. | `npx vitest run tests/update.test.ts` |
 | `tests/context.test.ts` | Context docs: navigation-map tables (groups, nested stacks, deep links, "opens on"), Mermaid flows, and merging with screens found in code. | `npx vitest run tests/context.test.ts` |
 | `tests/screens.test.ts` | Screen discovery: React Navigation (barrels, path aliases, `getComponent`, nested navigators skipped), static configs, expo-router, folder fallback, feature detection. | `npx vitest run tests/screens.test.ts` |
 | `tests/checklist-md.test.ts` | The checklist file: planning (feature-tailored checks), the platform → testing pass → check → screens layout, ⚑ findings under the right screen, parsing marks/issues/Other findings, and carrying answers over (including from the earlier screen-first layout). | `npx vitest run tests/checklist-md.test.ts` |
@@ -1137,6 +1148,7 @@ src/
     pdfua.ts         PDF/UA-1: auto-installs pikepdf (~/.bt-a11y/pdf-venv), validates with veraPDF
   matchers/
     index.ts         Vitest/Jest assertion matchers
+  update.ts          Update check (installed commit vs. GitHub) for bt-a11y update
   cli.ts             bt-a11y command line
 assets/pdf/          PDF renderer (render.mjs, headless Chrome) + PDF/UA post-processor (pdfua_fix.py)
 scripts/             Standalone, per-tool runners
