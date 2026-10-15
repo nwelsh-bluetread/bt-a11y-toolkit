@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ScreenInfo } from "../src/code-scan/screens.js";
-import { APP_WIDE, parseChecklist, planChecklist, renderChecklist } from "../src/wizard/checklist-md.js";
+import { APP_WIDE, parseChecklist, planChecklist, renderChecklist, renderScanDetails } from "../src/wizard/checklist-md.js";
 import { checklistFindings, type AutomatedRun } from "../src/wizard/session.js";
 import { wcag } from "../src/wcag.js";
 
@@ -97,19 +97,44 @@ describe("renderChecklist", () => {
   });
 
   it("lists the screens each check applies to, with platform-specific how-to", () => {
-    expect(check(ios, "sr-name-role-value")).toMatch(/\*\*How to test:\*\* Turn on VoiceOver[^\n]*\n\n- \[!\] Login\n[\s\S]*- \[ \] Inbox/);
-    expect(check(ios, "input-labels")).toContain("- [!] Login");
+    expect(check(ios, "sr-name-role-value")).toMatch(/\*\*How to test:\*\* Turn on VoiceOver[^\n]*\n\n- \[!\] \*\*Login\*\*\n[\s\S]*- \[ \] \*\*Inbox\*\*/);
+    expect(check(ios, "input-labels")).toContain("- [!] **Login**");
     expect(check(ios, "input-labels")).not.toContain("Inbox");
-    expect(check(ios, "pointer-gestures")).toContain("- [ ] Inbox");
-    expect(check(ios, "orientation")).toContain("- [!] App-wide");
+    expect(check(ios, "pointer-gestures")).toContain("- [ ] **Inbox**");
+    expect(check(ios, "orientation")).toContain("- [!] **App-wide**");
     expect(check(android, "resize-text")).toContain("**How to test:** Set Settings → Display → Font size");
   });
 
   it("puts automated findings and signals under the screen they belong to", () => {
     // A scan finding pre-marks the line as failing; a "Verify" signal leaves it for the tester.
-    expect(check(ios, "input-labels")).toContain("- [!] Login\n  ⚑ rn-code-scan: Text input has no accessible label (src/Login.tsx:12)");
-    expect(check(ios, "pointer-gestures")).toContain("- [ ] Inbox\n  ⚑ Verify: Gesture interaction (src/Inbox.tsx:7)");
-    expect(check(ios, "orientation")).toContain("- [!] App-wide\n  ⚑ rn-code-scan: Screen orientation is locked (app.json:4)");
+    expect(check(ios, "input-labels")).toContain("- [!] **Login**\n  ⚑ High · Text input has no accessible label — Login.tsx:12");
+    expect(check(ios, "pointer-gestures")).toContain("- [ ] **Inbox**\n  ⚑ Verify · Gesture or drag: needs a single-tap alternative — Inbox.tsx:7");
+    expect(check(ios, "orientation")).toContain("- [!] **App-wide**\n  ⚑ Medium · Screen orientation is locked — app.json:4");
+  });
+
+  it("collapses one issue across many files into a single line with severity, short paths, and +N more", () => {
+    const files = ["A.js", "B.js", "C.js", "D.js", "E.js", "Card/index.js", "G.js"].map((f) => `src/components/${f}`);
+    const shared: ScreenInfo = { name: "Scheduling", kind: "mobile", file: "src/Scheduling.js", files: ["src/Scheduling.js", ...files], features: [] };
+    const many: AutomatedRun[] = [
+      {
+        tool: "rn-code-scan",
+        targets: ["ios"],
+        ranAt: "",
+        findings: files.map((file, i) => ({
+          ruleId: "rn-control-role",
+          title: `Touchable has no accessibility role — ${file}`,
+          description: "",
+          severity: "medium" as const,
+          wcag: wcag("4.1.2"),
+          evidence: { file, lines: [i + 1] },
+        })),
+      },
+    ];
+    const out = renderChecklist({ projectName: "Acme", targetLevel: "AA", groups: planChecklist([shared], ["ios"], "AA"), runs: many });
+    expect(out).toContain("- [!] **Scheduling**\n  ⚑ Medium · Touchable has no accessibility role — A.js:1, B.js:2, C.js:3, D.js:4, E.js:5 +2 more\n");
+    const details = renderScanDetails({ projectName: "Acme", groups: planChecklist([shared], ["ios"], "AA"), runs: many });
+    expect(details).toContain("  - `src/components/Card/index.js` line 6");
+    expect(details).toContain("  - `src/components/G.js` line 7");
   });
 
   it("starts with an index of the screens in scope", () => {
@@ -193,7 +218,7 @@ Issues that don't fit a check above — one per line.
     const groups = planChecklist(screens, ["ios", "android"], "AA");
     const regenerated = renderChecklist({ projectName: "Acme", targetLevel: "AA", groups, runs, previous: parsed });
     const android = regenerated.slice(regenerated.indexOf("# Android"), regenerated.indexOf("# Other findings"));
-    expect(android).toContain('- [!] Login: Email field is read as "edit box" (critical)\n  - Password field has no label either [3.3.2]');
+    expect(android).toContain('- [!] **Login**: Email field is read as "edit box" (critical)\n  - Password field has no label either [3.3.2]');
     expect(regenerated).toContain("- [!] iOS, Android · Inbox · 1.4.3 · Unread badge text is too light (medium)");
     const answered = (p: typeof parsed) =>
       p.rows.filter((r) => r.status !== "open").map((r) => `${r.target}|${r.itemId}|${r.screen ?? ""}|${r.status}|${JSON.stringify(r.issues)}`).sort();

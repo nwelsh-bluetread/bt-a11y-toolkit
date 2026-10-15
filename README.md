@@ -145,7 +145,10 @@ For each check:
 1. **Read "How to test."** It has step-by-step instructions for that platform.
 2. **Test it on each screen listed**, on a real phone.
 3. **Look at any ⚑ lines** under a screen. They show what the automated checks
-   already found there:
+   already found there, one line per issue with its severity and where it is,
+   e.g. `⚑ Medium · Touchable has no accessibility role — HeaderBackButton.js:29, LiveChatButton.js:10 +3 more`.
+   Every file, why it matters, and how to fix it are in
+   **`a11y-audit/scan-details.md`**, organized by screen:
    - **Lines the scan already failed start as `[!]`.** That finding is
      already in the report, so you don't need to test or write it up. Leave it
      as `[!]`, or add your own notes after the screen name.
@@ -268,6 +271,7 @@ update their marks, and run `npx bt-a11y report` for the updated report.
 | Check the PDF tools are set up | `npx bt-a11y pdf-setup` |
 | Get the latest version of the toolkit | `npx bt-a11y update` |
 | Find the checklist to fill in | `a11y-audit/checklist.md` |
+| See every scan finding for a screen | `a11y-audit/scan-details.md` |
 | Find the client PDF | `a11y-audit/a11y-audit-summary-<date>.pdf` |
 | Find the working report | `a11y-audit/report.md` |
 

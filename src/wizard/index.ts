@@ -19,7 +19,7 @@ import { isReactNativeProject, RN_RULES, type CodeScanResult } from "../code-sca
 import { FEATURE_LABEL, isFile, screensFromUrls, type ScreenDiscovery, type ScreenInfo } from "../code-scan/screens.js";
 import { LIGHTHOUSE_AUDIT_MAP } from "../integrations/lighthouse.js";
 import type { Assessment, Finding, Severity, WcagLevel } from "../types.js";
-import { findingOnSection, planChecklist, renderChecklist, type PlannedGroup } from "./checklist-md.js";
+import { findingOnSection, planChecklist, renderChecklist, renderScanDetails, type PlannedGroup } from "./checklist-md.js";
 import type { Prompter } from "./prompts.js";
 import {
   checklistPath,
@@ -129,6 +129,11 @@ export async function runWizard(deps: WizardDeps): Promise<void> {
       previous,
       contextFiles: session.context?.files,
     }),
+    "utf8",
+  );
+  writeFileSync(
+    join(cwd, SESSION_DIR, "scan-details.md"),
+    renderScanDetails({ projectName: session.project.name, groups, runs: session.automated }) + "\n",
     "utf8",
   );
   const { markdown } = writeReports(cwd, session);

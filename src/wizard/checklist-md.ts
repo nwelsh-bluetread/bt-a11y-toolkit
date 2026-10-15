@@ -133,7 +133,7 @@ export function renderChecklist({ projectName, targetLevel, groups, runs, previo
   out.push("- To narrow a failure to specific criteria, add them in brackets: `[2.5.1]`. Add a screenshot path anywhere in the text.");
   out.push("");
   out.push(
-    "⚑ lines are what the automated scans found or flagged. Where a scan found an issue, the line starts as `[!]` — that finding is already in the report, so leave it as is (or add your own notes after the screen name). `⚑ Verify:` lines are things to check by hand. When you're done, run **`npx bt-a11y report`**.",
+    "⚑ lines are what the automated scans found or flagged. Where a scan found an issue, the line starts as `[!]` — that finding is already in the report, so leave it as is (or add your own notes after the screen name). `⚑ Verify` lines are things to check by hand. Full details of every scan finding (all files, why it matters, how to fix) are in [scan-details.md](scan-details.md). When you're done, run **`npx bt-a11y report`**.",
   );
   if (contextFiles?.length) {
     out.push("");
@@ -193,7 +193,8 @@ export function renderChecklist({ projectName, targetLevel, groups, runs, previo
             const notes = scanNotes(item, section, runs, allScreens, [target]);
             // A scan finding here means the check already fails on this screen: start it as [!].
             const scanFailed = notes.some((n) => !n.startsWith(VERIFY_NOTE));
-            out.push(...(row ? serializeRow(row, screen ?? APP_WIDE_LABEL) : [`- [${scanFailed ? "!" : " "}] ${screen ?? APP_WIDE_LABEL}`]));
+            const label = `**${screen ?? APP_WIDE_LABEL}**`;
+            out.push(...(row ? serializeRow(row, label) : [`- [${scanFailed ? "!" : " "}] ${label}`]));
             for (const note of notes) out.push(`  ${note}`);
           }
         }
@@ -246,7 +247,7 @@ function screenIndex(groups: PlannedGroup[], runs: AutomatedRun[]): string[] {
       }
       const meta = sectionMeta(section, runs, allScreens);
       lines.push(`- **${s.name}**${meta ? ` — ${meta}` : ""}`);
-      for (const note of unmatchedFindings(section, runs, allScreens, group.targets)) lines.push(`  - ${note} *(no check covers this)*`);
+      for (const note of unmatchedFindings(section, runs, allScreens, group.targets)) lines.push(`  - ${note}`);
     }
   }
   return lines;
@@ -282,50 +283,132 @@ export function findingOnSection(f: Finding, section: PlannedSection, screens: S
 /** Findings on a section whose criteria none of its checks cover — listed so nothing goes missing. */
 function unmatchedFindings(section: PlannedSection, runs: AutomatedRun[], screens: ScreenInfo[], targets: AuditTarget[]): string[] {
   const covered = new Set(section.checks.flatMap((c) => c.item.wcag));
-  const lines: string[] = [];
-  for (const run of runs) {
-    if (!run.targets.some((t) => targets.includes(t))) continue;
-    for (const f of run.findings) {
-      if (!findingOnSection(f, section, screens) || f.wcag.some((c) => covered.has(c.id))) continue;
-      lines.push(`⚑ ${run.tool}: ${f.title.split(" — ")[0]}${locationOf(f)} — ${f.wcag.map((c) => c.id).join(", ") || "no WCAG mapping"}`);
-    }
-  }
-  return lines;
+  const found = runs
+    .filter((run) => run.targets.some((t) => targets.includes(t)))
+    .flatMap((run) => run.findings)
+    .filter((f) => findingOnSection(f, section, screens) && !f.wcag.some((c) => covered.has(c.id)));
+  return compactFindings(found, section).map((line) => `${line} (${criteriaOf(found, line)}; no check covers this)`);
 }
 
-function locationOf(f: Finding): string {
-  const file = typeof f.evidence?.file === "string" ? f.evidence.file : undefined;
-  const lineNos = Array.isArray(f.evidence?.lines) ? (f.evidence.lines as number[]) : [];
-  const page = typeof f.evidence?.page === "string" ? f.evidence.page : undefined;
-  const loc = file ? `${file}${lineNos.length ? `:${lineNos.slice(0, 8).join(", ")}` : ""}` : (page ?? f.nodeId);
-  return loc ? ` (${loc})` : "";
+function criteriaOf(findings: Finding[], line: string): string {
+  const f = findings.find((x) => line.includes(issueTitle(x)));
+  return f?.wcag.map((c) => c.id).join(", ") || "no WCAG mapping";
 }
+
+const SEVERITY_WORD: Record<Severity, string> = { critical: "Critical", high: "High", medium: "Medium", low: "Low" };
+const SEVERITY_ORDER: Record<Severity, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+const MAX_PLACES = 5;
+
+/** The issue itself, without the " — path" and "(n×)" that per-file titles carry. */
+function issueTitle(f: Finding): string {
+  return f.title.replace(/ \(\d+×\)/, "").split(" — ")[0]!;
+}
+
+/** A short, recognizable file reference: "Button.js:18", or "Button/index.js:18" for generic names. */
+function shortPlace(f: Finding, section: PlannedSection): string | undefined {
+  const file = typeof f.evidence?.file === "string" ? f.evidence.file : undefined;
+  if (file) {
+    const parts = file.split("/");
+    const base = /^index\.[jt]sx?$/.test(parts.at(-1)!) && parts.length > 1 ? parts.slice(-2).join("/") : parts.at(-1)!;
+    const lines = Array.isArray(f.evidence?.lines) ? (f.evidence.lines as number[]) : [];
+    return `${base}${lines.length ? `:${lines.slice(0, 3).join(",")}${lines.length > 3 ? ",…" : ""}` : ""}`;
+  }
+  // Web findings: the page is the section itself, so show the element instead.
+  const page = typeof f.evidence?.page === "string" ? f.evidence.page : undefined;
+  if (f.nodeId && f.nodeId !== page && f.nodeId !== section.screen?.name) return f.nodeId;
+  return undefined;
+}
+
+/** One line per issue: severity, what's wrong, and where (capped, with "+N more"). */
+function compactFindings(findings: Finding[], section: PlannedSection): string[] {
+  const byIssue = new Map<string, { severity: Severity; places: string[] }>();
+  for (const f of findings) {
+    const key = issueTitle(f);
+    const entry = byIssue.get(key) ?? { severity: f.severity, places: [] };
+    if (SEVERITY_ORDER[f.severity] < SEVERITY_ORDER[entry.severity]) entry.severity = f.severity;
+    const place = shortPlace(f, section);
+    if (place && !entry.places.includes(place)) entry.places.push(place);
+    byIssue.set(key, entry);
+  }
+  return [...byIssue]
+    .sort((a, b) => SEVERITY_ORDER[a[1].severity] - SEVERITY_ORDER[b[1].severity])
+    .map(([title, { severity, places }]) => {
+      const shown = places.slice(0, MAX_PLACES).join(", ");
+      const more = places.length > MAX_PLACES ? ` +${places.length - MAX_PLACES} more` : "";
+      return `⚑ ${SEVERITY_WORD[severity]} · ${title}${shown ? ` — ${shown}${more}` : ""}`;
+    });
+}
+
+/** Short wording for "check this by hand" signals, keyed by signal id. */
+const VERIFY_SHORT: Record<string, string> = {
+  gestures: "Gesture or drag: needs a single-tap alternative",
+  media: "Video player: check captions, audio description, autoplay",
+  "looping-animation": "Looping animation: needs a way to pause",
+  modals: "Modal: check focus moves in and back",
+  webview: "WebView: audit its web content separately",
+  timeout: "Long timer: check users can extend time limits",
+  "no-announcements": "No announcements found in code: check status messages are read out",
+};
 
 /** Prefix for "check this by hand" notes, as opposed to ⚑ lines for actual scan findings. */
-const VERIFY_NOTE = "⚑ Verify:";
+const VERIFY_NOTE = "⚑ Verify";
 
 function scanNotes(item: ChecklistItem, section: PlannedSection, runs: AutomatedRun[], screens: ScreenInfo[], targets: AuditTarget[]): string[] {
-  const lines: string[] = [];
-  for (const run of runs) {
-    if (!run.targets.some((t) => targets.includes(t))) continue;
-    const found = run.findings.filter((f) => f.wcag.some((c) => item.wcag.includes(c.id)) && findingOnSection(f, section, screens));
-    for (const f of found.slice(0, 5)) {
-      lines.push(`⚑ ${run.tool}: ${f.title.split(" — ")[0]}${locationOf(f)}`);
-    }
-    if (found.length > 5) lines.push(`⚑ ${run.tool}: …and ${found.length - 5} more (see report)`);
+  const relevant = runs.filter((run) => run.targets.some((t) => targets.includes(t)));
+  const found = relevant.flatMap((run) => run.findings).filter((f) => f.wcag.some((c) => item.wcag.includes(c.id)) && findingOnSection(f, section, screens));
+  const lines = compactFindings(found, section);
 
-    for (const sig of run.signals ?? []) {
-      if (!sig.criteria.some((c) => item.wcag.includes(c))) continue;
-      const locs = section.screen
-        ? sig.locations.filter((l) => section.screen!.files?.includes(l.file))
-        : sig.locations.filter((l) => !screens.some((s) => s.files?.includes(l.file)));
-      if (section.screen && locs.length === 0) continue;
-      if (!section.screen && sig.locations.length > 0 && locs.length === 0) continue;
-      const where = locs.slice(0, 3).map((l) => `${l.file}:${l.line}`).join(", ");
-      lines.push(`${VERIFY_NOTE} ${sig.message}${where ? ` (${where}${locs.length > 3 ? ", …" : ""})` : ""}`);
-    }
+  for (const sig of relevant.flatMap((run) => run.signals ?? [])) {
+    if (!sig.criteria.some((c) => item.wcag.includes(c))) continue;
+    const locs = section.screen
+      ? sig.locations.filter((l) => section.screen!.files?.includes(l.file))
+      : sig.locations.filter((l) => !screens.some((s) => s.files?.includes(l.file)));
+    if (section.screen && locs.length === 0) continue;
+    if (!section.screen && sig.locations.length > 0 && locs.length === 0) continue;
+    const where = locs.slice(0, 3).map((l) => `${l.file.split("/").at(-1)}:${l.line}`).join(", ");
+    const text = VERIFY_SHORT[sig.id] ?? sig.message.replace(/\.$/, "");
+    lines.push(`${VERIFY_NOTE} · ${text}${where ? ` — ${where}${locs.length > 3 ? ` +${locs.length - 3} more` : ""}` : ""}`);
   }
   return lines;
+}
+
+/**
+ * a11y-audit/scan-details.md: everything the automated scans found, per screen,
+ * with full file paths and line numbers, severity, WCAG criteria, why it
+ * matters, and how to fix it. The checklist only shows a one-line summary.
+ */
+export function renderScanDetails({ projectName, groups, runs }: Pick<RenderInput, "projectName" | "groups" | "runs">): string {
+  const out = [`# Automated scan details — ${projectName}`, "", "Everything the automated scans found, by screen. The checklist shows a one-line summary of each; the full list is also in report.md.", ""];
+  for (const group of groups) {
+    const screens = group.sections.filter((s) => s.screen).map((s) => s.screen!);
+    for (const section of group.sections) {
+      const found = runs
+        .filter((run) => run.targets.some((t) => group.targets.includes(t)))
+        .flatMap((run) => run.findings)
+        .filter((f) => findingOnSection(f, section, screens))
+        .sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]);
+      if (found.length === 0) continue;
+      out.push(`## ${section.screen?.name ?? APP_WIDE_LABEL}`, "");
+      const byIssue = new Map<string, Finding[]>();
+      for (const f of found) byIssue.set(issueTitle(f), [...(byIssue.get(issueTitle(f)) ?? []), f]);
+      for (const [title, list] of byIssue) {
+        const f = list[0]!;
+        out.push(`### ${SEVERITY_WORD[f.severity]} · ${title}`, "");
+        out.push(`- **WCAG:** ${f.wcag.map((c) => `${c.id} ${c.name} (${c.level})`).join(", ") || "—"}`);
+        out.push(`- **Where:**`);
+        for (const x of list) {
+          const file = typeof x.evidence?.file === "string" ? x.evidence.file : undefined;
+          const lines = Array.isArray(x.evidence?.lines) ? (x.evidence.lines as number[]) : [];
+          const page = typeof x.evidence?.page === "string" ? x.evidence.page : undefined;
+          out.push(`  - ${file ? `\`${file}\`${lines.length ? ` line${lines.length > 1 ? "s" : ""} ${lines.join(", ")}` : ""}` : (x.nodeId ?? page ?? "—")}`);
+        }
+        out.push(`- **Why it matters:** ${f.description || title}`);
+        if (f.remediation) out.push(`- **Fix:** ${f.remediation}`);
+        out.push(`- **Source:** ${f.source ?? "scan"} · \`${f.ruleId}\``, "");
+      }
+    }
+  }
+  return out.join("\n");
 }
 
 // ── Parse ────────────────────────────────────────────────────────────────────
@@ -450,7 +533,7 @@ export function parseChecklist(md: string): ParsedChecklist {
         if (!partTarget) return;
         target = partTarget;
         const sep = mark[2]!.indexOf(": ");
-        const label = (sep >= 0 ? mark[2]!.slice(0, sep) : mark[2]!).trim();
+        const label = (sep >= 0 ? mark[2]!.slice(0, sep) : mark[2]!).trim().replace(/^\*\*(.+)\*\*$/, "$1");
         screen = label === APP_WIDE_LABEL ? undefined : label;
         rest = sep >= 0 ? mark[2]!.slice(sep + 2) : "";
       }
