@@ -112,15 +112,17 @@ describe("runWizard — React Native app", () => {
     expect(out).toContain("Found 2 screens");
     expect(out).toContain("React Native code scan");
     expect(out).toMatch(/Manual checklist — Mobile app — iOS \+ Android · WCAG AA/);
-    expect(out).toMatch(/Login — every-screen checks, plus:\s+src\/Login\.tsx · form inputs, sign-in · ⚑ 1 automated finding/);
-    expect(out).toContain("☐ Swipe, pinch, and drag gestures have a single-tap alternative (2.5.1)");
-    expect(out).toMatch(/On every screen \(\d+ checks\)/);
+    expect(out).toContain("all of iOS first, then the same passes on Android");
+    expect(out).toMatch(/1\. Screen reader \(\d+ checks · \d+ to mark per platform\)/);
+    expect(out).toContain("☐ Swipe, pinch, and drag gestures have a single-tap alternative (2.5.1) — 1 screen");
+    expect(out).toContain("⚑ Automated findings by screen: Login (1)");
     expect(out).toContain("npx bt-a11y report");
 
     const md = read("checklist.md");
-    expect(md).toContain("## Screen: Login");
-    expect(md).toContain("⚑ rn-code-scan: Text input has no accessible label (src/Login.tsx:12)");
-    expect(md).toContain("⚑ Verify: Gesture interaction (src/Inbox.tsx:9)");
+    expect(md).toContain("# iOS");
+    expect(md).toContain("## 1. Screen reader");
+    expect(md).toContain("- [ ] Login\n  ⚑ rn-code-scan: Text input has no accessible label (src/Login.tsx:12)");
+    expect(md).toContain("- [ ] Inbox\n  ⚑ Verify: Gesture interaction (src/Inbox.tsx:9)");
     expect(read("report.md")).toContain("## WCAG 2.2 criteria coverage");
     expect(readFileSync(join(cwd, ".gitignore"), "utf8")).toContain("a11y-audit/");
   });
@@ -140,14 +142,16 @@ describe("runWizard — React Native app", () => {
       ),
     );
 
-    // A tester fills in the gestures check on the Inbox screen.
+    // A tester marks the gestures check on the Inbox screen: fails on iOS, passes on Android.
     const path = join(cwd, "a11y-audit", "checklist.md");
-    const md = readFileSync(path, "utf8");
-    const gestures = md.indexOf("`pointer-gestures`", md.indexOf("## Screen: Inbox"));
-    const filled =
-      md.slice(0, gestures) +
-      md.slice(gestures).replace("- [ ] iOS", "- [!] iOS: Delete is swipe-only, no button (high)").replace("- [ ] Android", "- [x] Android");
-    writeFileSync(path, filled);
+    let md = readFileSync(path, "utf8");
+    const mark = (part: string, replacement: string) => {
+      const at = md.indexOf("`pointer-gestures`", md.indexOf(part));
+      md = md.slice(0, at) + md.slice(at).replace("- [ ] Inbox", replacement);
+    };
+    mark("# iOS", "- [!] Inbox: Delete is swipe-only, no button (high)");
+    mark("# Android", "- [x] Inbox");
+    writeFileSync(path, md);
 
     const { assessment, coverage } = writeReports(cwd, loadSession(cwd)!);
     const manual = assessment.findings.find((f) => f.ruleId === "manual:pointer-gestures")!;
@@ -162,7 +166,7 @@ describe("runWizard — React Native app", () => {
     const d = deps(cwd, p);
     await runWizard(d);
     expect(p.log).toEqual(["What would you like to do?"]);
-    expect(readFileSync(path, "utf8")).toContain("- [!] iOS: Delete is swipe-only, no button (high)");
+    expect(readFileSync(path, "utf8")).toContain("- [!] Inbox: Delete is swipe-only, no button (high)");
     expect(d.output.join("\n")).toContain("kept 2 answers");
   });
 
@@ -188,7 +192,8 @@ describe("runWizard — React Native app", () => {
     ]);
     expect(session.automated).toEqual([]);
     const md = read("checklist.md");
-    expect(md).toContain("## Screen: Checkout");
+    expect(md).toContain("- **Checkout**");
+    expect(md).toContain("- [ ] Checkout");
     // Screen contents are unknown, so feature checks are listed once app-wide.
     expect(md).toMatch(/`input-labels` \*\(no form inputs found in code/);
   });
@@ -255,12 +260,10 @@ describe("runWizard — context docs", () => {
 
     const out = d.output.join("\n");
     expect(out).toContain("Context: 4 screens in 3 groups, 2 navigation links.");
-    expect(out).toContain("▸ Main bottom tabs › BillingTab");
 
     const md = read("checklist.md");
     expect(md).toContain("**Context:** [context/navigation-map.md](context/navigation-map.md)");
-    expect(md).toContain("- **Main bottom tabs › BillingTab** (2): Billing, Inbox");
-    expect(md).toContain("Main bottom tabs › BillingTab · deep link `home/billing` · reached from: Login");
+    expect(md).toContain("**Main bottom tabs › BillingTab**\n\n- **Billing** — deep link `home/billing` · reached from: Login");
 
     // Re-run: the saved context is re-applied without asking again.
     const again = scripted([{ match: /What would you like to do/, answer: "rerun" }]);
@@ -315,8 +318,11 @@ describe("runWizard — website", () => {
     expect(session.screens.map((s) => s.name)).toEqual(["/", "/about"]);
     expect(session.automated.map((r) => r.tool).sort()).toEqual(["axe", "lighthouse"]);
     const md = read("checklist.md");
-    const about = md.slice(md.indexOf("## Page: /about"));
-    expect(about).toContain("⚑ axe: x (https://acme.test/about)");
+    // Alt-text checks are app-wide for websites (page contents aren't known), so the finding is listed in the index.
+    expect(md).toContain("- **/about** — https://acme.test/about · ⚑ 2 automated findings");
+    expect(md).toContain("  - ⚑ axe: x (https://acme.test/about) — 1.1.1 *(no check covers this)*");
+    expect(md).toContain("# Website");
+    expect(md).toContain("- [ ] /about");
     expect(existsSync(join(cwd, "a11y-audit", "report.json"))).toBe(true);
   });
 });

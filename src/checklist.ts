@@ -41,11 +41,71 @@ export interface ChecklistItem {
    */
   scope: "screen" | "app";
   when?: ScreenFeature[];
+  /** Which testing pass the check belongs to, so testers set up once (e.g. VoiceOver on) and do every screen. */
+  mode: TestMode;
 }
+
+export type TestMode = "screen-reader" | "keyboard" | "visual" | "touch" | "cognitive" | "media";
+
+/**
+ * Testing passes, in the order testers do them. Each starts with a one-time
+ * setup, then covers every screen, to avoid switching tools screen by screen.
+ */
+export const TEST_MODES: Array<{ id: TestMode; title: string; setup: Partial<Record<AuditTarget | "default", string>> }> = [
+  {
+    id: "screen-reader",
+    title: "Screen reader",
+    setup: {
+      ios: "Turn on VoiceOver (Settings → Accessibility → VoiceOver, or triple-click the side button with the Accessibility Shortcut) and keep it on for this whole section.",
+      android: "Turn on TalkBack (Settings → Accessibility → TalkBack, or hold both volume keys with the shortcut on) and keep it on for this whole section.",
+      web: "Turn on NVDA (Windows) or VoiceOver (Cmd+F5 on Mac) and keep it on for this whole section.",
+    },
+  },
+  {
+    id: "keyboard",
+    title: "Keyboard, switch & voice control",
+    setup: {
+      ios: "Turn VoiceOver off. Pair a Bluetooth keyboard and turn on Full Keyboard Access (Settings → Accessibility → Keyboards). Voice Control (Settings → Accessibility → Voice Control) is used for the label check.",
+      android: "Turn TalkBack off. Pair a Bluetooth or USB keyboard. Voice Access is used for the label check.",
+      web: "Turn the screen reader off and put the mouse away: use Tab, Shift+Tab, Enter, Space, Esc, and the arrow keys.",
+    },
+  },
+  {
+    id: "visual",
+    title: "Visual, text size & orientation",
+    setup: {
+      ios: "Assistive tech off. You'll switch Larger Text (Settings → Accessibility → Display & Text Size), rotate the device, and check colors — light and dark mode.",
+      android: "Assistive tech off. You'll switch Font size and Display size (Settings → Display), rotate the device, and check colors — light and dark theme.",
+      web: "Assistive tech off. You'll zoom (Cmd/Ctrl +), narrow the window, apply text spacing, and check colors.",
+    },
+  },
+  {
+    id: "touch",
+    title: "Touch & gestures",
+    setup: {
+      default: "Assistive tech off. Use the app by touch, paying attention to small targets, swipes, drags, and long-presses.",
+      web: "Assistive tech off. Use a phone or tablet (or the browser's touch emulation) and the mouse, paying attention to small targets and drag interactions.",
+    },
+  },
+  {
+    id: "cognitive",
+    title: "Cognitive: content, forms & behavior",
+    setup: {
+      default: "Use each screen as a first-time user would: read the wording, fill in and submit forms with mistakes, and compare screens for consistency.",
+    },
+  },
+  {
+    id: "media",
+    title: "Media, motion & timing",
+    setup: {
+      default: "Look for video, audio, animation, auto-advancing content, and time limits. Mark N/A where a screen has none.",
+    },
+  },
+];
 
 const ALL: ChecklistItem["appliesTo"] = ["web", "mobile"];
 
-const ITEMS: Array<Omit<ChecklistItem, "scope" | "when">> = [
+const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   // ── Level A ────────────────────────────────────────────────────────────────
   {
     id: "sr-name-role-value",
@@ -997,11 +1057,93 @@ const SCOPES: Record<string, Pick<ChecklistItem, "scope" | "when">> = {
   "accessible-auth-enhanced": { scope: "screen", when: ["auth"] },
 };
 
+/** Which testing pass each check belongs to (see TEST_MODES). */
+const MODES: Record<string, TestMode> = {
+  "sr-name-role-value": "screen-reader",
+  "focus-order": "screen-reader",
+  "modal-focus": "screen-reader",
+  "alt-text-meaningful": "screen-reader",
+  "errors-identified": "screen-reader",
+  "input-labels": "screen-reader",
+  "link-purpose": "screen-reader",
+  "info-relationships": "screen-reader",
+  "page-titled": "screen-reader",
+  "status-messages": "screen-reader",
+  "headings-labels": "screen-reader",
+  "language": "screen-reader",
+  "language-parts": "screen-reader",
+  "identify-purpose": "screen-reader",
+  "keyboard-operable": "keyboard",
+  "character-shortcuts": "keyboard",
+  "bypass-blocks": "keyboard",
+  "label-in-name": "keyboard",
+  "focus-visible": "keyboard",
+  "focus-not-obscured": "keyboard",
+  "keyboard-no-exception": "keyboard",
+  "focus-enhanced": "keyboard",
+  "concurrent-input": "keyboard",
+  "color-alone": "visual",
+  "contrast": "visual",
+  "resize-text": "visual",
+  "reflow": "visual",
+  "text-spacing": "visual",
+  "orientation": "visual",
+  "images-of-text": "visual",
+  "hover-focus-content": "visual",
+  "contrast-enhanced": "visual",
+  "visual-presentation": "visual",
+  "images-of-text-strict": "visual",
+  "pointer-gestures": "touch",
+  "pointer-cancellation": "touch",
+  "motion-actuation": "touch",
+  "target-size": "touch",
+  "dragging": "touch",
+  "target-size-enhanced": "touch",
+  "sensory-characteristics": "cognitive",
+  "on-focus-input": "cognitive",
+  "consistent-help": "cognitive",
+  "redundant-entry": "cognitive",
+  "consistent-navigation": "cognitive",
+  "error-suggestion": "cognitive",
+  "input-purpose": "cognitive",
+  "multiple-ways": "cognitive",
+  "error-prevention": "cognitive",
+  "accessible-auth": "cognitive",
+  "help": "cognitive",
+  "navigation-enhanced": "cognitive",
+  "language-enhanced": "cognitive",
+  "change-on-request": "cognitive",
+  "error-prevention-all": "cognitive",
+  "accessible-auth-enhanced": "cognitive",
+  "captions": "media",
+  "media-alternatives": "media",
+  "audio-control": "media",
+  "timing-adjustable": "media",
+  "pause-stop-hide": "media",
+  "flashing": "media",
+  "live-media-description": "media",
+  "motion": "media",
+  "sign-language": "media",
+  "timing": "media",
+  "media-enhanced": "media",
+  "background-audio": "media",
+  "interruptions-timeouts": "media",
+  "three-flashes": "media",
+};
+
 export const MANUAL_CHECKLIST: ChecklistItem[] = ITEMS.map((item) => {
   const scope = SCOPES[item.id];
+  const mode = MODES[item.id];
   if (!scope) throw new Error(`Checklist item "${item.id}" has no scope in SCOPES`);
-  return { ...item, ...scope };
+  if (!mode) throw new Error(`Checklist item "${item.id}" has no testing mode in MODES`);
+  return { ...item, ...scope, mode };
 });
+
+/** Setup text for a testing pass on a platform. */
+export function modeSetup(mode: TestMode, target: AuditTarget): string {
+  const m = TEST_MODES.find((x) => x.id === mode)!;
+  return m.setup[target] ?? m.setup.default ?? "";
+}
 
 const LEVEL_RANK: Record<WcagLevel, number> = { A: 1, AA: 2, AAA: 3 };
 

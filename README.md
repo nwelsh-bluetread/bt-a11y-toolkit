@@ -114,32 +114,52 @@ the next step finds the rest.
 ### Step 4: Test each screen by hand
 
 Open `a11y-audit/checklist.md` in any text editor (VS Code works well). It's
-organized by screen. Each screen lists the checks to do there, tailored to
-what's on it. For example, a login screen gets form checks, and a screen with
-swipe actions gets gesture checks. Checks that apply to the whole app, like
-screen rotation and language, are listed once at the end.
+organized so you set up each tool **once** and then test every screen with it,
+instead of switching settings screen by screen:
+
+1. **iOS**, then **Android** (or **Website**).
+2. Within each platform, six **testing passes** in this order:
+   1. **Screen reader** (VoiceOver / TalkBack)
+   2. **Keyboard, switch & voice control**
+   3. **Visual, text size & orientation**
+   4. **Touch & gestures**
+   5. **Cognitive: content, forms & behavior** (wording, forms and errors, consistency, sign-in)
+   6. **Media, motion & timing**
+3. Each pass starts with a **Setup** line (for example, "Turn on VoiceOver and
+   keep it on for this whole section"). Under it are the checks, and under
+   each check, **the screens to test it on**.
+
+Screens only get the checks that apply to them. A form check lists only the
+screens with forms, and a gesture check only the screens with swipe actions.
+Whole-app checks, like screen rotation and language, have a single
+**App-wide** line. The **Screens in scope** list at the top shows each screen's
+deep link, how it's reached, and what the scan found there.
 
 For each check:
-1. **Read "How to test."** It has step-by-step instructions for iPhone and
-   Android.
-2. **Look at any ⚑ lines.** These show what the automated checks already found
-   on that screen. They're already in the report, so don't write them up
+1. **Read "How to test."** It has step-by-step instructions for that platform.
+2. **Test it on each screen listed**, on a real phone.
+3. **Look at any ⚑ lines** under a screen. They show what the automated checks
+   already found there. They're already in the report, so don't write them up
    again.
-3. **Do the test on a real phone**, usually with VoiceOver or TalkBack turned
-   on.
-4. **Mark the result** on the line for the platform you tested:
+4. **Mark each screen:**
 
 | You type | Meaning |
 | --- | --- |
-| `- [x] iOS` | Passed |
-| `- [!] iOS: what went wrong (high)` | Failed. Describe what happened; severity is optional |
-| `- [-] iOS` | Not applicable (e.g. no videos in the app) |
-| `- [ ] iOS` | Not tested yet (leave as is) |
+| `- [x] Login` | Passed on that screen |
+| `- [!] Login: what went wrong (high)` | Failed. Describe what happened; severity is optional |
+| `- [-] Login` | Not applicable (e.g. no videos on that screen) |
+| `- [ ] Login` | Not tested yet (leave as is) |
 
 **Example:**
 ```
-- [x] iOS
-- [!] Android: Email field is read out as "edit box" with no label (high)
+### Every input has a label or instructions (not just placeholder text) · 3.3.2 · `input-labels`
+
+How to test: Focus each field with the screen reader. It should announce a label…
+
+- [x] Login
+- [!] Signup: Email field is read out as "edit box" with no label (high)
+  - Password field has no label either (medium)
+- [ ] Settings
 ```
 
 **Severity guide:**
@@ -154,8 +174,8 @@ findings** at the bottom of the file:
 - [!] iOS, Android · Welcome · 1.4.3 · Subtitle text is light grey on white (medium)
 ```
 
-**Splitting the work?** Every check has a separate iOS line and Android line,
-so one person can do iPhone and another Android in the same file.
+**Splitting the work?** iOS and Android are separate parts of the file, so one
+person can do the iOS part and another the Android part at the same time.
 
 Save the file as you go. You can stop and come back any time.
 
@@ -273,32 +293,44 @@ npx bt-a11y
 on each page. Code findings are mapped to every screen that renders the
 affected file.
 
-**3. The manual checklist, per screen** — printed in the terminal and written
-to `a11y-audit/checklist.md`. Each screen gets the checks every screen needs
-plus checks for what it contains (a screen with inputs gets the form checks, a
-screen with swipe gestures gets the gesture checks, and so on); app-wide
-checks like orientation and language are listed once. Under each check:
-platform-specific "how to test" steps, and ⚑ lines for anything the scans
-found or flagged on that screen.
+**3. The manual checklist** — printed in the terminal and written to
+`a11y-audit/checklist.md`, organized to minimize switching tools:
+**platform → testing pass → check → screens**. Each platform (iOS, Android,
+Website) has six passes: screen reader; keyboard, switch & voice control;
+visual, text size & orientation; touch & gestures; cognitive (content, forms & behavior);
+and media, motion & timing. Each pass opens with a one-time setup, and each
+check lists only the screens it applies to: every screen for the basics, only
+screens with inputs for form checks, only screens with swipes for gesture
+checks, and one "App-wide" line for whole-app checks. ⚑ lines under a screen
+show what the scans found or flagged there. A "Screens in scope" index at the
+top gives each screen's deep link, how it's reached, its file, and its
+contents.
 
-Testers fill in `checklist.md`, marking each platform line:
+Testers fill in `checklist.md`, marking each screen line:
 
 ```markdown
-## Screen: Login
+# iOS
+
+## 1. Screen reader
+
+> Setup: Turn on VoiceOver … and keep it on for this whole section.
 
 ### Every input has a label or instructions (not just placeholder text) · 3.3.2 · `input-labels`
-- [x] iOS
-- [!] Android: Email field is announced as "edit box" with no label (high)
-  - Password field has no label either (medium)
 
-### Sign-in doesn't require a memory or puzzle test; password managers and paste work · 3.3.8 · `accessible-auth`
-- [-] iOS
-- [ ] Android
+How to test: Focus each field with the screen reader. …
+
+- [x] Login
+- [!] Signup: Email field is announced as "edit box" with no label (high)
+  - Password field has no label either (medium)
+  ⚑ rn-code-scan: Text input has no accessible label (src/Signup.tsx:12)
+- [-] Settings
 ```
 
-`[x]` pass · `[!]` fail (describe the issue after the platform, optional
+`[x]` pass · `[!]` fail (describe the issue after the screen name, optional
 `(severity)` and `[criterion]`) · `[-]` not applicable · `[ ]` not checked
 yet. Issues that don't fit a check go under **Other findings** at the bottom.
+Checklists in the earlier screen-by-screen layout are converted, with their
+answers, the next time `npx bt-a11y` runs.
 
 Then **`npx bt-a11y report`** reads the scans + checklist and writes
 `a11y-audit/report.md` and `report.json` (score, findings with screen and
@@ -554,15 +586,14 @@ differ.
 
 - **Split by platform, not by screen.** One person owns iOS + VoiceOver,
   another owns Android + TalkBack. Behavior diverges enough that per-platform
-  ownership keeps findings consistent. Every check in `checklist.md` has a
-  separate `iOS` and `Android` line, so the iOS tester fills in only the iOS
-  lines and the Android tester only the Android lines — share the one file
-  (shared drive, or a branch; edits on different lines merge cleanly) and run
-  `npx bt-a11y report` once both are done.
-- **Work screen by screen** through `checklist.md`: walk each screen with the
-  screen reader, then check text scaling (Dynamic Type / Android font size) and
-  contrast. Optionally run Accessibility Inspector / Accessibility Scanner on
-  each screen first and log real issues under the matching check.
+  ownership keeps findings consistent. `checklist.md` has a separate **iOS**
+  part and **Android** part, so each tester fills in only their own part —
+  share the one file (shared drive, or a branch; edits in different parts
+  merge cleanly) and run `npx bt-a11y report` once both are done.
+- **Work one testing pass at a time** through `checklist.md`: set up the tool
+  once (e.g. VoiceOver on), test every listed screen, then move to the next
+  pass. Optionally run Accessibility Inspector / Accessibility Scanner on each
+  screen first and log real issues under the matching check.
 - **Follow [`docs/MANUAL_TESTING.md`](docs/MANUAL_TESTING.md)** for what to
   test at each WCAG level, and
   [`docs/DEVELOPMENT_CHECKLISTS.md`](docs/DEVELOPMENT_CHECKLISTS.md) for the
@@ -996,7 +1027,7 @@ Each file can be run on its own with `npx vitest run tests/<file>`.
 | `tests/rn-code-scan.test.ts` | The React Native code scanner against a generated mini-app: every rule, native config, signals, and no-guess cases (dynamic text, spread props). | `npx vitest run tests/rn-code-scan.test.ts` |
 | `tests/context.test.ts` | Context docs: navigation-map tables (groups, nested stacks, deep links, "opens on"), Mermaid flows, and merging with screens found in code. | `npx vitest run tests/context.test.ts` |
 | `tests/screens.test.ts` | Screen discovery: React Navigation (barrels, path aliases, `getComponent`, nested navigators skipped), static configs, expo-router, folder fallback, feature detection. | `npx vitest run tests/screens.test.ts` |
-| `tests/checklist-md.test.ts` | The per-screen checklist file: planning (feature-tailored checks), rendering (⚑ findings on the right screen), parsing marks/issues/Other findings, and keeping answers on regenerate. | `npx vitest run tests/checklist-md.test.ts` |
+| `tests/checklist-md.test.ts` | The checklist file: planning (feature-tailored checks), the platform → testing pass → check → screens layout, ⚑ findings under the right screen, parsing marks/issues/Other findings, and carrying answers over (including from the earlier screen-first layout). | `npx vitest run tests/checklist-md.test.ts` |
 | `tests/summary-pdf.test.ts` | Summary PDF data (cover fields, severity totals match the report, findings named by screen + platform, overrides) and reading veraPDF PASS/FAIL results. | `npx vitest run tests/summary-pdf.test.ts` |
 | `tests/coverage.test.ts` | The WCAG 2.2 coverage matrix: level scoping and every status. | `npx vitest run tests/coverage.test.ts` |
 | `tests/wizard.test.ts` | The guided audit end to end with scripted answers: React Native, non-RN mobile, and web flows; only setup prompts; checklist written and displayed; filled-in checklist → report; re-run keeps answers. | `npx vitest run tests/wizard.test.ts` |

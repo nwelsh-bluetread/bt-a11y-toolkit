@@ -70,21 +70,40 @@ describe("planChecklist", () => {
 describe("renderChecklist", () => {
   const groups = planChecklist(screens, ["ios", "android"], "AA");
   const md = renderChecklist({ projectName: "Acme", targetLevel: "AA", groups, runs });
+  const ios = md.slice(md.indexOf("# iOS"), md.indexOf("# Android"));
+  const android = md.slice(md.indexOf("# Android"), md.indexOf("# Other findings"));
+  /** One check's block within a platform part. */
+  const check = (part: string, id: string) => {
+    const at = part.indexOf(`\`${id}\``);
+    return part.slice(at, part.indexOf("\n### ", at) === -1 ? undefined : part.indexOf("\n### ", at));
+  };
 
-  it("writes per-screen sections with a mark line per platform and how-to steps", () => {
-    expect(md).toContain("## Screen: Login");
-    expect(md).toContain("### Every input has a label or instructions (not just placeholder text) · 3.3.2 · `input-labels`\n- [ ] iOS\n- [ ] Android");
-    expect(md).toMatch(/How to test \(iOS\): Turn on VoiceOver/);
+  it("is organized platform → testing pass → check → screens", () => {
+    expect(md.indexOf("# iOS")).toBeLessThan(md.indexOf("# Android"));
+    const passes = [...ios.matchAll(/^## (\d+\. .+)$/gm)].map((m) => m[1]);
+    expect(passes).toEqual(["1. Screen reader", "2. Keyboard, switch & voice control", "3. Visual, text size & orientation", "4. Touch & gestures", "5. Cognitive: content, forms & behavior", "6. Media, motion & timing"]);
+    expect(ios).toMatch(/## 1\. Screen reader\n\n> Setup: Turn on VoiceOver/);
+    expect(android).toMatch(/## 1\. Screen reader\n\n> Setup: Turn on TalkBack/);
   });
 
-  it("shows automated findings and signals under the matching check on the right screen", () => {
-    const login = md.slice(md.indexOf("## Screen: Login"), md.indexOf("## Screen: Inbox"));
-    expect(login).toContain("⚑ rn-code-scan: Text input has no accessible label (src/Login.tsx:12)");
-    const inbox = md.slice(md.indexOf("## Screen: Inbox"), md.indexOf(`## ${APP_WIDE}`));
-    expect(inbox).toContain("⚑ Verify: Gesture interaction (src/Inbox.tsx:7)");
-    expect(inbox).not.toContain("Text input has no accessible label");
-    const appWide = md.slice(md.indexOf(`## ${APP_WIDE}`));
-    expect(appWide).toContain("⚑ rn-code-scan: Screen orientation is locked (app.json:4)");
+  it("lists the screens each check applies to, with platform-specific how-to", () => {
+    expect(check(ios, "sr-name-role-value")).toMatch(/How to test: Turn on VoiceOver[^\n]*\n\n- \[ \] Login\n[\s\S]*- \[ \] Inbox/);
+    expect(check(ios, "input-labels")).toContain("- [ ] Login");
+    expect(check(ios, "input-labels")).not.toContain("Inbox");
+    expect(check(ios, "pointer-gestures")).toContain("- [ ] Inbox");
+    expect(check(ios, "orientation")).toContain("- [ ] App-wide");
+    expect(check(android, "resize-text")).toContain("How to test: Set Settings → Display → Font size");
+  });
+
+  it("puts automated findings and signals under the screen they belong to", () => {
+    expect(check(ios, "input-labels")).toContain("- [ ] Login\n  ⚑ rn-code-scan: Text input has no accessible label (src/Login.tsx:12)");
+    expect(check(ios, "pointer-gestures")).toContain("- [ ] Inbox\n  ⚑ Verify: Gesture interaction (src/Inbox.tsx:7)");
+    expect(check(ios, "orientation")).toContain("- [ ] App-wide\n  ⚑ rn-code-scan: Screen orientation is locked (app.json:4)");
+  });
+
+  it("starts with an index of the screens in scope", () => {
+    expect(md).toContain("## Screens in scope (2)");
+    expect(md).toMatch(/- \*\*Login\*\* — `src\/Login\.tsx` · contains: form inputs, images, sign-in · ⚑ 1 automated finding/);
   });
 });
 
@@ -159,16 +178,40 @@ Issues that don't fit a check above — one per line.
     expect(findings[3]).toMatchObject({ ruleId: "manual:other", platforms: ["ios", "android"], wcag: [{ id: "1.4.3" }] });
   });
 
-  it("keeps answers and Other findings when the file is regenerated", () => {
+  it("carries answers from the earlier screen-first layout into the new one", () => {
     const groups = planChecklist(screens, ["ios", "android"], "AA");
     const regenerated = renderChecklist({ projectName: "Acme", targetLevel: "AA", groups, runs, previous: parsed });
-    expect(regenerated).toContain('- [!] Android: Email field is read as "edit box" (critical)\n  - Password field has no label either [3.3.2]');
-    expect(regenerated).toContain("- [-] iOS");
+    const android = regenerated.slice(regenerated.indexOf("# Android"), regenerated.indexOf("# Other findings"));
+    expect(android).toContain('- [!] Login: Email field is read as "edit box" (critical)\n  - Password field has no label either [3.3.2]');
     expect(regenerated).toContain("- [!] iOS, Android · Inbox · 1.4.3 · Unread badge text is too light (medium)");
-    const reparsed = parseChecklist(regenerated);
     const answered = (p: typeof parsed) =>
-      p.rows.filter((r) => r.status !== "open").map((r) => `${r.section}|${r.itemId}|${r.target}|${r.status}|${r.issues.length}`).sort();
+      p.rows.filter((r) => r.status !== "open").map((r) => `${r.target}|${r.itemId}|${r.screen ?? ""}|${r.status}|${JSON.stringify(r.issues)}`).sort();
+    const reparsed = parseChecklist(regenerated);
     expect(answered(reparsed)).toEqual(answered(parsed));
     expect(reparsed.other).toHaveLength(1);
+    // And it's stable: regenerating the new layout keeps the same answers.
+    expect(answered(parseChecklist(renderChecklist({ projectName: "Acme", targetLevel: "AA", groups, runs, previous: reparsed })))).toEqual(answered(parsed));
+  });
+
+  it("reads the new layout: screen labels, App-wide, and issues", () => {
+    const md = [
+      "# iOS",
+      "## 1. Screen reader",
+      "### Every input has a label · 3.3.2 · `input-labels`",
+      "- [x] Login",
+      "- [!] Terms & Privacy: Checkbox has no label [3.3.2] (high)",
+      "  - Second field too",
+      "# Android",
+      "## 3. Visual",
+      "### Orientation · 1.3.4 · `orientation`",
+      "- [-] App-wide",
+    ].join("\n");
+    const rows = parseChecklist(md).rows;
+    expect(rows.map((r) => [r.target, r.itemId, r.screen, r.status])).toEqual([
+      ["ios", "input-labels", "Login", "pass"],
+      ["ios", "input-labels", "Terms & Privacy", "fail"],
+      ["android", "orientation", undefined, "na"],
+    ]);
+    expect(rows[1]!.issues).toEqual([{ text: "Checkbox has no label", wcag: ["3.3.2"], severity: "high" }, { text: "Second field too" }]);
   });
 });

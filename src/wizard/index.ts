@@ -14,7 +14,7 @@ import { appendFileSync, copyFileSync, existsSync, mkdirSync, readdirSync, readF
 import { homedir } from "node:os";
 import { basename, isAbsolute, join } from "node:path";
 import { applyContext, mergeContexts, parseNavigationMap, UNLISTED_GROUP, type NavigationContext } from "../context.js";
-import type { AuditTarget } from "../checklist.js";
+import { MANUAL_CHECKLIST, TEST_MODES, type AuditTarget, type ChecklistItem } from "../checklist.js";
 import { isReactNativeProject, RN_RULES, type CodeScanResult } from "../code-scan/react-native.js";
 import { FEATURE_LABEL, isFile, screensFromUrls, type ScreenDiscovery, type ScreenInfo } from "../code-scan/screens.js";
 import { LIGHTHOUSE_AUDIT_MAP } from "../integrations/lighthouse.js";
@@ -471,43 +471,46 @@ function printFindingSummary(out: (t: string) => void, findings: Finding[]): voi
 function displayChecklist(deps: WizardDeps, session: AuditSession, groups: PlannedGroup[]): void {
   const { out } = deps;
   for (const group of groups) {
-    const screenSections = group.sections.filter((s) => s.screen);
-    const total = group.sections.reduce((n, s) => n + s.checks.length, 0);
+    const screens = group.sections.filter((s) => s.screen).map((s) => s.screen!);
     const noun = group.kind === "web" ? "page" : "screen";
+    const platforms = group.targets.map((t) => TARGET_LABEL[t]);
     out(`\n${bold(`Manual checklist — ${group.title} · WCAG ${session.project.targetLevel}`)}`);
-    out(dim(`${screenSections.length} ${noun}${screenSections.length === 1 ? "" : "s"} · ${total} checks per platform`));
+    out(
+      dim(
+        `${screens.length} ${noun}${screens.length === 1 ? "" : "s"}. Work through it one testing pass at a time` +
+          (platforms.length > 1 ? ` — all of ${platforms[0]} first, then the same passes on ${platforms.slice(1).join(" and ")}.` : "."),
+      ),
+    );
 
-    // Checks every screen shares are listed once; each screen then shows only its extras.
-    const shared = screenSections.length
-      ? screenSections[0]!.checks.filter((c) => screenSections.every((s) => s.checks.some((o) => o.item.id === c.item.id)))
-      : [];
-    const sharedIds = new Set(shared.map((c) => c.item.id));
-    if (shared.length) {
-      out(`\n  ${bold(`On every ${noun}`)} ${dim(`(${shared.length} checks)`)}`);
-      for (const { item } of shared) out(`    ☐ ${item.title} ${dim(`(${item.wcag.join(", ")})`)}`);
+    // Each check, with how many screens it's done on (or app-wide).
+    const onCount = new Map<string, { item: ChecklistItem; screens: number; appWide: boolean; ifPresent: boolean }>();
+    for (const section of group.sections) {
+      for (const { item, ifPresent } of section.checks) {
+        const entry = onCount.get(item.id) ?? { item, screens: 0, appWide: false, ifPresent: false };
+        if (section.screen) entry.screens++;
+        else entry.appWide = true;
+        if (ifPresent) entry.ifPresent = true;
+        onCount.set(item.id, entry);
+      }
+    }
+    const order = new Map(MANUAL_CHECKLIST.map((i, n) => [i.id, n]));
+    let n = 0;
+    for (const mode of TEST_MODES) {
+      const checks = [...onCount.values()].filter((c) => c.item.mode === mode.id).sort((a, b) => order.get(a.item.id)! - order.get(b.item.id)!);
+      if (checks.length === 0) continue;
+      const lines = checks.reduce((sum, c) => sum + c.screens + (c.appWide ? 1 : 0), 0);
+      out(`\n  ${bold(`${++n}. ${mode.title}`)} ${dim(`(${checks.length} checks · ${lines} to mark per platform)`)}`);
+      for (const c of checks) {
+        const where = [c.screens ? `${c.screens} ${noun}${c.screens === 1 ? "" : "s"}` : "", c.appWide ? (c.ifPresent ? "app-wide, if present" : "app-wide") : ""].filter(Boolean).join(" + ");
+        out(`    ☐ ${c.item.title} ${dim(`(${c.item.wcag.join(", ")}) — ${where}`)}`);
+      }
     }
 
-    const screens = screenSections.map((s) => s.screen!);
-    let currentGroup: string | undefined;
-    for (const section of group.sections) {
-      const label = section.screen?.group;
-      if (label && label !== currentGroup) {
-        out(`\n  ${bold(`▸ ${label}`)}`);
-        currentGroup = label;
-      }
-      const extras = section.screen ? section.checks.filter((c) => !sharedIds.has(c.item.id)) : section.checks;
-      const findings = session.automated.flatMap((r) => r.findings).filter((f) => findingOnSection(f, section, screens)).length;
-      const meta = [
-        section.screen?.file,
-        section.screen?.features?.length ? section.screen.features.map((f) => FEATURE_LABEL[f]).join(", ") : undefined,
-        findings ? yellow(`⚑ ${findings} automated finding${findings === 1 ? "" : "s"}`) : undefined,
-      ].filter(Boolean);
-      if (!section.screen && extras.length === 0) continue;
-      const title = section.screen ? `${section.screen.name}${shared.length ? ` — every-${noun} checks${extras.length ? ", plus:" : ""}` : ""}` : "App-wide (check once)";
-      out(`\n  ${bold(title)}${meta.length ? dim(`  ${meta.join(" · ")}`) : ""}`);
-      for (const { item, ifPresent } of extras) {
-        out(`    ☐ ${item.title} ${dim(`(${item.wcag.join(", ")})`)}${ifPresent ? dim(" — if present") : ""}`);
-      }
+    const flagged = screens
+      .map((screen) => ({ screen, n: session.automated.flatMap((r) => r.findings).filter((f) => findingOnSection(f, { heading: "", screen, checks: [] }, screens)).length }))
+      .filter((x) => x.n > 0);
+    if (flagged.length) {
+      out(`\n  ${yellow("⚑ Automated findings by " + noun + ":")} ${dim(flagged.map((x) => `${x.screen.name} (${x.n})`).join(", "))}`);
     }
   }
 }
