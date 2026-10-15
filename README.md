@@ -55,19 +55,48 @@ npx bt-a11y
 ```
 
 You'll be asked:
-1. **Project name.** Press Enter to accept the suggestion.
-2. **What you're auditing:** a mobile app, a website, or both.
-3. **The compliance level.** Choose **AA** unless told otherwise; it's the
+1. **Context docs (optional, but recommended).** If you have a document that
+   describes the app, such as a navigation map, a list of screens, or flow
+   notes, give its path here (several paths separated by commas). If there's a
+   file like `navigation-map.md` in the project, it's suggested for you. Press
+   Enter to accept it, or clear the answer to skip. See
+   [What a context doc adds](#what-a-context-doc-adds) below.
+2. **Project name.** Press Enter to accept the suggestion.
+3. **What you're auditing:** a mobile app, a website, or both.
+4. **The compliance level.** Choose **AA** unless told otherwise; it's the
    legal standard.
-4. **Screens.** The toolkit finds the app's screens in its code and lists
-   them. Check that the list looks right, then press Enter. If something's
-   missing, say No and edit the list.
+5. **Screens.** The toolkit finds the app's screens in its code (and in your
+   context doc) and lists them, grouped by section. If the app has several
+   sections, tick the ones in scope (all are ticked to start). Then check the
+   list looks right and press Enter. If something's missing, say No and edit
+   the list.
    - For a website, you're asked for page addresses instead (or a sitemap
      link).
-5. **Whether to add the audit folder to `.gitignore`.** Say Yes so client
+6. **Whether to add the audit folder to `.gitignore`.** Say Yes so client
    findings never get committed to their code.
 
 That's all the questions.
+
+#### What a context doc adds
+
+A navigation map, a document listing every screen with its route name, screen
+component, and deep link (plus a flow diagram, if you have one), makes the
+whole audit more accurate:
+
+- **Complete screen list.** Screens the code scan missed are added from the
+  doc. Screens found only in code are kept too, in an "Other screens" group.
+- **Grouped by section** (e.g. *Root stack*, *Main bottom tabs › BillingTab*),
+  so you can audit one part of a large app at a time.
+- **Easier testing.** Each screen in the checklist shows its group, its **deep
+  link** (open it directly instead of tapping through the app), and **where
+  it's reached from** (from the flow diagram).
+- **Kept with the audit.** The doc is copied into `a11y-audit/context/` and
+  linked at the top of the checklist.
+
+The toolkit reads Markdown tables whose headings include something like
+*Route*, *Component*, and *Deep link*. Rows starting with `↳` belong to the
+tab or stack above them. It also reads Mermaid `flowchart` arrows. Other text
+is kept for people to read but isn't interpreted.
 
 ### Step 3: Let the automated checks run
 
@@ -225,13 +254,17 @@ npx bt-a11y
 
 **1. A few questions** — the only interactive part:
 
+- Context docs (optional): a navigation map, screen list, or flow notes. See
+  [What a context doc adds](#what-a-context-doc-adds).
 - Project / client name
 - **Mobile app (iOS + Android)**, **website**, or **both**
 - Target **WCAG level** (A / AA / AAA)
 - **Screens** — for a React Native repo, it finds them in the navigation code
   (`<Stack.Screen>`, static navigator configs, or expo-router's `app/` folder)
-  and shows what each one contains (form inputs, images, gestures…). Confirm
-  the list or edit it. For other mobile apps, type the screen names.
+  and shows what each one contains (form inputs, images, gestures…). With a
+  context doc, the list is merged with the doc, grouped by section, and you
+  tick which sections are in scope. Confirm the list or edit it. For other
+  mobile apps, the context doc supplies the list, or you type the screen names.
 - **Pages** (websites) — URLs, a sitemap URL, or a URL list file. If the axe /
   Lighthouse packages aren't installed, it offers to install them.
 
@@ -961,6 +994,7 @@ Each file can be run on its own with `npx vitest run tests/<file>`.
 | `tests/axe.test.ts` | axe-core → `Finding`/`Assessment` conversion, WCAG tag mapping, multi-page merge. | `npx vitest run tests/axe.test.ts` |
 | `tests/checklist.test.ts` | Manual checklist data (covers all 86 criteria, valid WCAG ids, level stacking, platform filtering) and `findingsToAssessment`. | `npx vitest run tests/checklist.test.ts` |
 | `tests/rn-code-scan.test.ts` | The React Native code scanner against a generated mini-app: every rule, native config, signals, and no-guess cases (dynamic text, spread props). | `npx vitest run tests/rn-code-scan.test.ts` |
+| `tests/context.test.ts` | Context docs: navigation-map tables (groups, nested stacks, deep links, "opens on"), Mermaid flows, and merging with screens found in code. | `npx vitest run tests/context.test.ts` |
 | `tests/screens.test.ts` | Screen discovery: React Navigation (barrels, path aliases, `getComponent`, nested navigators skipped), static configs, expo-router, folder fallback, feature detection. | `npx vitest run tests/screens.test.ts` |
 | `tests/checklist-md.test.ts` | The per-screen checklist file: planning (feature-tailored checks), rendering (⚑ findings on the right screen), parsing marks/issues/Other findings, and keeping answers on regenerate. | `npx vitest run tests/checklist-md.test.ts` |
 | `tests/summary-pdf.test.ts` | Summary PDF data (cover fields, severity totals match the report, findings named by screen + platform, overrides) and reading veraPDF PASS/FAIL results. | `npx vitest run tests/summary-pdf.test.ts` |
@@ -1038,6 +1072,7 @@ src/
   audit.ts           Audit runner, scoring, scorecard, WCAG rollups
   report.ts          console / json / markdown formatters
   checklist.ts       Manual testing checklist as data — covers all 86 criteria
+  context.ts         Context docs: parse navigation maps (tables + Mermaid flows), merge with code screens
   code-scan/
     react-native.ts  React Native source-code scanner (bt-a11y code)
     screens.ts       Screen discovery from navigation code + what each screen contains

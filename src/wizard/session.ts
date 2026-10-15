@@ -52,6 +52,8 @@ export interface AuditSession {
   };
   screens: ScreenInfo[];
   automated: AutomatedRun[];
+  /** Context docs (navigation map, sitemap, notes), copied into a11y-audit/context/. Paths are relative to the audit folder. */
+  context?: { files: string[] };
 }
 
 export const SESSION_DIR = "a11y-audit";

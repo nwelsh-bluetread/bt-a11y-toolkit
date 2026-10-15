@@ -90,9 +90,11 @@ export interface RenderInput {
   runs: AutomatedRun[];
   /** A previously parsed checklist whose answers should be kept. */
   previous?: ParsedChecklist;
+  /** Context docs saved with the audit (paths relative to the audit folder). */
+  contextFiles?: string[];
 }
 
-export function renderChecklist({ projectName, targetLevel, groups, runs, previous }: RenderInput): string {
+export function renderChecklist({ projectName, targetLevel, groups, runs, previous, contextFiles }: RenderInput): string {
   const kept = new Map<string, string[]>();
   for (const row of previous?.rows ?? []) kept.set(rowKey(row.group, row.section, row.itemId, row.target), row.lines);
 
@@ -111,6 +113,11 @@ export function renderChecklist({ projectName, targetLevel, groups, runs, previo
   out.push(
     "⚑ lines are what the automated scans found or flagged — those findings are already in the report, so only write issues you observe that aren't listed. When you're done, run **`npx bt-a11y report`**.",
   );
+  if (contextFiles?.length) {
+    out.push("");
+    out.push(`**Context:** ${contextFiles.map((f) => `[${f}](${f})`).join(", ")}. Use it to find each screen; deep links and "reached from" below come from it.`);
+  }
+  out.push(...screenIndex(groups));
 
   for (const group of groups) {
     out.push("");
@@ -169,9 +176,24 @@ export function renderChecklist({ projectName, targetLevel, groups, runs, previo
   return out.join("\n");
 }
 
+/** A grouped list of the screens in scope, so testers can see the whole audit at a glance. */
+function screenIndex(groups: PlannedGroup[]): string[] {
+  const screens = groups.flatMap((g) => g.sections.flatMap((s) => (s.screen ? [s.screen] : [])));
+  if (!screens.some((s) => s.group)) return [];
+  const lines = ["", "## Screens in scope", ""];
+  for (const group of [...new Set(screens.map((s) => s.group ?? "Other"))]) {
+    const names = screens.filter((s) => (s.group ?? "Other") === group).map((s) => s.name);
+    lines.push(`- **${group}** (${names.length}): ${names.join(", ")}`);
+  }
+  return lines;
+}
+
 function sectionMeta(section: PlannedSection, runs: AutomatedRun[], screens: ScreenInfo[]): string | undefined {
   const s = section.screen;
   const parts: string[] = [];
+  if (s?.group) parts.push(s.group);
+  if (s?.deepLink) parts.push(`deep link \`${s.deepLink}\``);
+  if (s?.reachedFrom?.length) parts.push(`reached from: ${s.reachedFrom.slice(0, 4).join(", ")}${s.reachedFrom.length > 4 ? ", …" : ""}`);
   if (s?.file) parts.push(`\`${s.file}\``);
   if (s?.url) parts.push(s.url);
   if (s?.features?.length) parts.push(`contains: ${s.features.map((f) => FEATURE_LABEL[f]).join(", ")}`);

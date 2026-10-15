@@ -10,8 +10,10 @@
  *
  * Re-running keeps answers already filled in to checklist.md.
  */
-import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
-import { basename, join } from "node:path";
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { basename, isAbsolute, join } from "node:path";
+import { applyContext, mergeContexts, parseNavigationMap, UNLISTED_GROUP, type NavigationContext } from "../context.js";
 import type { AuditTarget } from "../checklist.js";
 import { isReactNativeProject, RN_RULES, type CodeScanResult } from "../code-scan/react-native.js";
 import { FEATURE_LABEL, isFile, screensFromUrls, type ScreenDiscovery, type ScreenInfo } from "../code-scan/screens.js";
@@ -99,10 +101,12 @@ export async function runWizard(deps: WizardDeps): Promise<void> {
   }
 
   if (!session) {
-    session = await setup(deps);
+    const context = await contextStep(deps);
+    session = await setup(deps, context.ctx);
+    if (context.files.length) session.context = { files: copyContextFiles(cwd, context.files) };
     fresh = true;
-  } else if (session.screens.some((s) => s.kind === "mobile" && s.file)) {
-    session.screens = await refreshScreens(deps, session.screens);
+  } else if (session.screens.some((s) => s.kind === "mobile")) {
+    session.screens = await refreshScreens(deps, session.screens, loadContext(cwd, session));
   }
   saveSession(cwd, session);
 
@@ -123,6 +127,7 @@ export async function runWizard(deps: WizardDeps): Promise<void> {
       groups,
       runs: session.automated,
       previous,
+      contextFiles: session.context?.files,
     }),
     "utf8",
   );
@@ -136,9 +141,72 @@ export async function runWizard(deps: WizardDeps): Promise<void> {
   out(`\nNext: test each screen and mark the checklist, then run ${bold("npx bt-a11y report")} to build the report and summary PDF.\n`);
 }
 
+// ── 0. Context ───────────────────────────────────────────────────────────────
+
+/** Ask for docs that describe the app (navigation map, sitemap, flows) before anything else. */
+async function contextStep(deps: WizardDeps): Promise<{ files: string[]; ctx: NavigationContext }> {
+  const { prompter: p, cwd, out } = deps;
+  const suggestion = findContextDoc(cwd);
+  const raw = await p.input("Any context docs to start from? (navigation map, sitemap, flow notes — paths, comma-separated; Enter to skip)", {
+    default: suggestion,
+    validate: (v) => {
+      const missing = splitPaths(v).filter((f) => !isFile(resolvePath(cwd, f)));
+      return missing.length === 0 ? true : `Not found: ${missing.join(", ")}`;
+    },
+  });
+  const files = splitPaths(raw).map((f) => resolvePath(cwd, f));
+  if (files.length === 0) return { files, ctx: mergeContexts([]) };
+
+  const ctx = mergeContexts(files.filter((f) => /\.(md|markdown|txt)$/i.test(f)).map((f) => parseNavigationMap(readFileSync(f, "utf8"))));
+  const groups = new Set(ctx.screens.map((s) => s.group));
+  out(
+    ctx.screens.length
+      ? dim(`Context: ${ctx.screens.length} screens in ${groups.size} group${groups.size === 1 ? "" : "s"}${ctx.flows.length ? `, ${ctx.flows.length} navigation links` : ""}.`)
+      : dim("Context saved with the audit (no screen tables found to read)."),
+  );
+  return { files, ctx };
+}
+
+/** A likely context doc in the repo root or docs/, offered as the default. */
+function findContextDoc(cwd: string): string | undefined {
+  for (const dir of [".", "docs", "doc"]) {
+    const abs = join(cwd, dir);
+    if (!existsSync(abs)) continue;
+    const hit = readdirSync(abs).find((f) => /^(nav(igation)?[-_ ]?map|site[-_ ]?map|screens|routes|navigation)\.(md|markdown)$/i.test(f));
+    if (hit) return dir === "." ? hit : `${dir}/${hit}`;
+  }
+  return undefined;
+}
+
+function copyContextFiles(cwd: string, files: string[]): string[] {
+  const dir = join(cwd, SESSION_DIR, "context");
+  mkdirSync(dir, { recursive: true });
+  return files.map((f) => {
+    copyFileSync(f, join(dir, basename(f)));
+    return `context/${basename(f)}`;
+  });
+}
+
+/** Re-read the context docs saved with the audit. */
+function loadContext(cwd: string, session: AuditSession): NavigationContext {
+  const docs = (session.context?.files ?? [])
+    .map((f) => join(cwd, SESSION_DIR, f))
+    .filter((f) => existsSync(f) && /\.(md|markdown|txt)$/i.test(f));
+  return mergeContexts(docs.map((f) => parseNavigationMap(readFileSync(f, "utf8"))));
+}
+
+function splitPaths(value: string): string[] {
+  return value.split(",").map((s) => s.trim()).filter(Boolean);
+}
+
+function resolvePath(cwd: string, path: string): string {
+  const expanded = path.replace(/^~(?=\/|$)/, homedir());
+  return isAbsolute(expanded) ? expanded : join(cwd, expanded);
+}
+
 // ── 1. Setup ─────────────────────────────────────────────────────────────────
 
-async function setup(deps: WizardDeps): Promise<AuditSession> {
+async function setup(deps: WizardDeps, ctx: NavigationContext): Promise<AuditSession> {
   const { prompter: p, cwd, out } = deps;
 
   const name = await p.input("Project / client name:", { default: detectProjectName(cwd), required: true });
@@ -163,7 +231,7 @@ async function setup(deps: WizardDeps): Promise<AuditSession> {
   const stack: MobileStack | undefined = type === "web" ? undefined : detectStack(cwd);
 
   const screens: ScreenInfo[] = [];
-  if (type !== "web") screens.push(...(await mobileScreens(deps, stack!)));
+  if (type !== "web") screens.push(...(await mobileScreens(deps, stack!, ctx)));
   let urls: string[] | undefined;
   if (type !== "mobile") {
     urls = await webPages(deps);
@@ -173,8 +241,8 @@ async function setup(deps: WizardDeps): Promise<AuditSession> {
   return newSession({ name, type, targets, stack, targetLevel, urls }, screens);
 }
 
-/** Find screens in the navigation code and let the user confirm or edit the list. */
-async function mobileScreens(deps: WizardDeps, stack: MobileStack): Promise<ScreenInfo[]> {
+/** Find screens (code + context doc), let the user pick groups in scope, and confirm or edit the list. */
+async function mobileScreens(deps: WizardDeps, stack: MobileStack, ctx: NavigationContext): Promise<ScreenInfo[]> {
   const { prompter: p, cwd, out } = deps;
   let detected: ScreenInfo[] = [];
 
@@ -185,37 +253,64 @@ async function mobileScreens(deps: WizardDeps, stack: MobileStack): Promise<Scre
     } catch (err) {
       out(red(`Couldn't read the navigation code: ${message(err)}`));
     }
-  } else {
+  } else if (ctx.screens.length === 0) {
     out(dim(`\nNo React Native project here${stack === "unknown" ? "" : ` (looks like ${stack})`} — the code scan only supports React Native, so list the screens yourself.`));
   }
+  let screens = applyContext(detected, ctx);
 
-  if (detected.length > 0) {
-    out(`\nFound ${bold(String(detected.length))} screens:`);
-    for (const s of detected) {
-      const features = s.features?.length ? dim(` · ${s.features.map((f) => FEATURE_LABEL[f]).join(", ")}`) : "";
-      out(`  • ${s.name.padEnd(24)} ${dim(s.file ?? "")}${features}`);
+  if (screens.length > 0) {
+    printScreens(out, screens, stack === "react-native");
+    const groups = [...new Set(screens.map((s) => s.group).filter((g): g is string => Boolean(g)))];
+    if (groups.length > 1) {
+      const chosen = await p.checkbox(
+        "Which parts of the app are in scope?",
+        groups.map((g) => ({ name: `${g} (${screens.filter((s) => s.group === g).length})`, value: g, checked: g !== UNLISTED_GROUP })),
+        { required: true },
+      );
+      screens = screens.filter((s) => !s.group || chosen.includes(s.group));
     }
-    if (await p.confirm("Audit these screens?", { default: true })) return detected;
+    if (await p.confirm(`Audit these ${screens.length} screens?`, { default: true })) return screens;
   } else if (stack === "react-native") {
     out(dim("No screens found in the navigation code."));
   }
 
   const raw = await p.input("Screens to audit (comma-separated):", {
-    default: detected.map((s) => s.name).join(", ") || undefined,
+    default: screens.map((s) => s.name).join(", ") || undefined,
     required: true,
   });
-  return splitNames(raw).map((name) => detected.find((s) => s.name === name) ?? { name, kind: "mobile" as const });
+  const all = applyContext(detected, ctx);
+  return splitNames(raw).map((name) => all.find((s) => s.name === name) ?? { name, kind: "mobile" as const });
 }
 
-/** Re-discover screens on a re-run, keeping the user's list and refreshing files/features. */
-async function refreshScreens(deps: WizardDeps, saved: ScreenInfo[]): Promise<ScreenInfo[]> {
+function printScreens(out: (t: string) => void, screens: ScreenInfo[], fromCode: boolean): void {
+  const grouped = screens.some((s) => s.group);
+  const notInCode = fromCode ? screens.filter((s) => !s.file).length : 0;
+  out(`\nFound ${bold(String(screens.length))} screens${notInCode ? dim(` (${notInCode} listed in the context doc but not found in code — their contents are unknown)`) : ""}:`);
+  if (!grouped) {
+    for (const s of screens) {
+      const features = s.features?.length ? dim(` · ${s.features.map((f) => FEATURE_LABEL[f]).join(", ")}`) : "";
+      out(`  • ${s.name.padEnd(24)} ${dim(s.file ?? "")}${features}`);
+    }
+    return;
+  }
+  for (const group of [...new Set(screens.map((s) => s.group ?? "Other"))]) {
+    const names = screens.filter((s) => (s.group ?? "Other") === group).map((s) => (fromCode && !s.file ? `${s.name}*` : s.name));
+    out(`  ${bold(group)} ${dim(`(${names.length})`)}`);
+    out(dim(`    ${names.join(", ")}`));
+  }
+  if (notInCode) out(dim("  * not found in code"));
+}
+
+/** Re-discover screens on a re-run: keep the user's list, refresh files/features and context details. */
+async function refreshScreens(deps: WizardDeps, saved: ScreenInfo[], ctx: NavigationContext): Promise<ScreenInfo[]> {
   let fresh: ScreenInfo[] = [];
   try {
     fresh = (await deps.discoverScreens(deps.cwd)).screens;
   } catch {
-    return saved;
+    // Not a React Native project (or unreadable) — context alone can still refresh details.
   }
-  return saved.map((s) => (s.kind === "mobile" ? (fresh.find((f) => f.name === s.name) ?? s) : s));
+  const all = applyContext(fresh, ctx);
+  return saved.map((s) => (s.kind === "mobile" ? (all.find((f) => f.name === s.name) ?? s) : s));
 }
 
 async function webPages(deps: WizardDeps): Promise<string[]> {
@@ -393,7 +488,13 @@ function displayChecklist(deps: WizardDeps, session: AuditSession, groups: Plann
     }
 
     const screens = screenSections.map((s) => s.screen!);
+    let currentGroup: string | undefined;
     for (const section of group.sections) {
+      const label = section.screen?.group;
+      if (label && label !== currentGroup) {
+        out(`\n  ${bold(`▸ ${label}`)}`);
+        currentGroup = label;
+      }
       const extras = section.screen ? section.checks.filter((c) => !sharedIds.has(c.item.id)) : section.checks;
       const findings = session.automated.flatMap((r) => r.findings).filter((f) => findingOnSection(f, section, screens)).length;
       const meta = [

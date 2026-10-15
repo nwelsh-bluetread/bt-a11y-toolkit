@@ -92,16 +92,17 @@ describe("runWizard — React Native app", () => {
     rnPackage();
     mkdirSync(join(cwd, ".git"));
     const p = scripted([
+      { match: /context docs/, answer: "" },
       { match: /Project \/ client name/, answer: undefined }, // accept default
       { match: /What are you auditing/, answer: "mobile" },
       { match: /Target WCAG/, answer: "AA" },
-      { match: /Audit these screens/, answer: true },
+      { match: /Audit these \d+ screens/, answer: true },
       { match: /gitignore/, answer: true },
     ]);
     const d = deps(cwd, p);
     await runWizard(d);
 
-    expect(p.log).toHaveLength(5);
+    expect(p.log).toHaveLength(6);
     const session = loadSession(cwd)!;
     expect(session.project).toMatchObject({ name: "acme-rn", type: "mobile", targets: ["ios", "android"], stack: "react-native", targetLevel: "AA" });
     expect(session.screens.map((s) => s.name)).toEqual(["Login", "Inbox"]);
@@ -130,10 +131,11 @@ describe("runWizard — React Native app", () => {
       deps(
         cwd,
         scripted([
-          { match: /Project \/ client name/, answer: "Acme" },
+          { match: /context docs/, answer: "" },
+      { match: /Project \/ client name/, answer: "Acme" },
           { match: /What are you auditing/, answer: "mobile" },
           { match: /Target WCAG/, answer: "AA" },
-          { match: /Audit these screens/, answer: true },
+          { match: /Audit these \d+ screens/, answer: true },
         ]),
       ),
     );
@@ -166,6 +168,7 @@ describe("runWizard — React Native app", () => {
 
   it("lets the user type screens when the project isn't React Native", async () => {
     const p = scripted([
+      { match: /context docs/, answer: "" },
       { match: /Project \/ client name/, answer: "Acme Native" },
       { match: /What are you auditing/, answer: "mobile" },
       { match: /Target WCAG/, answer: "A" },
@@ -191,6 +194,81 @@ describe("runWizard — React Native app", () => {
   });
 });
 
+describe("runWizard — context docs", () => {
+  const MAP = [
+    "# Navigation Map",
+    "",
+    "## 1. Root stack: `src/navigator/index.js`",
+    "",
+    "| Route name | Screen component | Deep link |",
+    "| --- | --- | --- |",
+    "| `Login` | `Auth/Login` | `login` |",
+    "",
+    "## 2. Main bottom tabs",
+    "",
+    "| Tab → route | Screen component | Deep link |",
+    "| --- | --- | --- |",
+    "| **`BillingTab`** (opens on `Billing`) | | `home/billing` |",
+    "| ↳ `Billing` | `Billing` | — |",
+    "| ↳ `Inbox` | `Other/Inbox` | — |",
+    "| **`SettingsTab`** | | |",
+    "| ↳ `Settings` | `Settings` | — |",
+    "",
+    "```mermaid",
+    "flowchart TD",
+    "    Login --> Billing",
+    "    Billing --> Inbox",
+    "```",
+  ].join("\n");
+
+  it("starts from a context doc: groups screens, scopes by group, and annotates the checklist", async () => {
+    rnPackage();
+    mkdirSync(join(cwd, "docs"));
+    writeFileSync(join(cwd, "docs", "navigation-map.md"), MAP);
+    const p = scripted([
+      { match: /context docs/, answer: undefined }, // accept the suggested docs/navigation-map.md
+      { match: /Project \/ client name/, answer: "Acme" },
+      { match: /What are you auditing/, answer: "mobile" },
+      { match: /Target WCAG/, answer: "AA" },
+      {
+        match: /Which parts of the app are in scope/,
+        answer: ((_, choices) => {
+          expect(choices!.map((c) => c.name)).toEqual(["Root stack (1)", "Main bottom tabs › BillingTab (2)", "Main bottom tabs › SettingsTab (1)"]);
+          return ["Root stack", "Main bottom tabs › BillingTab"];
+        }) as Answer,
+      },
+      { match: /Audit these 3 screens/, answer: true },
+    ]);
+    const d = deps(cwd, p);
+    await runWizard(d);
+
+    expect(p.log[0]).toMatch(/context docs/);
+    const session = loadSession(cwd)!;
+    expect(session.context).toEqual({ files: ["context/navigation-map.md"] });
+    expect(existsSync(join(cwd, "a11y-audit", "context", "navigation-map.md"))).toBe(true);
+    // Login and Inbox matched screens found in code; Billing comes only from the doc.
+    expect(session.screens.map((s) => [s.name, s.group, Boolean(s.file)])).toEqual([
+      ["Login", "Root stack", true],
+      ["Billing", "Main bottom tabs › BillingTab", false],
+      ["Inbox", "Main bottom tabs › BillingTab", true],
+    ]);
+
+    const out = d.output.join("\n");
+    expect(out).toContain("Context: 4 screens in 3 groups, 2 navigation links.");
+    expect(out).toContain("▸ Main bottom tabs › BillingTab");
+
+    const md = read("checklist.md");
+    expect(md).toContain("**Context:** [context/navigation-map.md](context/navigation-map.md)");
+    expect(md).toContain("- **Main bottom tabs › BillingTab** (2): Billing, Inbox");
+    expect(md).toContain("Main bottom tabs › BillingTab · deep link `home/billing` · reached from: Login");
+
+    // Re-run: the saved context is re-applied without asking again.
+    const again = scripted([{ match: /What would you like to do/, answer: "rerun" }]);
+    await runWizard(deps(cwd, again));
+    expect(loadSession(cwd)!.screens.find((s) => s.name === "Inbox")!.reachedFrom).toEqual(["Billing"]);
+  });
+});
+
 describe("runWizard — website", () => {
   it("asks for pages, installs missing scanners, and runs them without further prompts", async () => {
     const commands: string[] = [];
@@ -209,6 +287,7 @@ describe("runWizard — website", () => {
       ],
     });
     const p = scripted([
+      { match: /context docs/, answer: "" },
       { match: /Project \/ client name/, answer: "Acme Web" },
       { match: /What are you auditing/, answer: "web" },
       { match: /Target WCAG/, answer: "AA" },

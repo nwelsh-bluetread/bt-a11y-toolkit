@@ -30,6 +30,12 @@ export interface ScreenInfo {
   features?: ScreenFeature[];
   /** Page URL (web). */
   url?: string;
+  /** From the context doc: where the screen sits, e.g. "Main bottom tabs › BillingTab". */
+  group?: string;
+  /** From the context doc: deep-link path to open the screen directly. */
+  deepLink?: string;
+  /** From the context doc's flow diagram: screens that lead here. */
+  reachedFrom?: string[];
 }
 
 export interface ScreenDiscovery {
