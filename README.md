@@ -31,6 +31,13 @@ You'll need:
   Android phone (TalkBack). Simulators aren't good enough for this part.
 - **Test builds and logins** from the client (TestFlight / APK, test accounts).
 - **Google Chrome** installed, to create the summary PDF at the end.
+- **Python 3**, so the PDF passes accessibility (PDF/UA) checks. Macs with
+  Xcode already have it; otherwise run `xcode-select --install`.
+- **veraPDF** (optional, recommended), to check every PDF automatically:
+  `brew install verapdf`.
+
+To check all of this in one go, run `npx bt-a11y pdf-setup` after Step 1.
+Every item should show ✓.
 
 ### Step 1: Install the toolkit (one time per project)
 
@@ -158,6 +165,19 @@ Any field in `a11y-audit/a11y-audit-summary.json` (the data the PDF is built
 from) can be overridden this way, including `principleSummaries`, `phases`,
 and `preparedBy`. Add `--no-pdf` to skip the PDF.
 
+**Making sure the PDF passes accessibility checks.** The PDF itself has to be
+accessible (the PDF/UA-1 standard). The first time you build one, the toolkit
+installs what it needs automatically (about 20 seconds, once per computer).
+If veraPDF is installed, every report then ends with:
+
+```
+✓ PDF/UA-1: PASS (veraPDF)
+```
+
+If you see **✗ FAIL** or a ⚠ warning instead, run `npx bt-a11y pdf-setup` and
+fix whatever it marks with ✗. Don't send a PDF to a client until it shows
+PASS.
+
 If you made a typo in the checklist (for example `[y]` instead of `[x]`), it
 tells you which line to fix.
 
@@ -181,6 +201,7 @@ update their marks, and run `npx bt-a11y report` for the updated report.
 | --- | --- |
 | Start an audit or re-run the scans | `npx bt-a11y` |
 | Build or refresh the report | `npx bt-a11y report` |
+| Check the PDF tools are set up | `npx bt-a11y pdf-setup` |
 | Find the checklist to fill in | `a11y-audit/checklist.md` |
 | Find the client PDF | `a11y-audit/a11y-audit-summary-<date>.pdf` |
 | Find the working report | `a11y-audit/report.md` |
@@ -256,10 +277,13 @@ the PDF.
 
 **About the PDF.** It's rendered by `assets/pdf/render.mjs` (vendored from the
 `a11y-report-pdf` Claude skill) with headless Chrome; set `CHROME_PATH` if
-Chrome isn't in a standard location. When Python's `pikepdf` is available, the
-file is post-processed to pass **PDF/UA-1** (verify with
-`verapdf --flavour ua1 <pdf>`). Without it, the PDF is still tagged, but the
-report prints a warning with the one-line install command. Code findings are
+Chrome isn't in a standard location. Chrome's output is then post-processed by
+`assets/pdf/pdfua_fix.py` to pass **PDF/UA-1**. That needs Python's `pikepdf`,
+which the toolkit installs into its own environment at `~/.bt-a11y/pdf-venv`
+the first time it's needed (or use an existing one via `PDFUA_PYTHON`). If
+`verapdf` is on the PATH, each PDF is validated and `report` prints PASS, or
+FAIL with the failed rules and a non-zero exit code. `npx bt-a11y pdf-setup`
+installs and checks everything up front. Code findings are
 merged per rule, listing every screen and file they appear in; manual
 findings stay separate per issue.
 
@@ -847,6 +871,9 @@ node dist/cli.js report
 node dist/cli.js report --jira --min-severity high
 node dist/cli.js report --no-pdf          # skip the summary PDF
 
+# Install/check what the summary PDF needs (Chrome, pikepdf, veraPDF):
+node dist/cli.js pdf-setup
+
 # Scan a React Native project's source code:
 node dist/cli.js code ./path/to/rn-app --format markdown --out code-scan.md
 
@@ -936,7 +963,7 @@ Each file can be run on its own with `npx vitest run tests/<file>`.
 | `tests/rn-code-scan.test.ts` | The React Native code scanner against a generated mini-app: every rule, native config, signals, and no-guess cases (dynamic text, spread props). | `npx vitest run tests/rn-code-scan.test.ts` |
 | `tests/screens.test.ts` | Screen discovery: React Navigation (barrels, path aliases, `getComponent`, nested navigators skipped), static configs, expo-router, folder fallback, feature detection. | `npx vitest run tests/screens.test.ts` |
 | `tests/checklist-md.test.ts` | The per-screen checklist file: planning (feature-tailored checks), rendering (⚑ findings on the right screen), parsing marks/issues/Other findings, and keeping answers on regenerate. | `npx vitest run tests/checklist-md.test.ts` |
-| `tests/summary-pdf.test.ts` | Summary PDF data: cover fields, severity totals match the report, code findings named by screen, manual findings by screen + platform, overrides. | `npx vitest run tests/summary-pdf.test.ts` |
+| `tests/summary-pdf.test.ts` | Summary PDF data (cover fields, severity totals match the report, findings named by screen + platform, overrides) and reading veraPDF PASS/FAIL results. | `npx vitest run tests/summary-pdf.test.ts` |
 | `tests/coverage.test.ts` | The WCAG 2.2 coverage matrix: level scoping and every status. | `npx vitest run tests/coverage.test.ts` |
 | `tests/wizard.test.ts` | The guided audit end to end with scripted answers: React Native, non-RN mobile, and web flows; only setup prompts; checklist written and displayed; filled-in checklist → report; re-run keeps answers. | `npx vitest run tests/wizard.test.ts` |
 | `tests/fixtures.ts` | Shared sample `A11yNode` tree used by rule/audit tests (not a test itself). | — |
@@ -1028,6 +1055,7 @@ src/
     axe-runner.ts    Live axe scans via Playwright
   pdf/
     summary.ts       Audit → executive-summary PDF data, and running the renderer
+    pdfua.ts         PDF/UA-1: auto-installs pikepdf (~/.bt-a11y/pdf-venv), validates with veraPDF
   matchers/
     index.ts         Vitest/Jest assertion matchers
   cli.ts             bt-a11y command line

@@ -185,12 +185,14 @@ export function rendererPath(): string {
 }
 
 /**
- * Render the PDF. Resolves with the renderer's output; rejects with a readable
- * message when Chrome isn't available or rendering fails.
+ * Render the PDF. Pass `pdfuaPython` (a Python with pikepdf) to apply the
+ * PDF/UA-1 fix-up. Resolves with the renderer's output; rejects with a
+ * readable message when Chrome isn't available or rendering fails.
  */
-export function renderSummaryPdf(jsonPath: string, pdfPath: string): Promise<string> {
+export function renderSummaryPdf(jsonPath: string, pdfPath: string, pdfuaPython?: string): Promise<string> {
+  const env = pdfuaPython ? { ...process.env, PDFUA_PYTHON: pdfuaPython } : process.env;
   return new Promise((resolve, reject) => {
-    execFile(process.execPath, [rendererPath(), jsonPath, pdfPath], { timeout: 120_000 }, (err, stdout, stderr) => {
+    execFile(process.execPath, [rendererPath(), jsonPath, pdfPath], { timeout: 120_000, env }, (err, stdout, stderr) => {
       if (err) {
         // The renderer exits with code 2 when it can't find Chrome.
         const missingChrome = (err as { code?: unknown }).code === 2 || /No Chrome/.test(stderr);

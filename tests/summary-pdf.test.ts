@@ -103,3 +103,15 @@ describe("renderer", () => {
     expect(summaryPdfName(new Date("2026-10-14T12:00:00Z"))).toBe("a11y-audit-summary-2026-10-14.pdf");
   });
 });
+
+describe("parseVeraPdf", () => {
+  it("reads pass, fail (with rule ids), and missing-veraPDF output", async () => {
+    const { parseVeraPdf } = await import("../src/pdf/pdfua.js");
+    expect(parseVeraPdf('<validationReport profileName="PDF/UA-1" isCompliant="true"><details failedRules="0">')).toEqual({ status: "pass" });
+    const fail = `<validationReport isCompliant="false"><details passedRules="102" failedRules="2" failedChecks="154">
+      <rule specification="ISO 14289-1:2014" clause="7.1" testNumber="5" status="failed" failedChecks="3" tags="structure">
+      <rule specification="ISO 14289-1:2014" clause="7.1" testNumber="3" status="failed" failedChecks="151" tags="artifact">`;
+    expect(parseVeraPdf(fail)).toEqual({ status: "fail", failedRules: 2, details: "7.1-5, 7.1-3" });
+    expect(parseVeraPdf("zsh: command not found: verapdf")).toEqual({ status: "unavailable" });
+  });
+});

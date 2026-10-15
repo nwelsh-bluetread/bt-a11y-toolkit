@@ -109,6 +109,7 @@ Usage:
   bt-a11y start                 Guided audit: a few questions → scans → per-screen checklist
   bt-a11y report [options]      Build the audit from the scans + filled-in a11y-audit/checklist.md
   bt-a11y code [dir] [options]  Scan React Native source code (default: current folder)
+  bt-a11y pdf-setup             Check/install what the summary PDF needs (Chrome, pikepdf, veraPDF)
   bt-a11y audit <tree.json> [options]
   bt-a11y lighthouse <url> [<url> ...] [options]
   bt-a11y lighthouse --urls <file> [options]
@@ -360,6 +361,36 @@ async function runCodeCommand(args: ParsedArgs): Promise<void> {
   );
 }
 
+/** Install PDF/UA support up front and report what the PDF step needs. */
+async function runPdfSetupCommand(): Promise<void> {
+  const { ensurePdfUaPython, hasCommand, PDF_VENV } = await import("./pdf/pdfua.js");
+  const { existsSync } = await import("node:fs");
+  const chromeCandidates = [
+    process.env.CHROME_PATH,
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "/Applications/Chromium.app/Contents/MacOS/Chromium",
+    "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+    "/usr/bin/google-chrome",
+    "/usr/bin/chromium",
+  ];
+  const chrome = chromeCandidates.find((c) => c && existsSync(c));
+  const line = (ok: boolean, text: string) => process.stdout.write(`${ok ? "✓" : "✗"} ${text}\n`);
+
+  line(Boolean(chrome), chrome ? `Chrome: ${chrome}` : "Chrome: not found — install Google Chrome (or set CHROME_PATH). Required to build the PDF.");
+  let ok = Boolean(chrome);
+  try {
+    const python = await ensurePdfUaPython((l) => process.stdout.write(`  ${l}\n`));
+    line(true, `PDF/UA fix-up (pikepdf): ${python}`);
+  } catch (err) {
+    ok = false;
+    line(false, `PDF/UA fix-up (pikepdf): ${err instanceof Error ? err.message : String(err)}`);
+  }
+  const verapdf = await hasCommand("verapdf", ["--version"]);
+  line(verapdf, verapdf ? "veraPDF: installed — every PDF is checked automatically" : "veraPDF: not installed (optional) — to check PDFs automatically: brew install verapdf");
+  process.stdout.write(ok ? "\nReady: `bt-a11y report` will build PDF/UA-1 PDFs.\n" : `\nFix the ✗ items above, then run \`bt-a11y pdf-setup\` again. (Python environment: ${PDF_VENV})\n`);
+  if (!ok) process.exitCode = 1;
+}
+
 async function runReportCommand(args: ParsedArgs): Promise<void> {
   const { loadSession, writeReports } = await import("./wizard/session.js");
   const { coverageSummaryLines } = await import("./wizard/coverage.js");
@@ -385,10 +416,22 @@ async function runReportCommand(args: ParsedArgs): Promise<void> {
     const pdfPath = join(dir, summaryPdfName());
     writeFileSync(dataPath, JSON.stringify(buildSummaryData(session, assessment, checklist, loadSummaryOverrides(dir)), null, 2) + "\n");
     process.stdout.write("\nBuilding the summary PDF…\n");
+    const { ensurePdfUaPython, verifyPdfUa } = await import("./pdf/pdfua.js");
+    let python: string | undefined;
     try {
-      const log = await renderSummaryPdf(dataPath, pdfPath);
-      if (/NOT PDF\/UA/.test(log)) process.stderr.write(`${log.split("\n").filter((l) => /Warning|Fix:/.test(l)).join("\n")}\n`);
+      python = await ensurePdfUaPython((line) => process.stdout.write(`  ${line}\n`));
+    } catch (err) {
+      process.stderr.write(`  ⚠ ${err instanceof Error ? err.message : String(err)}\n  The PDF will be tagged but won't pass PDF/UA-1.\n`);
+    }
+    try {
+      await renderSummaryPdf(dataPath, pdfPath, python);
       process.stdout.write(`  ${pdfPath}\n`);
+      const check = await verifyPdfUa(pdfPath);
+      if (check.status === "pass") process.stdout.write("  ✓ PDF/UA-1: PASS (veraPDF)\n");
+      else if (check.status === "fail") {
+        process.stderr.write(`  ✗ PDF/UA-1: FAIL — ${check.failedRules} rule(s) failed (${check.details}). Run: verapdf --flavour ua1 "${pdfPath}"\n`);
+        process.exitCode = 1;
+      } else if (python) process.stdout.write("  PDF/UA-1 fix-up applied. Install veraPDF to verify it automatically: brew install verapdf\n");
     } catch (err) {
       process.stderr.write(`  Couldn't build the PDF: ${err instanceof Error ? err.message : String(err)}\n`);
     }
@@ -428,6 +471,9 @@ async function main(): Promise<void> {
       break;
     case "code":
       await runCodeCommand(args);
+      break;
+    case "pdf-setup":
+      await runPdfSetupCommand();
       break;
     case "audit":
       await runAuditCommand(args);
