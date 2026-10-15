@@ -171,14 +171,21 @@ export function renderChecklist({ projectName, targetLevel, groups, runs, previo
         out.push("");
         out.push(`## ${++n}. ${mode.title}`);
         out.push("");
-        out.push(`> Setup: ${modeSetup(mode.id, target)}`);
+        out.push(`> **Setup:** ${modeSetup(mode.id, target)}`);
+        let k = 0;
         for (const { item, on } of inMode) {
           const ifPresent = on.find((o) => o.ifPresent)?.ifPresent;
-          const note = ifPresent ? ` *(no ${ifPresent.map((f) => FEATURE_LABEL[f]).join("/")} found in code — mark N/A if the app has none)*` : "";
           out.push("");
-          out.push(`### ${item.title} · ${item.wcag.join(", ")} · \`${item.id}\`${note}`);
+          out.push(`### ${n}.${++k} **${item.title}** · \`${item.id}\``);
           out.push("");
-          out.push(`How to test: ${howToFor(item, target)}`);
+          out.push(`**Criteria:** ${item.wcag.map((id) => `${id} ${WCAG[id]?.name ?? ""} (${WCAG[id]?.level ?? "?"})`).join(" · ")}`);
+          out.push("");
+          out.push(`**How to test:** ${howToFor(item, target)}`);
+          if (ifPresent) {
+            const what = ifPresent.map((f) => FEATURE_LABEL[f]).join(" or ");
+            out.push("");
+            out.push(`*Only applies if the app has ${what}. None were found in the code, so mark it N/A if there are none.*`);
+          }
           out.push("");
           for (const { section } of on) {
             const screen = section.screen?.name;

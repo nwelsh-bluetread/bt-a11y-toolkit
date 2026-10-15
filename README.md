@@ -126,8 +126,10 @@ instead of switching settings screen by screen:
    5. **Cognitive: content, forms & behavior** (wording, forms and errors, consistency, sign-in)
    6. **Media, motion & timing**
 3. Each pass starts with a **Setup** line (for example, "Turn on VoiceOver and
-   keep it on for this whole section"). Under it are the checks, and under
-   each check, **the screens to test it on**.
+   keep it on for this whole section"). Under it are the checks, numbered by
+   pass (1.1, 1.2… then 2.1…). Each check shows its title in bold, the
+   **WCAG criteria** it covers (number, name, and level), **how to test** it,
+   and **the screens to test it on**.
 
 Screens only get the checks that apply to them. A form check lists only the
 screens with forms, and a gesture check only the screens with swipe actions.
@@ -159,9 +161,11 @@ For each check:
 
 **Example:**
 ```
-### Every input has a label or instructions (not just placeholder text) · 3.3.2 · `input-labels`
+### 1.6 **Every input has a label or instructions (not just placeholder text)** · `input-labels`
 
-How to test: Focus each field with the screen reader. It should announce a label…
+**Criteria:** 3.3.2 Labels or Instructions (A)
+
+**How to test:** Focus each field with the screen reader. It should announce a label…
 
 - [x] Login
 - [!] Signup: Email field is read out as "edit box" with no label (high)
@@ -320,11 +324,13 @@ Testers fill in `checklist.md`, marking each screen line:
 
 ## 1. Screen reader
 
-> Setup: Turn on VoiceOver … and keep it on for this whole section.
+> **Setup:** Turn on VoiceOver … and keep it on for this whole section.
 
-### Every input has a label or instructions (not just placeholder text) · 3.3.2 · `input-labels`
+### 1.6 **Every input has a label or instructions (not just placeholder text)** · `input-labels`
 
-How to test: Focus each field with the screen reader. …
+**Criteria:** 3.3.2 Labels or Instructions (A)
+
+**How to test:** Focus each field with the screen reader. …
 
 - [x] Login
 - [!] Signup: Email field is announced as "edit box" with no label (high)

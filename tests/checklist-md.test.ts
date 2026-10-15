@@ -82,17 +82,27 @@ describe("renderChecklist", () => {
     expect(md.indexOf("# iOS")).toBeLessThan(md.indexOf("# Android"));
     const passes = [...ios.matchAll(/^## (\d+\. .+)$/gm)].map((m) => m[1]);
     expect(passes).toEqual(["1. Screen reader", "2. Keyboard, switch & voice control", "3. Visual, text size & orientation", "4. Touch & gestures", "5. Cognitive: content, forms & behavior", "6. Media, motion & timing"]);
-    expect(ios).toMatch(/## 1\. Screen reader\n\n> Setup: Turn on VoiceOver/);
-    expect(android).toMatch(/## 1\. Screen reader\n\n> Setup: Turn on TalkBack/);
+    expect(ios).toMatch(/## 1\. Screen reader\n\n> \*\*Setup:\*\* Turn on VoiceOver/);
+    expect(android).toMatch(/## 1\. Screen reader\n\n> \*\*Setup:\*\* Turn on TalkBack/);
+  });
+
+  it("gives each check a numbered bold title, the criteria by name and level, and labeled how-to", () => {
+    expect(ios).toContain(
+      "### 1.6 **Every input has a label or instructions (not just placeholder text)** · `input-labels`\n\n" +
+        "**Criteria:** 3.3.2 Labels or Instructions (A)\n\n" +
+        "**How to test:** Focus each field with the screen reader.",
+    );
+    expect(ios).toContain("**Criteria:** 1.3.2 Meaningful Sequence (A) · 2.4.3 Focus Order (A)");
+    expect(ios).toContain("*Only applies if the app has modals. None were found in the code, so mark it N/A if there are none.*");
   });
 
   it("lists the screens each check applies to, with platform-specific how-to", () => {
-    expect(check(ios, "sr-name-role-value")).toMatch(/How to test: Turn on VoiceOver[^\n]*\n\n- \[!\] Login\n[\s\S]*- \[ \] Inbox/);
+    expect(check(ios, "sr-name-role-value")).toMatch(/\*\*How to test:\*\* Turn on VoiceOver[^\n]*\n\n- \[!\] Login\n[\s\S]*- \[ \] Inbox/);
     expect(check(ios, "input-labels")).toContain("- [!] Login");
     expect(check(ios, "input-labels")).not.toContain("Inbox");
     expect(check(ios, "pointer-gestures")).toContain("- [ ] Inbox");
     expect(check(ios, "orientation")).toContain("- [!] App-wide");
-    expect(check(android, "resize-text")).toContain("How to test: Set Settings → Display → Font size");
+    expect(check(android, "resize-text")).toContain("**How to test:** Set Settings → Display → Font size");
   });
 
   it("puts automated findings and signals under the screen they belong to", () => {

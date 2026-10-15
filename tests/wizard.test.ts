@@ -195,7 +195,7 @@ describe("runWizard — React Native app", () => {
     expect(md).toContain("- **Checkout**");
     expect(md).toContain("- [ ] Checkout");
     // Screen contents are unknown, so feature checks are listed once app-wide.
-    expect(md).toMatch(/`input-labels` \*\(no form inputs found in code/);
+    expect(md).toMatch(/`input-labels`\n[\s\S]*?\*Only applies if the app has form inputs\. None were found in the code/);
   });
 });
 
