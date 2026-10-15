@@ -133,7 +133,7 @@ export function renderChecklist({ projectName, targetLevel, groups, runs, previo
   out.push("- To narrow a failure to specific criteria, add them in brackets: `[2.5.1]`. Add a screenshot path anywhere in the text.");
   out.push("");
   out.push(
-    "⚑ lines are what the automated scans found or flagged — those findings are already in the report, so only write issues you observe that aren't listed. When you're done, run **`npx bt-a11y report`**.",
+    "⚑ lines are what the automated scans found or flagged. Where a scan found an issue, the line starts as `[!]` — that finding is already in the report, so leave it as is (or add your own notes after the screen name). `⚑ Verify:` lines are things to check by hand. When you're done, run **`npx bt-a11y report`**.",
   );
   if (contextFiles?.length) {
     out.push("");
@@ -183,8 +183,11 @@ export function renderChecklist({ projectName, targetLevel, groups, runs, previo
           for (const { section } of on) {
             const screen = section.screen?.name;
             const row = kept.get(answerKey(target, item.id, screen));
-            out.push(...(row ? serializeRow(row, screen ?? APP_WIDE_LABEL) : [`- [ ] ${screen ?? APP_WIDE_LABEL}`]));
-            for (const note of scanNotes(item, section, runs, allScreens, [target])) out.push(`  ${note}`);
+            const notes = scanNotes(item, section, runs, allScreens, [target]);
+            // A scan finding here means the check already fails on this screen: start it as [!].
+            const scanFailed = notes.some((n) => !n.startsWith(VERIFY_NOTE));
+            out.push(...(row ? serializeRow(row, screen ?? APP_WIDE_LABEL) : [`- [${scanFailed ? "!" : " "}] ${screen ?? APP_WIDE_LABEL}`]));
+            for (const note of notes) out.push(`  ${note}`);
           }
         }
       }
@@ -291,6 +294,9 @@ function locationOf(f: Finding): string {
   return loc ? ` (${loc})` : "";
 }
 
+/** Prefix for "check this by hand" notes, as opposed to ⚑ lines for actual scan findings. */
+const VERIFY_NOTE = "⚑ Verify:";
+
 function scanNotes(item: ChecklistItem, section: PlannedSection, runs: AutomatedRun[], screens: ScreenInfo[], targets: AuditTarget[]): string[] {
   const lines: string[] = [];
   for (const run of runs) {
@@ -309,7 +315,7 @@ function scanNotes(item: ChecklistItem, section: PlannedSection, runs: Automated
       if (section.screen && locs.length === 0) continue;
       if (!section.screen && sig.locations.length > 0 && locs.length === 0) continue;
       const where = locs.slice(0, 3).map((l) => `${l.file}:${l.line}`).join(", ");
-      lines.push(`⚑ Verify: ${sig.message}${where ? ` (${where}${locs.length > 3 ? ", …" : ""})` : ""}`);
+      lines.push(`${VERIFY_NOTE} ${sig.message}${where ? ` (${where}${locs.length > 3 ? ", …" : ""})` : ""}`);
     }
   }
   return lines;
@@ -336,6 +342,8 @@ export interface ChecklistRow {
   issues: ChecklistIssue[];
   /** The raw lines, so answers survive regenerating the file. */
   lines: string[];
+  /** An automated scan found an issue for this check on this screen (a ⚑ line under it). */
+  flagged?: boolean;
 }
 
 export interface OtherFinding extends ChecklistIssue {
@@ -455,6 +463,10 @@ export function parseChecklist(md: string): ParsedChecklist {
       return;
     }
 
+    if (lastRow && /^\s{2,}⚑ /.test(line)) {
+      if (!line.trim().startsWith(VERIFY_NOTE)) lastRow.flagged = true;
+      return;
+    }
     const extra = /^\s{2,}- (.+)$/.exec(line);
     if (extra && lastRow) {
       lastRow.issues.push(parseIssue(extra[1]!.trim()));
@@ -468,6 +480,13 @@ export function parseChecklist(md: string): ParsedChecklist {
       result.warnings.push(`${TARGET_LABEL[row.target]} › ${row.screen ?? APP_WIDE_LABEL} › ${row.itemId}: has issue text but isn't marked [!] — ignoring the text.`);
       row.issues = [];
     }
+  }
+  const contradictions = result.rows.filter((r) => r.status === "pass" && r.flagged);
+  if (contradictions.length) {
+    const list = contradictions.slice(0, 8).map((r) => `${TARGET_LABEL[r.target]} › ${r.screen ?? APP_WIDE_LABEL} › ${r.itemId}`);
+    result.warnings.push(
+      `${contradictions.length} line(s) are marked [x] pass, but an automated scan found an issue there (⚑), so the scan finding still counts against them: ${list.join("; ")}${contradictions.length > 8 ? "; …" : ""}. Change them to [!] unless you've confirmed the scan is wrong.`,
+    );
   }
   result.otherRaw = otherLines.join("\n");
   return result;

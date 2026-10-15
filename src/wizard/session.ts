@@ -103,6 +103,8 @@ export function checklistFindings(parsed: ParsedChecklist): Finding[] {
   const findings: Finding[] = [];
   for (const row of parsed.rows) {
     if (row.status !== "fail") continue;
+    // A [!] the scan pre-filled, with nothing added: the scan's own finding already covers it.
+    if (row.flagged && row.issues.length === 0) continue;
     const item = ITEMS.get(row.itemId);
     if (!item) continue;
     const where = row.screen ?? "App-wide";

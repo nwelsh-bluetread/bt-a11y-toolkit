@@ -121,7 +121,7 @@ describe("runWizard — React Native app", () => {
     const md = read("checklist.md");
     expect(md).toContain("# iOS");
     expect(md).toContain("## 1. Screen reader");
-    expect(md).toContain("- [ ] Login\n  ⚑ rn-code-scan: Text input has no accessible label (src/Login.tsx:12)");
+    expect(md).toContain("- [!] Login\n  ⚑ rn-code-scan: Text input has no accessible label (src/Login.tsx:12)");
     expect(md).toContain("- [ ] Inbox\n  ⚑ Verify: Gesture interaction (src/Inbox.tsx:9)");
     expect(read("report.md")).toContain("## WCAG 2.2 criteria coverage");
     expect(readFileSync(join(cwd, ".gitignore"), "utf8")).toContain("a11y-audit/");

@@ -87,18 +87,19 @@ describe("renderChecklist", () => {
   });
 
   it("lists the screens each check applies to, with platform-specific how-to", () => {
-    expect(check(ios, "sr-name-role-value")).toMatch(/How to test: Turn on VoiceOver[^\n]*\n\n- \[ \] Login\n[\s\S]*- \[ \] Inbox/);
-    expect(check(ios, "input-labels")).toContain("- [ ] Login");
+    expect(check(ios, "sr-name-role-value")).toMatch(/How to test: Turn on VoiceOver[^\n]*\n\n- \[!\] Login\n[\s\S]*- \[ \] Inbox/);
+    expect(check(ios, "input-labels")).toContain("- [!] Login");
     expect(check(ios, "input-labels")).not.toContain("Inbox");
     expect(check(ios, "pointer-gestures")).toContain("- [ ] Inbox");
-    expect(check(ios, "orientation")).toContain("- [ ] App-wide");
+    expect(check(ios, "orientation")).toContain("- [!] App-wide");
     expect(check(android, "resize-text")).toContain("How to test: Set Settings → Display → Font size");
   });
 
   it("puts automated findings and signals under the screen they belong to", () => {
-    expect(check(ios, "input-labels")).toContain("- [ ] Login\n  ⚑ rn-code-scan: Text input has no accessible label (src/Login.tsx:12)");
+    // A scan finding pre-marks the line as failing; a "Verify" signal leaves it for the tester.
+    expect(check(ios, "input-labels")).toContain("- [!] Login\n  ⚑ rn-code-scan: Text input has no accessible label (src/Login.tsx:12)");
     expect(check(ios, "pointer-gestures")).toContain("- [ ] Inbox\n  ⚑ Verify: Gesture interaction (src/Inbox.tsx:7)");
-    expect(check(ios, "orientation")).toContain("- [ ] App-wide\n  ⚑ rn-code-scan: Screen orientation is locked (app.json:4)");
+    expect(check(ios, "orientation")).toContain("- [!] App-wide\n  ⚑ rn-code-scan: Screen orientation is locked (app.json:4)");
   });
 
   it("starts with an index of the screens in scope", () => {
@@ -191,6 +192,33 @@ Issues that don't fit a check above — one per line.
     expect(reparsed.other).toHaveLength(1);
     // And it's stable: regenerating the new layout keeps the same answers.
     expect(answered(parseChecklist(renderChecklist({ projectName: "Acme", targetLevel: "AA", groups, runs, previous: reparsed })))).toEqual(answered(parsed));
+  });
+
+  it("doesn't duplicate pre-filled scan failures, and warns when a scan-flagged line is marked pass", () => {
+    const md = [
+      "# iOS",
+      "## 1. Screen reader",
+      "### Name, role, value · 4.1.2 · `sr-name-role-value`",
+      "- [!] Login",
+      "  ⚑ rn-code-scan: Touchable has no accessibility role (src/Login.tsx:18)",
+      "- [!] Signup: Submit button reads as just \"button\" (high)",
+      "  ⚑ rn-code-scan: Touchable has no accessibility role (src/Signup.tsx:4)",
+      "- [x] InvoiceDetail",
+      "  ⚑ rn-code-scan: Touchable has no accessibility role (src/components/ActiveRentalsList.js:18)",
+      "- [x] Home",
+      "  ⚑ Verify: Gesture interaction (src/Home.tsx:3)",
+    ].join("\n");
+    const parsed = parseChecklist(md);
+    expect(parsed.rows.map((r) => [r.screen, r.status, Boolean(r.flagged)])).toEqual([
+      ["Login", "fail", true],
+      ["Signup", "fail", true],
+      ["InvoiceDetail", "pass", true],
+      ["Home", "pass", false],
+    ]);
+    // Only the tester's own note becomes a manual finding; the bare [!] is already the scan finding.
+    expect(checklistFindings(parsed).map((f) => f.title)).toEqual(['Submit button reads as just "button"']);
+    expect(parsed.warnings).toHaveLength(1);
+    expect(parsed.warnings[0]).toMatch(/1 line\(s\) are marked \[x\] pass, but an automated scan found an issue there.*iOS › InvoiceDetail › sr-name-role-value/);
   });
 
   it("reads the new layout: screen labels, App-wide, and issues", () => {

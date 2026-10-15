@@ -139,8 +139,15 @@ For each check:
 1. **Read "How to test."** It has step-by-step instructions for that platform.
 2. **Test it on each screen listed**, on a real phone.
 3. **Look at any ⚑ lines** under a screen. They show what the automated checks
-   already found there. They're already in the report, so don't write them up
-   again.
+   already found there:
+   - **Lines the scan already failed start as `[!]`.** That finding is
+     already in the report, so you don't need to test or write it up. Leave it
+     as `[!]`, or add your own notes after the screen name.
+   - **`⚑ Verify:` lines** point at code worth checking by hand (gestures,
+     video, modals). The result is up to you.
+   - If you mark a line `[x]` but the scan found an issue there,
+     `npx bt-a11y report` warns you. The scan finding still counts, so change
+     it to `[!]` unless you've confirmed the scan is wrong.
 4. **Mark each screen:**
 
 | You type | Meaning |
