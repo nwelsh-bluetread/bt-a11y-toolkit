@@ -74,6 +74,43 @@ describe("discoverScreens — React Navigation", () => {
     expect(screens.find((s) => s.name === "Lazy")).toMatchObject({ file: "src/screens/LazyScreen.tsx", features: ["modals"] });
   });
 
+  it("follows only the components a screen imports from a barrel file, not the whole barrel", async () => {
+    project({
+      "package.json": JSON.stringify({ dependencies: { "react-native": "0.76.0" } }),
+      "App.js": `
+        import { createNativeStackNavigator } from "@react-navigation/native-stack";
+        import Billing from "./src/screens/Billing";
+        import Camera from "./src/screens/Camera";
+        const Stack = createNativeStackNavigator();
+        export default () => <Stack.Navigator><Stack.Screen name="Billing" component={Billing} /><Stack.Screen name="Camera" component={Camera} /></Stack.Navigator>;`,
+      // Three common barrel styles in one index file.
+      "src/components/index.js": `
+        export { default as HeaderBackButton } from "./HeaderBackButton";
+        import CameraPermsInstructions from "./CameraPermsInstructions";
+        import ActiveRentalsList from "./ActiveRentalsList";
+        export { CameraPermsInstructions, ActiveRentalsList };
+        export * from "./forms";`,
+      "src/components/HeaderBackButton.js": `import { Pressable } from "react-native";\nexport default function HeaderBackButton() { return <Pressable />; }`,
+      "src/components/CameraPermsInstructions.js": `import { Image } from "react-native";\nexport default function CameraPermsInstructions() { return <Image />; }`,
+      "src/components/ActiveRentalsList.js": `import { Pressable } from "react-native";\nexport default function ActiveRentalsList() { return <Pressable />; }`,
+      "src/components/forms.js": `import { TextInput } from "react-native";\nexport function AmountField() { return <TextInput />; }`,
+      "src/screens/Billing.js": `
+        import { View } from "react-native";
+        import { HeaderBackButton, AmountField } from "../components";
+        export default function Billing() { return <View><HeaderBackButton /><AmountField /></View>; }`,
+      "src/screens/Camera.js": `
+        import * as C from "../components";
+        export default function Camera() { return <C.CameraPermsInstructions />; }`,
+    });
+
+    const { screens } = await discoverScreens(root);
+    const billing = screens.find((s) => s.name === "Billing")!;
+    expect(billing.files).toEqual(["src/components/HeaderBackButton.js", "src/components/forms.js", "src/screens/Billing.js"]);
+    expect(billing.features).toEqual(["inputs"]);
+    // A namespace import really can use anything in the barrel, so it still follows all of it.
+    expect(screens.find((s) => s.name === "Camera")!.files).toContain("src/components/CameraPermsInstructions.js");
+  });
+
   it("reads static navigator configs", async () => {
     project({
       "package.json": JSON.stringify({ dependencies: { "react-native": "0.76.0" } }),

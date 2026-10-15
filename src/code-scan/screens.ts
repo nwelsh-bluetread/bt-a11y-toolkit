@@ -230,7 +230,7 @@ export async function discoverScreens(root: string): Promise<ScreenDiscovery> {
   const localImports = (abs: string): string[] => {
     if (importCache.has(abs)) return importCache.get(abs)!;
     const sf = source(abs);
-    const out = sf ? moduleSpecifiers(ts, sf).map((spec) => resolver(spec, abs)).filter((f): f is string => Boolean(f)) : [];
+    const out = sf ? importedFiles(ts, sf, resolver, source) : [];
     importCache.set(abs, out);
     return out;
   };
@@ -353,6 +353,15 @@ function resolveExport(
   }
   if (name === "default" && /export\s+default\b/.test(sf.text)) return file;
   for (const stmt of sf.statements) {
+    // `import X from "./X"; export { X }` — follow the local import.
+    if (ts.isExportDeclaration(stmt) && !stmt.moduleSpecifier && stmt.exportClause && ts.isNamedExports(stmt.exportClause)) {
+      const el = stmt.exportClause.elements.find((e) => e.name.text === name);
+      if (el) {
+        const binding = importBindings(ts, sf, resolve).get((el.propertyName ?? el.name).text);
+        if (binding) return resolveExport(ts, binding.file, binding.exported, resolve, source, depth + 1) ?? binding.file;
+      }
+      continue;
+    }
     if (!ts.isExportDeclaration(stmt) || !stmt.moduleSpecifier || !ts.isStringLiteral(stmt.moduleSpecifier)) continue;
     const target = resolve(stmt.moduleSpecifier.text, file);
     if (!target) continue;
@@ -368,11 +377,47 @@ function resolveExport(
   return undefined;
 }
 
+/**
+ * The local files a file actually uses. Named and default imports are followed
+ * to the file that defines each imported name, so importing one component from
+ * a barrel (`import { Button } from "../components"`) doesn't pull in every
+ * component the barrel re-exports. Namespace and side-effect imports, re-exports,
+ * require(), and dynamic import() follow the whole module.
+ */
+function importedFiles(ts: Ts, sf: TS.SourceFile, resolve: Resolver, source: (abs: string) => TS.SourceFile | undefined): string[] {
+  const out = new Set<string>();
+  for (const stmt of sf.statements) {
+    if (!ts.isImportDeclaration(stmt) || !ts.isStringLiteral(stmt.moduleSpecifier)) continue;
+    const clause = stmt.importClause;
+    if (clause?.isTypeOnly) continue;
+    const file = resolve(stmt.moduleSpecifier.text, sf.fileName);
+    if (!file) continue;
+    const bindings = clause?.namedBindings;
+    if (!clause || (bindings && ts.isNamespaceImport(bindings))) {
+      out.add(file);
+      continue;
+    }
+    const names: string[] = [];
+    if (clause.name) names.push("default");
+    if (bindings && ts.isNamedImports(bindings)) {
+      for (const el of bindings.elements) if (!el.isTypeOnly) names.push((el.propertyName ?? el.name).text);
+    }
+    for (const name of names) out.add(resolveExport(ts, file, name, resolve, source) ?? file);
+  }
+  for (const spec of moduleSpecifiers(ts, sf, { skipImports: true })) {
+    const file = resolve(spec, sf.fileName);
+    if (file) out.add(file);
+  }
+  return [...out];
+}
+
 /** Every module a file pulls in: imports, re-exports, require(), and dynamic import(). */
-function moduleSpecifiers(ts: Ts, sf: TS.SourceFile): string[] {
+function moduleSpecifiers(ts: Ts, sf: TS.SourceFile, options: { skipImports?: boolean } = {}): string[] {
   const specs: string[] = [];
   const visit = (node: TS.Node) => {
-    if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
+    if (ts.isImportDeclaration(node) && options.skipImports) {
+      // Handled precisely by importedFiles.
+    } else if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
       specs.push(node.moduleSpecifier.text);
     } else if (
       ts.isCallExpression(node) &&
