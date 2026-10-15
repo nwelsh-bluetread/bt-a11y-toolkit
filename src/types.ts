@@ -169,7 +169,8 @@ export interface Assessment {
   targetLevel: WcagLevel;
   overallScore: number; // 0-100
   counts: Record<Severity, number>;
-  wcag: Record<WcagLevel, number>; // percentage passing per level
+  /** Percentage passing per level. A missing level wasn't assessed (e.g. AAA in an AA audit). */
+  wcag: Partial<Record<WcagLevel, number>>;
   categories: CategoryScore[];
   topIssues: string[];
   findings: Finding[];

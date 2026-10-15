@@ -82,7 +82,7 @@ export function findingsToAssessment(
     platform?: Platform;
     platforms?: Platform[];
     targetLevel?: WcagLevel;
-    wcag?: Record<WcagLevel, number>;
+    wcag?: Partial<Record<WcagLevel, number>>;
   } = {},
 ): Assessment {
   const platforms = options.platforms;

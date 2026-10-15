@@ -24,6 +24,11 @@ const SEVERITY_ICON: Record<Severity, string> = {
  * ...
  * ```
  */
+/** A level's pass rate, or "not assessed" when the audit didn't cover that level. */
+function levelPct(pct: number | undefined): string {
+  return pct === undefined ? "not assessed" : `${pct}%`;
+}
+
 export function formatConsole(assessment: Assessment): string {
   const { overallScore, counts, wcag, topIssues } = assessment;
   const lines: string[] = [];
@@ -34,9 +39,9 @@ export function formatConsole(assessment: Assessment): string {
   lines.push(`High: ${counts.high}`);
   lines.push(`Medium: ${counts.medium}`);
   lines.push(`Low: ${counts.low}`);
-  lines.push(`WCAG A:     ${wcag.A}%`);
-  lines.push(`WCAG AA:    ${wcag.AA}%`);
-  lines.push(`WCAG AAA:   ${wcag.AAA}%`);
+  lines.push(`WCAG A:     ${levelPct(wcag.A)}`);
+  lines.push(`WCAG AA:    ${levelPct(wcag.AA)}`);
+  lines.push(`WCAG AAA:   ${levelPct(wcag.AAA)}`);
   lines.push("Top Issues");
   lines.push("────────────");
   if (topIssues.length === 0) {
@@ -75,9 +80,9 @@ export function formatMarkdown(assessment: Assessment): string {
   lines.push("");
   lines.push(`| WCAG Level | Passing |`);
   lines.push(`| --- | --- |`);
-  lines.push(`| A | ${wcag.A}% |`);
-  lines.push(`| AA | ${wcag.AA}% |`);
-  lines.push(`| AAA | ${wcag.AAA}% |`);
+  lines.push(`| A | ${levelPct(wcag.A)} |`);
+  lines.push(`| AA | ${levelPct(wcag.AA)} |`);
+  lines.push(`| AAA | ${levelPct(wcag.AAA)} |`);
   lines.push("");
 
   lines.push(`## Accessibility Scorecard`);

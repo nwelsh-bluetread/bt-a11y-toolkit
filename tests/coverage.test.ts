@@ -68,3 +68,43 @@ describe("buildCoverage", () => {
     expect(ios).toMatch(/^iOS: \d+ not tested · \d+ don't apply$/);
   });
 });
+
+describe("sessionWcagRollup", () => {
+  it("counts code-scan findings even when every checklist line is marked pass, and skips levels above the target", async () => {
+    const { planChecklist, renderChecklist } = await import("../src/wizard/checklist-md.js");
+    const { sessionWcagRollup, buildSessionAssessment } = await import("../src/wizard/session.js");
+    const { formatConsole } = await import("../src/report.js");
+    const s = newSession({ name: "T", type: "mobile", targets: ["ios", "android"], targetLevel: "AA" }, [
+      { name: "Login", kind: "mobile", file: "src/Login.tsx", files: ["src/Login.tsx"], features: ["inputs"] },
+    ]);
+    s.automated = [
+      {
+        tool: "rn-code-scan",
+        targets: ["ios", "android"],
+        ranAt: "",
+        checked: ["1.4.4", "4.1.2"],
+        findings: [
+          { ruleId: "rn-font-scaling", title: "Font scaling disabled", description: "", severity: "high", wcag: wcag("1.4.4"), platforms: ["ios", "android"], evidence: { file: "src/Login.tsx" } },
+          { ruleId: "rn-control-role", title: "No role", description: "", severity: "medium", wcag: wcag("4.1.2"), platforms: ["ios", "android"], evidence: { file: "src/Login.tsx" } },
+        ],
+      },
+    ];
+    // A tester marks every single line as passing.
+    const md = renderChecklist({ projectName: "T", targetLevel: "AA", groups: planChecklist(s.screens, s.project.targets, "AA"), runs: s.automated });
+    const allPass = parseChecklist(md.replace(/- \[ \]/g, "- [x]"));
+
+    const rollup = sessionWcagRollup(s, allPass);
+    expect(rollup.A).toBeLessThan(100); // 4.1.2 fails at Level A
+    expect(rollup.AA).toBeLessThan(rollup.A!); // 1.4.4 fails too at AA
+    expect(rollup.AAA).toBeUndefined();
+
+    const console = formatConsole(buildSessionAssessment(s, allPass));
+    expect(console).toMatch(/WCAG A:\s+\d+%/);
+    expect(console).toContain("WCAG AAA:   not assessed");
+  });
+
+  it("reports nothing until some criterion is actually verified", async () => {
+    const { sessionWcagRollup } = await import("../src/wizard/session.js");
+    expect(sessionWcagRollup(session(), emptyChecklist())).toEqual({});
+  });
+});

@@ -48,7 +48,8 @@ export interface SummaryData {
   preparedBy: string;
   overallScore: number;
   scoreNote?: string;
-  levelPassing?: Record<string, number>;
+  levelPassing?: Partial<Record<string, number>>;
+  levelNote?: string;
   keyTakeaway: string;
   principleSummaries: Record<string, string>;
   scorecard: Array<{ category: string; score: number; priority: string; findings: number }>;
@@ -95,7 +96,12 @@ export function buildSummaryData(
     pageNoun: pages && !mobile ? "page" : mobile && !pages ? "screen" : "screen/page",
     preparedBy: "BlueTread",
     overallScore: assessment.overallScore,
-    ...(answered > 0 || session.automated.length > 0 ? { levelPassing: assessment.wcag } : {}),
+    ...(Object.keys(assessment.wcag).length
+      ? {
+          levelPassing: assessment.wcag,
+          levelNote: `Of the WCAG criteria verified so far at each level (code scan and manual checklist), the share with no failures. Criteria not yet verified aren't counted${project.targetLevel === "AAA" ? "" : `; levels above ${project.targetLevel} weren't assessed`}.`,
+        }
+      : {}),
     keyTakeaway: keyTakeaway(findings, counts, platforms),
     principleSummaries: principleSummaries(findings),
     scorecard: assessment.categories.map((c) => ({

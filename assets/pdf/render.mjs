@@ -5,8 +5,8 @@
 //
 // Vendored from the a11y-report-pdf Claude skill so `bt-a11y report` can build the
 // PDF on any machine. Keep the two copies in sync when changing the design.
-// Local additions: `pageNoun` ("screen" for mobile apps) and merged findings keep
-// every distinct `location`.
+// Local additions: `pageNoun` ("screen" for mobile apps), `levelNote` (caption
+// under the level pass rates), and merged findings keep every distinct `location`.
 
 import { readFileSync, writeFileSync, existsSync, readdirSync, unlinkSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -231,7 +231,7 @@ function render(data) {
       ${Object.entries(data.levelPassing).map(([lv, pct]) => `
         <div class="meter-row"><span class="bar-name">Level ${esc(lv)}</span>
           <span class="track"><span class="seg meter" style="width:${pct}%"></span></span><span class="bar-n">${pct}%</span></div>`).join('')}
-      <p class="fine">Share of automatically testable success criteria at each level with no failing checks.</p>
+      <p class="fine">${esc(data.levelNote ?? 'Share of automatically testable success criteria at each level with no failing checks.')}</p>
     </div>` : '';
 
   const deduction = SEVERITIES.map((s) => ({ ...s, n: totals[s.key], d: totals[s.key] * s.weight }));

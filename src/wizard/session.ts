@@ -28,8 +28,8 @@ export interface AutomatedRun {
   ranAt: string;
   pages?: number;
   filesScanned?: number;
-  /** Per-level pass rates reported by the tool, when it has them. */
-  wcag?: Record<WcagLevel, number>;
+  /** Per-level pass rates reported by the tool, when it has them (informational; the report uses the coverage matrix). */
+  wcag?: Partial<Record<WcagLevel, number>>;
   /** WCAG criteria the tool has checks for — feeds the coverage matrix. */
   checked?: string[];
   /** Code locations a tester should verify by hand. */
@@ -145,26 +145,30 @@ export function allFindings(session: AuditSession, parsed: ParsedChecklist = emp
 }
 
 /**
- * Per-level WCAG pass rates. Answered checklist rows give a real pass/fail per
- * check; scanner runs contribute their own rates; sources are averaged.
- * Returns undefined when nothing has been tested yet.
+ * Per-level WCAG pass rates, from the criteria coverage matrix so every number
+ * in the report agrees: of the criteria at or below each level that have been
+ * verified, the share with no findings. A criterion fails if any finding (code
+ * scan, web scan, checklist, Other findings) maps to it on any platform; it
+ * passes only once every applicable platform is verified with no failures.
+ * Unverified criteria ("scan clear", "not tested") are left out, and levels
+ * above the audit's target aren't assessed.
  */
-export function sessionWcagRollup(session: AuditSession, parsed: ParsedChecklist = emptyChecklist()): Record<WcagLevel, number> | undefined {
+export function sessionWcagRollup(session: AuditSession, parsed: ParsedChecklist = emptyChecklist()): Partial<Record<WcagLevel, number>> {
   const rank: Record<WcagLevel, number> = { A: 1, AA: 2, AAA: 3 };
-  const rollup = {} as Record<WcagLevel, number>;
-  let any = false;
+  const coverage = buildCoverage(session, parsed);
+  const rollup: Partial<Record<WcagLevel, number>> = {};
   for (const level of ["A", "AA", "AAA"] as WcagLevel[]) {
-    const sources: number[] = [];
-    const rows = parsed.rows.filter((r) => {
-      const item = ITEMS.get(r.itemId);
-      return item && (r.status === "pass" || r.status === "fail") && rank[item.level] <= rank[level];
-    });
-    if (rows.length > 0) sources.push((rows.filter((r) => r.status === "pass").length / rows.length) * 100);
-    for (const run of session.automated) if (run.wcag) sources.push(run.wcag[level]);
-    if (sources.length > 0) any = true;
-    rollup[level] = sources.length === 0 ? 100 : Math.round(sources.reduce((a, b) => a + b, 0) / sources.length);
+    if (rank[level] > rank[session.project.targetLevel]) continue;
+    let pass = 0;
+    let fail = 0;
+    for (const row of coverage.rows.filter((r) => rank[r.level] <= rank[level])) {
+      const cells = Object.values(row.byTarget);
+      if (cells.some((c) => c.status === "fail")) fail++;
+      else if (cells.some((c) => c.status === "pass") && !cells.some((c) => c.status === "not-tested" || c.status === "scan-clear")) pass++;
+    }
+    if (pass + fail > 0) rollup[level] = Math.round((pass / (pass + fail)) * 100);
   }
-  return any ? rollup : undefined;
+  return rollup;
 }
 
 export function buildSessionAssessment(session: AuditSession, parsed: ParsedChecklist = emptyChecklist()): Assessment {
