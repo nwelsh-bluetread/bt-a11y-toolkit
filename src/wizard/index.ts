@@ -140,7 +140,7 @@ export async function runWizard(deps: WizardDeps): Promise<void> {
 
   displayChecklist(deps, session, groups);
   // Answers a person gave — not [!] lines the scan pre-filled.
-  const answered = previous.rows.filter((r) => r.status !== "open" && !(r.flagged && r.status === "fail" && r.issues.length === 0)).length;
+  const answered = previous.rows.filter((r) => r.status !== "open" && r.reviewed !== false).length;
   out("");
   out(green(`✓ Checklist: ${checklistPath(cwd)}`) + (answered ? dim(` (kept ${answered} answers)`) : ""));
   out(green(`✓ Report so far (automated results): ${markdown}`));

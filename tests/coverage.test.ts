@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { emptyChecklist, parseChecklist, type ParsedChecklist } from "../src/wizard/checklist-md.js";
-import { buildCoverage, coverageSummaryLines } from "../src/wizard/coverage.js";
+import { buildCoverage, coverageSummaryLines, formatCoverageMarkdown } from "../src/wizard/coverage.js";
 import { newSession, type AuditSession } from "../src/wizard/session.js";
 import { wcag } from "../src/wcag.js";
 
@@ -60,6 +60,21 @@ describe("buildCoverage", () => {
     const failed = parseChecklist("# Mobile app — iOS\n\n## Screen: Login\n\n### C · `focus-order`\n- [!] iOS: Focus jumps [1.3.2]\n");
     expect(cell(session(), "1.3.2", "ios", failed).status).toBe("fail");
     expect(cell(session(), "2.4.3", "ios", failed).status).toBe("pass");
+  });
+
+  it("counts scan failures nobody has reviewed yet", () => {
+    const s = session({
+      automated: [
+        { tool: "rn-code-scan", targets: ["ios"], ranAt: "", findings: [{ ruleId: "x", title: "x", description: "", severity: "high", wcag: wcag("4.1.2"), platforms: ["ios"] }] },
+      ],
+    });
+    const parsed = parseChecklist(
+      "# iOS\n## 1. Screen reader\n### C · `sr-name-role-value`\n- [!] **Login** — scan found issues · not reviewed yet\n  ⚑ High · x — a.tsx:1\n- [!] **Inbox**\n  ⚑ High · x — b.tsx:1\n",
+    );
+    const coverage = buildCoverage(s, parsed);
+    expect(coverage.rows.find((r) => r.id === "4.1.2")!.byTarget.ios).toMatchObject({ status: "fail", unreviewed: 1 });
+    expect(formatCoverageMarkdown(coverage)).toMatch(/4\.1\.2 Name, Role, Value \| A \| ⬜ Not tested \| ❌ Fail \(1\) · 1 not reviewed/);
+    expect(coverageSummaryLines(coverage)[1]).toMatch(/^iOS: 1 fail \(1 found only by the scan, not yet reviewed\)/);
   });
 
   it("summarizes counts per platform", () => {

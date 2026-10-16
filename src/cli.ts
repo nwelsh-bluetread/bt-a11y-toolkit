@@ -450,9 +450,14 @@ async function runReportCommand(args: ParsedArgs): Promise<void> {
   const { assessment, coverage, checklist, markdown, json } = writeReports(process.cwd(), session);
   for (const w of checklist.warnings) process.stderr.write(`Checklist warning — ${w}\n`);
   const rows = checklist.rows;
-  const done = rows.filter((r) => r.status !== "open").length;
+  const prefilled = rows.filter((r) => r.reviewed === false).length;
+  const done = rows.filter((r) => r.status !== "open" && r.reviewed !== false).length;
   process.stdout.write(`${formatConsole(assessment)}\n\n`);
-  process.stdout.write(`Checklist: ${done}/${rows.length} checks answered · ${rows.filter((r) => r.status === "fail").length} failed\n`);
+  process.stdout.write(
+    `Checklist: ${done}/${rows.length} checks answered by testers · ${rows.filter((r) => r.status === "fail" && r.reviewed !== false).length} failed` +
+      (prefilled ? ` · ${prefilled} failed by the scan but not reviewed yet (delete "not reviewed yet" once tested)` : "") +
+      "\n",
+  );
   process.stdout.write(`WCAG 2.2 criteria coverage:\n${coverageSummaryLines(coverage).map((l) => `  ${l}`).join("\n")}\n`);
   process.stdout.write(`\nReport written:\n  ${markdown}\n  ${json}\n`);
 

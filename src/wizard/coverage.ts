@@ -23,6 +23,8 @@ export interface CoverageCell {
   status: CoverageStatus;
   findings: number;
   sources: string[];
+  /** Screens where the scan failed this criterion but no tester has reviewed them yet. */
+  unreviewed: number;
 }
 
 export interface CoverageRow {
@@ -74,6 +76,10 @@ export function buildCoverage(session: AuditSession, parsed: ParsedChecklist): C
         (f) => f.wcag.some((w) => w.id === id) && (!f.platforms?.length || f.platforms.includes(target)),
       );
       const sources = new Set(failing.map((f) => f.source ?? "manual"));
+      const coveringItems = new Set(MANUAL_CHECKLIST.filter((i) => i.wcag.includes(id)).map((i) => i.id));
+      const unreviewed = new Set(
+        parsed.rows.filter((r) => r.target === target && r.reviewed === false && coveringItems.has(r.itemId)).map((r) => r.screen ?? ""),
+      ).size;
 
       let status: CoverageStatus;
       if (!appliesTo(id, target)) {
@@ -92,7 +98,7 @@ export function buildCoverage(session: AuditSession, parsed: ParsedChecklist): C
           status = scanned ? "scan-clear" : "not-tested";
         }
       }
-      row.byTarget[target] = { status, findings: failing.length, sources: [...sources] };
+      row.byTarget[target] = { status, findings: failing.length, sources: [...sources], unreviewed };
     }
 
     for (const run of session.automated) {
@@ -131,8 +137,9 @@ const STATUS_LABEL: Record<CoverageStatus, string> = {
 export function coverageSummaryLines(coverage: Coverage): string[] {
   return coverage.targets.map((t) => {
     const s = coverage.summary[t]!;
+    const awaiting = coverage.rows.filter((r) => r.byTarget[t]?.status === "fail" && r.byTarget[t]!.unreviewed > 0).length;
     const parts = [
-      s.fail && `${s.fail} fail`,
+      s.fail && `${s.fail} fail${awaiting ? ` (${awaiting} found only by the scan, not yet reviewed)` : ""}`,
       s.pass && `${s.pass} pass`,
       s.na && `${s.na} N/A`,
       s["scan-clear"] && `${s["scan-clear"]} scan clear (verify)`,
@@ -160,7 +167,7 @@ export function formatCoverageMarkdown(coverage: Coverage): string {
   }
   lines.push("");
   lines.push(
-    "> **Scan clear — verify** means an automated check covers this criterion and found nothing. Automated checks only see part of each criterion, so it still needs manual confirmation.",
+    "> **Scan clear — verify** means an automated check covers this criterion and found nothing. Automated checks only see part of each criterion, so it still needs manual confirmation. **Not reviewed** next to a failure counts screens where the scan found the issue but no tester has tested the rest of that screen yet.",
   );
 
   for (const principle of Object.values(WCAG_PRINCIPLES)) {
@@ -174,7 +181,8 @@ export function formatCoverageMarkdown(coverage: Coverage): string {
     for (const r of group) {
       const cells = targets.map((t) => {
         const cell = r.byTarget[t]!;
-        return cell.status === "fail" ? `${STATUS_LABEL.fail} (${cell.findings})` : STATUS_LABEL[cell.status];
+        if (cell.status !== "fail") return STATUS_LABEL[cell.status];
+        return `${STATUS_LABEL.fail} (${cell.findings})${cell.unreviewed ? ` · ${cell.unreviewed} not reviewed` : ""}`;
       });
       lines.push(`| ${r.id} ${r.name} | ${r.level} | ${cells.join(" | ")} | ${r.notes.join("<br>").replace(/\|/g, "\\|")} |`);
     }

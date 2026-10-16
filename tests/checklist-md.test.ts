@@ -97,7 +97,7 @@ describe("renderChecklist", () => {
   });
 
   it("lists the screens each check applies to, with platform-specific how-to", () => {
-    expect(check(ios, "sr-name-role-value")).toMatch(/\*\*How to test:\*\* Turn on VoiceOver[^\n]*\n\n- \[!\] \*\*Login\*\*\n[\s\S]*- \[ \] \*\*Inbox\*\*/);
+    expect(check(ios, "sr-name-role-value")).toMatch(/\*\*How to test:\*\* Turn on VoiceOver[^\n]*\n\n- \[!\] \*\*Login\*\* — scan found issues · not reviewed yet\n[\s\S]*- \[ \] \*\*Inbox\*\*/);
     expect(check(ios, "input-labels")).toContain("- [!] **Login**");
     expect(check(ios, "input-labels")).not.toContain("Inbox");
     expect(check(ios, "pointer-gestures")).toContain("- [ ] **Inbox**");
@@ -107,9 +107,9 @@ describe("renderChecklist", () => {
 
   it("puts automated findings and signals under the screen they belong to", () => {
     // A scan finding pre-marks the line as failing; a "Verify" signal leaves it for the tester.
-    expect(check(ios, "input-labels")).toContain("- [!] **Login**\n  ⚑ High · Text input has no accessible label — Login.tsx:12");
+    expect(check(ios, "input-labels")).toContain("- [!] **Login** — scan found issues · not reviewed yet\n  ⚑ High · Text input has no accessible label — Login.tsx:12");
     expect(check(ios, "pointer-gestures")).toContain("- [ ] **Inbox**\n  ⚑ Verify · Gesture or drag: needs a single-tap alternative — Inbox.tsx:7");
-    expect(check(ios, "orientation")).toContain("- [!] **App-wide**\n  ⚑ Medium · Screen orientation is locked — app.json:4");
+    expect(check(ios, "orientation")).toContain("- [!] **App-wide** — scan found issues · not reviewed yet\n  ⚑ Medium · Screen orientation is locked — app.json:4");
   });
 
   it("collapses one issue across many files into a single line with severity, short paths, and +N more", () => {
@@ -131,7 +131,7 @@ describe("renderChecklist", () => {
       },
     ];
     const out = renderChecklist({ projectName: "Acme", targetLevel: "AA", groups: planChecklist([shared], ["ios"], "AA"), runs: many });
-    expect(out).toContain("- [!] **Scheduling**\n  ⚑ Medium · Touchable has no accessibility role — A.js:1, B.js:2, C.js:3, D.js:4, E.js:5 +2 more\n");
+    expect(out).toContain("- [!] **Scheduling** — scan found issues · not reviewed yet\n  ⚑ Medium · Touchable has no accessibility role — A.js:1, B.js:2, C.js:3, D.js:4, E.js:5 +2 more\n");
     const details = renderScanDetails({ projectName: "Acme", groups: planChecklist([shared], ["ios"], "AA"), runs: many });
     expect(details).toContain("  - `src/components/Card/index.js` line 6");
     expect(details).toContain("  - `src/components/G.js` line 7");
@@ -254,6 +254,34 @@ Issues that don't fit a check above — one per line.
     expect(checklistFindings(parsed).map((f) => f.title)).toEqual(['Submit button reads as just "button"']);
     expect(parsed.warnings).toHaveLength(1);
     expect(parsed.warnings[0]).toMatch(/1 line\(s\) are marked \[x\] pass, but an automated scan found an issue there.*iOS › InvoiceDetail › sr-name-role-value/);
+  });
+
+  it("tracks which scan pre-fills a tester has reviewed, and rebuilds untouched ones from the current scan", () => {
+    const md = [
+      "# iOS",
+      "## 1. Screen reader",
+      "### Name, role, value · 4.1.2 · `sr-name-role-value`",
+      "- [!] **Login** — scan found issues · not reviewed yet",
+      "  ⚑ High · Touchable has no accessible name — Login.tsx:10",
+      "- [!] **Signup**",
+      "  ⚑ High · Touchable has no accessible name — Signup.tsx:4",
+      "- [!] **Inbox** — scan found issues · not reviewed yet: Swipe actions have no labels (high)",
+      "  ⚑ Medium · Touchable has no accessibility role — Inbox.tsx:9",
+    ].join("\n");
+    const parsed = parseChecklist(md);
+    expect(parsed.rows.map((r) => [r.screen, r.status, r.reviewed])).toEqual([
+      ["Login", "fail", false], // untouched pre-fill
+      ["Signup", "fail", undefined], // tester deleted the note: reviewed
+      ["Inbox", "fail", undefined], // tester added their own finding: reviewed
+    ]);
+    expect(checklistFindings(parsed).map((f) => f.title)).toEqual(["Swipe actions have no labels"]);
+
+    // On regenerate, a reviewed line is kept; an untouched pre-fill follows the current scan (here: fixed, so it's blank).
+    const screensNow: ScreenInfo[] = ["Login", "Signup"].map((name) => ({ name, kind: "mobile", file: `src/${name}.tsx`, files: [`src/${name}.tsx`], features: [] }));
+    const regenerated = renderChecklist({ projectName: "Acme", targetLevel: "AA", groups: planChecklist(screensNow, ["ios"], "AA"), runs: [], previous: parsed });
+    const block = regenerated.slice(regenerated.indexOf("`sr-name-role-value`"));
+    expect(block).toContain("- [ ] **Login**\n");
+    expect(block).toContain("- [!] **Signup**\n");
   });
 
   it("reads the new layout: screen labels, App-wide, and issues", () => {

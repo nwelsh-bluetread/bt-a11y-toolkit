@@ -149,9 +149,18 @@ For each check:
    e.g. `⚑ Medium · Touchable has no accessibility role — HeaderBackButton.js:29, LiveChatButton.js:10 +3 more`.
    Every file, why it matters, and how to fix it are in
    **`a11y-audit/scan-details.md`**, organized by screen:
-   - **Lines the scan already failed start as `[!]`.** That finding is
-     already in the report, so you don't need to test or write it up. Leave it
-     as `[!]`, or add your own notes after the screen name.
+   - **Lines the scan already failed start as
+     `[!] **Login** — scan found issues · not reviewed yet`.** The scan's
+     finding is already in the report, so don't write it up again. But **the
+     screen still needs testing**: the scan only sees what's literally in the
+     code, not labels built at runtime, misleading wording, or custom
+     components. Test the rest of the screen and add anything else you find
+     after a colon (`- [!] **Login**: Date picker reads "button 4" (high)`),
+     then **delete "— scan found issues · not reviewed yet"**. Until you do,
+     the report counts the line as *not reviewed*: the coverage table shows
+     e.g. "❌ Fail (3) · 2 not reviewed", and `npx bt-a11y report` prints how
+     many are left. Untouched pre-filled lines are rebuilt from the latest
+     scan on each re-run, so they disappear once the client fixes the code.
    - **`⚑ Verify:` lines** point at code worth checking by hand (gestures,
      video, modals). The result is up to you.
    - If you mark a line `[x]` but the scan found an issue there,

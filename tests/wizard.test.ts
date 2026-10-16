@@ -121,7 +121,7 @@ describe("runWizard — React Native app", () => {
     const md = read("checklist.md");
     expect(md).toContain("# iOS");
     expect(md).toContain("## 1. Screen reader");
-    expect(md).toContain("- [!] **Login**\n  ⚑ High · Text input has no accessible label — Login.tsx:12");
+    expect(md).toContain("- [!] **Login** — scan found issues · not reviewed yet\n  ⚑ High · Text input has no accessible label — Login.tsx:12");
     expect(md).toContain("- [ ] **Inbox**\n  ⚑ Verify · Gesture or drag: needs a single-tap alternative — Inbox.tsx:9");
     expect(read("scan-details.md")).toContain("### High · Text input has no accessible label\n\n- **WCAG:** 3.3.2 Labels or Instructions (A), 4.1.2 Name, Role, Value (A)\n- **Where:**\n  - `src/Login.tsx` line 12");
     expect(read("report.md")).toContain("## WCAG 2.2 criteria coverage");

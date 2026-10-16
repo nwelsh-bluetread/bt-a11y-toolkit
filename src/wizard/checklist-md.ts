@@ -133,7 +133,7 @@ export function renderChecklist({ projectName, targetLevel, groups, runs, previo
   out.push("- To narrow a failure to specific criteria, add them in brackets: `[2.5.1]`. Add a screenshot path anywhere in the text.");
   out.push("");
   out.push(
-    "⚑ lines are what the automated scans found or flagged. Where a scan found an issue, the line starts as `[!]` — that finding is already in the report, so leave it as is (or add your own notes after the screen name). `⚑ Verify` lines are things to check by hand. Full details of every scan finding (all files, why it matters, how to fix) are in [scan-details.md](scan-details.md). When you're done, run **`npx bt-a11y report`**.",
+    `⚑ lines are what the automated scans found or flagged. Where a scan found an issue, the line starts as \`[!] … ${UNREVIEWED_HINT}\` — the scan's finding is already in the report, but **the screen still needs testing**: the scan only sees what's literally in the code. Test the rest of the screen, add anything else you find after a colon, then **delete "${UNREVIEWED_HINT}"**. \`⚑ Verify\` lines are things to check by hand. Full details of every scan finding (all files, why it matters, how to fix) are in [scan-details.md](scan-details.md). When you're done, run **\`npx bt-a11y report\`**.`,
   );
   if (contextFiles?.length) {
     out.push("");
@@ -189,12 +189,14 @@ export function renderChecklist({ projectName, targetLevel, groups, runs, previo
           out.push("");
           for (const { section } of on) {
             const screen = section.screen?.name;
-            const row = kept.get(answerKey(target, item.id, screen));
+            // Untouched pre-fills aren't answers — rebuild them from the current scan.
+            const previousRow = kept.get(answerKey(target, item.id, screen));
+            const row = previousRow?.reviewed === false ? undefined : previousRow;
             const notes = scanNotes(item, section, runs, allScreens, [target]);
-            // A scan finding here means the check already fails on this screen: start it as [!].
+            // A scan finding here means the check already fails on this screen: start it as [!], marked as not reviewed.
             const scanFailed = notes.some((n) => !n.startsWith(VERIFY_NOTE));
             const label = `**${screen ?? APP_WIDE_LABEL}**`;
-            out.push(...(row ? serializeRow(row, label) : [`- [${scanFailed ? "!" : " "}] ${label}`]));
+            out.push(...(row ? serializeRow(row, label) : [scanFailed ? `- [!] ${label} ${UNREVIEWED_HINT}` : `- [ ] ${label}`]));
             for (const note of notes) out.push(`  ${note}`);
           }
         }
@@ -350,6 +352,10 @@ const VERIFY_SHORT: Record<string, string> = {
   "no-announcements": "No announcements found in code: check status messages are read out",
 };
 
+/** Appended to lines the scan pre-filled as failing, until a tester has reviewed the screen. */
+export const UNREVIEWED_HINT = "— scan found issues · not reviewed yet";
+const UNREVIEWED_RE = /\s*—?\s*(scan found issues\s*·\s*)?not reviewed yet\s*/i;
+
 /** Prefix for "check this by hand" notes, as opposed to ⚑ lines for actual scan findings. */
 const VERIFY_NOTE = "⚑ Verify";
 
@@ -434,6 +440,8 @@ export interface ChecklistRow {
   lines: string[];
   /** An automated scan found an issue for this check on this screen (a ⚑ line under it). */
   flagged?: boolean;
+  /** False for a scan pre-fill nobody has reviewed yet (still has the "not reviewed yet" note). */
+  reviewed?: false;
 }
 
 export interface OtherFinding extends ChecklistIssue {
@@ -523,6 +531,7 @@ export function parseChecklist(md: string): ParsedChecklist {
       let target: AuditTarget | undefined;
       let screen: string | undefined;
       let rest: string;
+      let hinted = false;
       if (legacy) {
         const m = /^(iOS|Android|Web)\b\s*[:—–-]?\s*(.*)$/i.exec(mark[2]!);
         if (!m) return;
@@ -532,10 +541,15 @@ export function parseChecklist(md: string): ParsedChecklist {
       } else {
         if (!partTarget) return;
         target = partTarget;
-        const sep = mark[2]!.indexOf(": ");
-        const label = (sep >= 0 ? mark[2]!.slice(0, sep) : mark[2]!).trim().replace(/^\*\*(.+)\*\*$/, "$1");
+        let body = mark[2]!;
+        if (UNREVIEWED_RE.test(body)) {
+          hinted = true;
+          body = body.replace(UNREVIEWED_RE, "");
+        }
+        const sep = body.indexOf(": ");
+        const label = (sep >= 0 ? body.slice(0, sep) : body).trim().replace(/^\*\*(.+)\*\*$/, "$1");
         screen = label === APP_WIDE_LABEL ? undefined : label;
-        rest = sep >= 0 ? mark[2]!.slice(sep + 2) : "";
+        rest = sep >= 0 ? body.slice(sep + 2) : "";
       }
       const status = statusFor(mark[1]!);
       if (!status) result.warnings.push(`Line ${lineNo}: unknown mark "[${mark[1]}]" — use [x], [!], [-], or [ ].`);
@@ -548,6 +562,7 @@ export function parseChecklist(md: string): ParsedChecklist {
         status: status ?? "open",
         issues: rest.trim() ? [parseIssue(rest.trim())] : [],
         lines: [line],
+        ...(hinted ? { reviewed: false } : {}),
       };
       result.rows.push(lastRow);
       return;
@@ -565,6 +580,8 @@ export function parseChecklist(md: string): ParsedChecklist {
   });
 
   for (const row of result.rows) {
+    // A pre-fill counts as reviewed once the tester removes the hint, adds notes, or changes the mark.
+    if (row.reviewed === false && (row.status !== "fail" || row.issues.length > 0)) delete row.reviewed;
     if (row.issues.length > 0 && row.status === "open") row.status = "fail";
     if (row.issues.length > 0 && row.status !== "fail") {
       result.warnings.push(`${TARGET_LABEL[row.target]} › ${row.screen ?? APP_WIDE_LABEL} › ${row.itemId}: has issue text but isn't marked [!] — ignoring the text.`);
