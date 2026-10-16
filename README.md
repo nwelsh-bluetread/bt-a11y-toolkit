@@ -119,32 +119,30 @@ the next step finds the rest.
 
 ### Step 4: Test each screen by hand
 
-Open `a11y-audit/checklist.md` in any text editor (VS Code works well). It's
-organized for the least switching: you go through the app **twice per
-platform**, screen by screen:
+Open `a11y-audit/checklist.md` in any text editor (VS Code works well). It has
+**one section per platform**: iOS, then Android. Within each, you go **screen
+by screen**, and on each screen do every check, grouped by tool in this order:
 
-1. **iOS: Screen reader & glance checks.** On each screen, do everything that
-   needs only the phone, in this order: **screen reader** (VoiceOver on), then
-   with VoiceOver off **voice & switch control**, **visual, text size &
-   orientation**, **touch & gestures**, **cognitive** (wording, forms and
-   errors, consistency, sign-in), and **media, motion & timing**. Then move to
-   the next screen.
-2. **iOS: Keyboard.** Pair a keyboard once, then go through every screen
-   again for the keyboard checks.
-3. **Android: Screen reader & glance checks** (same as 1, with TalkBack).
-4. **Android: Keyboard.**
+1. **Screen reader** (VoiceOver / TalkBack)
+2. **Voice & switch control**
+3. **Visual, text size & orientation**
+4. **Touch & gestures**
+5. **Cognitive: content, forms & behavior** (wording, forms and errors, consistency, sign-in)
+6. **Media, motion & timing** (only on screens with audio, video, or animation)
+7. **Keyboard**
 
-Each pass starts with a **Setup** line. For pass 1 that means setting the
-triple-click shortcut so VoiceOver/TalkBack turns on and off in a second. Then
-comes a list of the pass's checks, numbered (1.1, 1.2… and 2.1… for keyboard),
-each with the **WCAG criteria** it covers (number, name, and level) and **how
-to test** it. Under each screen's heading are the checks to do on that screen,
-grouped by type.
+The **Setup** line at the top of each platform has you pair a keyboard once
+and set the triple-click shortcut, so VoiceOver, Voice Control, and Full
+Keyboard Access (or TalkBack and Voice Access on Android) switch on and off in
+a second. Next comes the list of checks, numbered 1, 2, 3…, each with the
+**WCAG criteria** it covers (number, name, and level) and **how to test** it.
+Under each screen's heading are the checks to do on that screen, grouped by
+tool.
 
 Screens only get the checks that apply to them. Form checks appear only on
 screens with forms, and gesture checks only on screens with swipe actions.
 Whole-app checks, like screen rotation and language, are listed once under
-**App-wide** at the end of each pass. The **Screens in scope** list at the top shows each screen's
+**App-wide** at the end of each platform. The **Screens in scope** list at the top shows each screen's
 deep link, how it's reached, and what the scan found there.
 
 For each screen in a pass:
@@ -331,17 +329,15 @@ affected file.
 
 **3. The manual checklist** — printed in the terminal and written to
 `a11y-audit/checklist.md`, organized to minimize switching tools:
-**platform → pass → screen → checks**. Each platform (iOS, Android,
-Website) has two passes. **1. Screen reader & glance checks** covers
-everything that needs only the device: on each screen, grouped as screen
-reader; voice & switch control; visual, text size & orientation; touch &
-gestures; cognitive; and media, motion & timing. **2. Keyboard** covers the
-checks that need a keyboard paired. Each pass opens with a one-time setup and
-a numbered list of its checks (criteria + how to test), then goes screen by
-screen in navigation order, listing only the checks that apply to each
-screen: every screen gets the basics, screens with inputs get the form checks,
+**platform → screen → checks**. Each platform (iOS, Android, Website) is one
+section that goes screen by screen in navigation order. On each screen, the
+checks are grouped by tool: screen reader; voice & switch control; visual, text
+size & orientation; touch & gestures; cognitive; media, motion & timing; and
+keyboard last. The section opens with a one-time setup (keyboard paired,
+shortcuts for toggling assistive tech) and a numbered list of its checks
+(criteria + how to test). Each screen lists only the checks that apply to it: every screen gets the basics, screens with inputs get the form checks,
 screens with swipes get the gesture checks, and whole-app checks go under
-"App-wide" at the end of the pass. ⚑ lines under a check show what the scans
+"App-wide" at the end. ⚑ lines under a check show what the scans
 found or flagged there. A "Screens in scope" index at the top gives each
 screen's deep link, how it's reached, its file, and its contents.
 
@@ -350,20 +346,16 @@ Testers fill in `checklist.md`, marking each check under each screen:
 ```markdown
 # iOS
 
-## 1. Screen reader & glance checks
+## All checks, screen by screen
 
-> **Setup:** Set the Accessibility Shortcut to VoiceOver … On each screen, do the screen reader checks with VoiceOver on, then turn it off for the rest.
+> **Setup:** Pair a Bluetooth keyboard and leave it connected. Set the Accessibility Shortcut to VoiceOver, Voice Control, and Full Keyboard Access …
 
 **Checks in this pass — how to test each:**
 
 *Screen reader*
 
-- **1.1 Screen reader announces the name, role, and state of every control** — 4.1.2 Name, Role, Value (A). Swipe right through every control…
-- **1.6 Every input has a label or instructions (not just placeholder text)** — 3.3.2 Labels or Instructions (A). Focus each field…
-
-*Visual, text size & orientation*
-
-- **1.16 Text contrast is 4.5:1 (3:1 large text); icons and UI borders 3:1** — …
+- **1 Screen reader announces the name, role, and state of every control** — 4.1.2 Name, Role, Value (A). Swipe right through every control…
+- **6 Every input has a label or instructions (not just placeholder text)** — 3.3.2 Labels or Instructions (A). Focus each field…
 
 ### Signup
 
@@ -371,22 +363,18 @@ Testers fill in `checklist.md`, marking each check under each screen:
 
 #### Screen reader
 
-- [x] **1.1** Screen reader announces the name, role, and state of every control · `sr-name-role-value`
-- [!] **1.6** Every input has a label or instructions (not just placeholder text) · `input-labels`: Email field is announced as "edit box" (high)
+- [x] **1** Screen reader announces the name, role, and state of every control · `sr-name-role-value`
+- [!] **6** Every input has a label or instructions (not just placeholder text) · `input-labels`: Email field is announced as "edit box" (high)
   - Password field has no label either (medium)
   ⚑ High · Text input has no accessible label — Signup.tsx:12
 
 #### Visual, text size & orientation
 
-- [ ] **1.16** Text contrast is 4.5:1 (3:1 large text); icons and UI borders 3:1 · `contrast`
+- [ ] **16** Text contrast is 4.5:1 (3:1 large text); icons and UI borders 3:1 · `contrast`
 
-## 2. Keyboard
+#### Keyboard
 
-> **Setup:** Turn VoiceOver off. Pair a Bluetooth keyboard and turn on Full Keyboard Access …
-
-### Signup
-
-- [ ] **2.1** Everything works with a keyboard, and there are no keyboard traps · `keyboard-operable`
+- [ ] **36** Everything works with a keyboard, and there are no keyboard traps · `keyboard-operable`
 ```
 
 `[x]` pass · `[!]` fail (describe the issue after the check, following a

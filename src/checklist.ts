@@ -1149,30 +1149,19 @@ export const MANUAL_CHECKLIST: ChecklistItem[] = ITEMS.map((item) => {
 });
 
 /**
- * The passes testers actually make through the app, per platform. Everything
- * that only needs the phone itself is done screen by screen in one pass
- * (VoiceOver toggled with the shortcut); the keyboard checks, which need a
- * keyboard paired, get their own pass.
+ * The passes testers make through the app, per platform. One pass, screen by
+ * screen: on each screen every check, grouped by tool (screen reader, voice,
+ * visual, touch, cognitive, media, keyboard), with the tools toggled by shortcut.
  */
 export const TEST_PASSES: Array<{ id: string; title: string; modes: TestMode[]; setup: Partial<Record<AuditTarget | "default", string>> }> = [
   {
-    id: "main",
-    title: "Screen reader & glance checks",
-    modes: ["screen-reader", "voice", "visual", "touch", "cognitive", "media"],
+    id: "all",
+    title: "All checks, screen by screen",
+    modes: ["screen-reader", "voice", "visual", "touch", "cognitive", "media", "keyboard"],
     setup: {
-      ios: "Set the Accessibility Shortcut to VoiceOver (Settings → Accessibility → Accessibility Shortcut) so a triple-click of the side button turns it on and off, and add Text Size to Control Center. On each screen, do the screen reader checks with VoiceOver on, then turn it off for the rest.",
-      android: "Turn on the TalkBack shortcut (hold both volume keys) and, if available, add Font size to Quick Settings. On each screen, do the screen reader checks with TalkBack on, then turn it off for the rest.",
-      web: "Have NVDA (Windows) or VoiceOver (Cmd+F5 on Mac) ready. On each page, do the screen reader checks with it on, then turn it off for the rest.",
-    },
-  },
-  {
-    id: "keyboard",
-    title: "Keyboard",
-    modes: ["keyboard"],
-    setup: {
-      ios: "Turn VoiceOver off. Pair a Bluetooth keyboard and turn on Full Keyboard Access (Settings → Accessibility → Keyboards), then go through every screen.",
-      android: "Turn TalkBack off. Pair a Bluetooth or USB keyboard, then go through every screen.",
-      web: "Turn the screen reader off and put the mouse away: use Tab, Shift+Tab, Enter, Space, Esc, and the arrow keys on every page.",
+      ios: "Pair a Bluetooth keyboard and leave it connected. Set the Accessibility Shortcut (Settings → Accessibility → Accessibility Shortcut) to VoiceOver, Voice Control, and Full Keyboard Access, so a triple-click of the side button switches between them, and add Text Size to Control Center. On each screen, work down the groups in order, turning each tool on only for its group.",
+      android: "Pair a Bluetooth or USB keyboard and leave it connected. Turn on the TalkBack shortcut (hold both volume keys) and the Voice Access shortcut, and add Font size to Quick Settings if available. On each screen, work down the groups in order, turning each tool on only for its group.",
+      web: "Have NVDA (Windows) or VoiceOver (Cmd+F5 on Mac) and your OS voice control ready. On each page, work down the groups in order, turning each tool on only for its group; finish with the keyboard checks (mouse away).",
     },
   },
 ];

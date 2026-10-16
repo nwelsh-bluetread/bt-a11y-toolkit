@@ -72,67 +72,58 @@ describe("renderChecklist", () => {
   const md = renderChecklist({ projectName: "Acme", targetLevel: "AA", groups, runs });
   const ios = md.slice(md.indexOf("# iOS"), md.indexOf("# Android"));
   const android = md.slice(md.indexOf("# Android"), md.indexOf("# Other findings"));
-  /** A testing pass ("## 1. …") within a platform part. */
-  const pass = (part: string, n: number) => {
-    const at = part.indexOf(`## ${n}. `);
-    const next = part.indexOf(`\n## ${n + 1}. `, at);
+  /** One screen's block within a platform part. */
+  const screenIn = (part: string, name: string) => {
+    const at = part.indexOf(`### ${name}\n`);
+    if (at === -1) return "";
+    const next = part.indexOf("\n### ", at + 4);
     return part.slice(at, next === -1 ? undefined : next);
   };
-  /** One screen's block within a pass. */
-  const screenIn = (passText: string, name: string) => {
-    const at = passText.indexOf(`### ${name}\n`);
-    if (at === -1) return "";
-    const next = passText.indexOf("\n### ", at + 4);
-    return passText.slice(at, next === -1 ? undefined : next);
-  };
 
-  it("is organized platform → two passes (screen reader & glance, keyboard) → screen → checks", () => {
+  it("is one section per platform, screen by screen, every check grouped by tool with keyboard last", () => {
     expect(md.indexOf("# iOS")).toBeLessThan(md.indexOf("# Android"));
-    const passes = [...ios.matchAll(/^## (\d+\. .+)$/gm)].map((m) => m[1]);
-    expect(passes).toEqual(["1. Screen reader & glance checks", "2. Keyboard"]);
-    expect(ios).toMatch(/## 1\. Screen reader & glance checks\n\n> \*\*Setup:\*\* Set the Accessibility Shortcut to VoiceOver/);
-    expect(android).toMatch(/## 1\. Screen reader & glance checks\n\n> \*\*Setup:\*\* Turn on the TalkBack shortcut/);
-    expect(pass(ios, 2)).toMatch(/> \*\*Setup:\*\* Turn VoiceOver off\. Pair a Bluetooth keyboard/);
-    // Within each screen of pass 1, checks are grouped by type, screen reader first; keyboard checks are only in pass 2.
-    const login = screenIn(pass(ios, 1), "Login");
-    const types = [...login.matchAll(/^#### (.+)$/gm)].map((m) => m[1]);
-    expect(types).toEqual(["Screen reader", "Voice & switch control", "Visual, text size & orientation", "Touch & gestures", "Cognitive: content, forms & behavior"]);
-    expect(login).not.toContain("`keyboard-operable`");
-    expect(screenIn(pass(ios, 2), "Login")).toContain("`keyboard-operable`");
-    expect(screenIn(pass(ios, 2), "Login")).not.toContain("#### ");
-    const sr = pass(ios, 1);
-    expect(sr.indexOf("### Login")).toBeLessThan(sr.indexOf("### Inbox"));
-    expect(sr.indexOf("### Inbox")).toBeLessThan(sr.indexOf(`### ${APP_WIDE}`));
+    expect([...ios.matchAll(/^## (.+)$/gm)].map((m) => m[1])).toEqual(["All checks, screen by screen"]);
+    expect(ios).toMatch(/## All checks, screen by screen\n\n> \*\*Setup:\*\* Pair a Bluetooth keyboard and leave it connected\. Set the Accessibility Shortcut/);
+    expect(android).toMatch(/> \*\*Setup:\*\* Pair a Bluetooth or USB keyboard and leave it connected\. Turn on the TalkBack shortcut/);
+    const login = screenIn(ios, "Login");
+    expect([...login.matchAll(/^#### (.+)$/gm)].map((m) => m[1])).toEqual([
+      "Screen reader",
+      "Voice & switch control",
+      "Visual, text size & orientation",
+      "Touch & gestures",
+      "Cognitive: content, forms & behavior",
+      "Keyboard",
+    ]);
+    expect(login.indexOf("`keyboard-operable`")).toBeGreaterThan(login.indexOf("#### Keyboard"));
+    expect(ios.indexOf("### Login")).toBeLessThan(ios.indexOf("### Inbox"));
+    expect(ios.indexOf("### Inbox")).toBeLessThan(ios.indexOf(`### ${APP_WIDE}`));
   });
 
-  it("explains every check once per pass, with criteria by name and level and how to test", () => {
-    const sr = pass(ios, 1);
-    expect(sr).toContain(
-      "- **1.6 Every input has a label or instructions (not just placeholder text)** — 3.3.2 Labels or Instructions (A). Focus each field with the screen reader.",
-    );
-    expect(sr).toContain("— 1.3.2 Meaningful Sequence (A) · 2.4.3 Focus Order (A).");
-    expect(sr).toContain("*Only applies if the app has modals; none were found in the code, so mark N/A if there are none.*");
-    expect(pass(android, 1)).toContain("Set Settings → Display → Font size");
+  it("explains every check once, with criteria by name and level and how to test", () => {
+    expect(ios).toContain("- **6 Every input has a label or instructions (not just placeholder text)** — 3.3.2 Labels or Instructions (A). Focus each field with the screen reader.");
+    expect(ios).toContain("— 1.3.2 Meaningful Sequence (A) · 2.4.3 Focus Order (A).");
+    expect(ios).toContain("*Only applies if the app has modals; none were found in the code, so mark N/A if there are none.*");
+    expect(android).toContain("Set Settings → Display → Font size");
   });
 
   it("lists, for each screen, only the checks that apply to it", () => {
-    const login = screenIn(pass(ios, 1), "Login");
-    const inbox = screenIn(pass(ios, 1), "Inbox");
-    expect(login).toContain("- [ ] **1.2** Reading and focus order is logical and matches the visual layout · `focus-order`");
+    const login = screenIn(ios, "Login");
+    const inbox = screenIn(ios, "Inbox");
+    expect(login).toContain("- [ ] **2** Reading and focus order is logical and matches the visual layout · `focus-order`");
     expect(login).toContain("`input-labels`");
     expect(inbox).not.toContain("`input-labels`");
-    expect(screenIn(pass(ios, 1), "Inbox")).toContain("`pointer-gestures`");
-    expect(screenIn(pass(ios, 1), "Login")).not.toContain("`pointer-gestures`");
-    expect(screenIn(pass(ios, 1), APP_WIDE)).toContain("`orientation`");
+    expect(inbox).toContain("`pointer-gestures`");
+    expect(login).not.toContain("`pointer-gestures`");
+    expect(screenIn(ios, APP_WIDE)).toContain("`orientation`");
   });
 
   it("puts automated findings and signals under the check they belong to on that screen", () => {
     // A scan finding pre-marks the line as failing; a "Verify" signal leaves it for the tester.
-    expect(screenIn(pass(ios, 1), "Login")).toContain(
-      "- [!] **1.6** Every input has a label or instructions (not just placeholder text) · `input-labels` — scan found issues · not reviewed yet\n  ⚑ High · Text input has no accessible label — Login.tsx:12",
+    expect(screenIn(ios, "Login")).toContain(
+      "- [!] **6** Every input has a label or instructions (not just placeholder text) · `input-labels` — scan found issues · not reviewed yet\n  ⚑ High · Text input has no accessible label — Login.tsx:12",
     );
-    expect(screenIn(pass(ios, 1), "Inbox")).toMatch(/- \[ \] \*\*1\.\d+\*\* [^\n]*`pointer-gestures`\n {2}⚑ Verify · Gesture or drag: needs a single-tap alternative — Inbox\.tsx:7/);
-    expect(screenIn(pass(ios, 1), APP_WIDE)).toMatch(/- \[!\] \*\*1\.\d+\*\* [^\n]*`orientation` — scan found issues · not reviewed yet\n {2}⚑ Medium · Screen orientation is locked — app\.json:4/);
+    expect(screenIn(ios, "Inbox")).toMatch(/- \[ \] \*\*\d+\*\* [^\n]*`pointer-gestures`\n {2}⚑ Verify · Gesture or drag: needs a single-tap alternative — Inbox\.tsx:7/);
+    expect(screenIn(ios, APP_WIDE)).toMatch(/- \[!\] \*\*\d+\*\* [^\n]*`orientation` — scan found issues · not reviewed yet\n {2}⚑ Medium · Screen orientation is locked — app\.json:4/);
   });
 
   it("collapses one issue across many files into a single line with severity, short paths, and +N more", () => {
@@ -154,7 +145,7 @@ describe("renderChecklist", () => {
       },
     ];
     const out = renderChecklist({ projectName: "Acme", targetLevel: "AA", groups: planChecklist([shared], ["ios"], "AA"), runs: many });
-    expect(out).toMatch(/### Scheduling\n\n#### Screen reader\n\n- \[!\] \*\*1\.1\*\* [^\n]*`sr-name-role-value` — scan found issues · not reviewed yet\n {2}⚑ Medium · Touchable has no accessibility role — A\.js:1, B\.js:2, C\.js:3, D\.js:4, E\.js:5 \+2 more\n/);
+    expect(out).toMatch(/### Scheduling\n\n#### Screen reader\n\n- \[!\] \*\*1\*\* [^\n]*`sr-name-role-value` — scan found issues · not reviewed yet\n {2}⚑ Medium · Touchable has no accessibility role — A\.js:1, B\.js:2, C\.js:3, D\.js:4, E\.js:5 \+2 more\n/);
     const details = renderScanDetails({ projectName: "Acme", groups: planChecklist([shared], ["ios"], "AA"), runs: many });
     expect(details).toContain("  - `src/components/Card/index.js` line 6");
     expect(details).toContain("  - `src/components/G.js` line 7");
@@ -241,7 +232,7 @@ Issues that don't fit a check above — one per line.
     const groups = planChecklist(screens, ["ios", "android"], "AA");
     const regenerated = renderChecklist({ projectName: "Acme", targetLevel: "AA", groups, runs, previous: parsed });
     const android = regenerated.slice(regenerated.indexOf("# Android"), regenerated.indexOf("# Other findings"));
-    expect(android).toMatch(/### Login\n[\s\S]*?- \[!\] \*\*1\.6\*\* [^\n]*`input-labels`: Email field is read as "edit box" \(critical\)\n {2}- Password field has no label either \[3\.3\.2\]/);
+    expect(android).toMatch(/### Login\n[\s\S]*?- \[!\] \*\*6\*\* [^\n]*`input-labels`: Email field is read as "edit box" \(critical\)\n {2}- Password field has no label either \[3\.3\.2\]/);
     expect(regenerated).toContain("- [!] iOS, Android · Inbox · 1.4.3 · Unread badge text is too light (medium)");
     const answered = (p: typeof parsed) =>
       p.rows.filter((r) => r.status !== "open").map((r) => `${r.target}|${r.itemId}|${r.screen ?? ""}|${r.status}|${JSON.stringify(r.issues)}`).sort();
@@ -306,8 +297,8 @@ Issues that don't fit a check above — one per line.
       const at = regenerated.indexOf(`### ${screen}\n`);
       return regenerated.slice(at).split("\n").find((l) => l.includes("`sr-name-role-value`"))!;
     };
-    expect(line("Login")).toBe("- [ ] **1.1** Screen reader announces the name, role, and state of every control · `sr-name-role-value`");
-    expect(line("Signup")).toBe("- [!] **1.1** Screen reader announces the name, role, and state of every control · `sr-name-role-value`");
+    expect(line("Login")).toBe("- [ ] **1** Screen reader announces the name, role, and state of every control · `sr-name-role-value`");
+    expect(line("Signup")).toBe("- [!] **1** Screen reader announces the name, role, and state of every control · `sr-name-role-value`");
   });
 
   it("carries answers from the check-first layout (one check, many screens) into the screen-by-screen one", () => {

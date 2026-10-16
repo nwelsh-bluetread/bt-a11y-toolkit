@@ -488,7 +488,7 @@ function displayChecklist(deps: WizardDeps, session: AuditSession, groups: Plann
     out(`\n${bold(`Manual checklist — ${group.title} · WCAG ${session.project.targetLevel}`)}`);
     out(
       dim(
-        `${screens.length} ${noun}${screens.length === 1 ? "" : "s"}. Two passes: screen reader & glance checks, then keyboard — ${noun} by ${noun} within each` +
+        `${screens.length} ${noun}${screens.length === 1 ? "" : "s"}. Go ${noun} by ${noun}, doing every check on each ${noun} (screen reader → voice → visual → touch → cognitive → keyboard)` +
           (platforms.length > 1 ? ` — all of ${platforms[0]} first, then the same passes on ${platforms.slice(1).join(" and ")}.` : "."),
       ),
     );
@@ -512,8 +512,9 @@ function displayChecklist(deps: WizardDeps, session: AuditSession, groups: Plann
       );
       if (inPass.length === 0) continue;
       const lines = inPass.reduce((sum, c) => sum + c.screens + (c.appWide ? 1 : 0), 0);
-      out(`\n  ${bold(`${++n}. ${testPass.title}`)} ${dim(`(${inPass.length} checks · ${lines} to mark per platform, ${noun} by ${noun})`)}`);
-      for (const mode of TEST_MODES.filter((m) => testPass.modes.includes(m.id))) {
+      ++n;
+      out(`\n  ${bold(TEST_PASSES.length > 1 ? `${n}. ${testPass.title}` : testPass.title)} ${dim(`(${inPass.length} checks · ${lines} to mark per platform)`)}`);
+      for (const mode of testPass.modes.map((id) => TEST_MODES.find((m) => m.id === id)!)) {
         const checks = inPass.filter((c) => c.item.mode === mode.id);
         if (checks.length === 0) continue;
         if (testPass.modes.length > 1) out(`    ${dim(mode.title)}`);
