@@ -174,8 +174,8 @@ export function renderChecklist({ projectName, targetLevel, groups, runs, previo
           .sort((a, b) => modeRank.get(a.item.mode)! - modeRank.get(b.item.mode)! || order.get(a.item.id)! - order.get(b.item.id)!);
         if (inPass.length === 0) continue;
         const pass = ++n;
-        // With a single pass, checks are simply numbered 1, 2, 3…
-        const number = new Map(inPass.map((c, k) => [c.item.id, TEST_PASSES.length > 1 ? `${pass}.${k + 1}` : `${k + 1}`]));
+        // Checks are labeled by the WCAG success criteria they cover, e.g. "1.3.2, 2.4.3".
+        const number = new Map(inPass.map((c) => [c.item.id, c.item.wcag.join(", ")]));
         // In the pass's order (keyboard last), not the master list's.
         const modesHere = testPass.modes
           .map((id) => TEST_MODES.find((m) => m.id === id)!)
@@ -197,9 +197,9 @@ export function renderChecklist({ projectName, targetLevel, groups, runs, previo
           }
           for (const { item, on } of inPass.filter((c) => c.item.mode === mode.id)) {
             const ifPresent = on.find((o) => o.ifPresent)?.ifPresent;
-            const criteria = item.wcag.map((id) => `${id} ${WCAG[id]?.name ?? ""} (${WCAG[id]?.level ?? "?"})`).join(" · ");
+            const criteria = item.wcag.map((id) => `${WCAG[id]?.name ?? id} (${WCAG[id]?.level ?? "?"})`).join(" · ");
             const only = ifPresent ? ` *Only applies if the app has ${ifPresent.map((f) => FEATURE_LABEL[f]).join(" or ")}; none were found in the code, so mark N/A if there are none.*` : "";
-            out.push(`- **${number.get(item.id)} ${item.title}** — ${criteria}. ${howToFor(item, target)}${only}`);
+            out.push(`- **${number.get(item.id)}** ${item.title} — *${criteria}.* ${howToFor(item, target)}${only}`);
           }
         }
 

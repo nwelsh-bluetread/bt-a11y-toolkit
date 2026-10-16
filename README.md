@@ -134,8 +134,9 @@ by screen**, and on each screen do every check, grouped by tool in this order:
 The **Setup** line at the top of each platform has you pair a keyboard once
 and set the triple-click shortcut, so VoiceOver, Voice Control, and Full
 Keyboard Access (or TalkBack and Voice Access on Android) switch on and off in
-a second. Next comes the list of checks, numbered 1, 2, 3…, each with the
-**WCAG criteria** it covers (number, name, and level) and **how to test** it.
+a second. Next comes the list of checks, each labeled with the **WCAG success
+criteria** it covers (e.g. **3.3.2**, or **1.3.2, 2.4.3** when a check covers
+two), their names and levels, and **how to test** it.
 Under each screen's heading are the checks to do on that screen, grouped by
 tool.
 
@@ -176,10 +177,10 @@ For each screen in a pass:
 
 | You type | Meaning |
 | --- | --- |
-| `- [x] **1.6** Every input has a label… · `input-labels`` | Passed on this screen |
-| `- [!] **1.6** … · `input-labels`: what went wrong (high)` | Failed. Describe what happened after a colon; severity is optional |
-| `- [-] **1.6** …` | Not applicable (e.g. no videos on this screen) |
-| `- [ ] **1.6** …` | Not tested yet (leave as is) |
+| `- [x] **3.3.2** Every input has a label… · `input-labels`` | Passed on this screen |
+| `- [!] **3.3.2** … · `input-labels`: what went wrong (high)` | Failed. Describe what happened after a colon; severity is optional |
+| `- [-] **3.3.2** …` | Not applicable (e.g. no videos on this screen) |
+| `- [ ] **3.3.2** …` | Not tested yet (leave as is) |
 
 **Example:**
 ```
@@ -187,11 +188,11 @@ For each screen in a pass:
 
 *deep link `signup` · reached from Login*
 
-- [x] **1.1** Screen reader announces the name, role, and state of every control · `sr-name-role-value`
-- [x] **1.2** Reading and focus order is logical and matches the visual layout · `focus-order`
-- [!] **1.6** Every input has a label or instructions (not just placeholder text) · `input-labels`: Email field is read out as "edit box" with no label (high)
+- [x] **4.1.2** Screen reader announces the name, role, and state of every control · `sr-name-role-value`
+- [x] **1.3.2, 2.4.3** Reading and focus order is logical and matches the visual layout · `focus-order`
+- [!] **3.3.2** Every input has a label or instructions (not just placeholder text) · `input-labels`: Email field is read out as "edit box" with no label (high)
   - Password field has no label either (medium)
-- [ ] **1.7** Link and button purpose is clear from its text or context · `link-purpose`
+- [ ] **2.4.4** Link and button purpose is clear from its text or context · `link-purpose`
 ```
 
 **Severity guide:**
@@ -354,8 +355,8 @@ Testers fill in `checklist.md`, marking each check under each screen:
 
 *Screen reader*
 
-- **1 Screen reader announces the name, role, and state of every control** — 4.1.2 Name, Role, Value (A). Swipe right through every control…
-- **6 Every input has a label or instructions (not just placeholder text)** — 3.3.2 Labels or Instructions (A). Focus each field…
+- **4.1.2** Screen reader announces the name, role, and state of every control — *Name, Role, Value (A).* Swipe right through every control…
+- **3.3.2** Every input has a label or instructions (not just placeholder text) — *Labels or Instructions (A).* Focus each field…
 
 ### Signup
 
@@ -363,18 +364,18 @@ Testers fill in `checklist.md`, marking each check under each screen:
 
 #### Screen reader
 
-- [x] **1** Screen reader announces the name, role, and state of every control · `sr-name-role-value`
-- [!] **6** Every input has a label or instructions (not just placeholder text) · `input-labels`: Email field is announced as "edit box" (high)
+- [x] **4.1.2** Screen reader announces the name, role, and state of every control · `sr-name-role-value`
+- [!] **3.3.2** Every input has a label or instructions (not just placeholder text) · `input-labels`: Email field is announced as "edit box" (high)
   - Password field has no label either (medium)
   ⚑ High · Text input has no accessible label — Signup.tsx:12
 
 #### Visual, text size & orientation
 
-- [ ] **16** Text contrast is 4.5:1 (3:1 large text); icons and UI borders 3:1 · `contrast`
+- [ ] **1.4.3, 1.4.11** Text contrast is 4.5:1 (3:1 large text); icons and UI borders 3:1 · `contrast`
 
 #### Keyboard
 
-- [ ] **36** Everything works with a keyboard, and there are no keyboard traps · `keyboard-operable`
+- [ ] **2.1.1, 2.1.2** Everything works with a keyboard, and there are no keyboard traps · `keyboard-operable`
 ```
 
 `[x]` pass · `[!]` fail (describe the issue after the check, following a

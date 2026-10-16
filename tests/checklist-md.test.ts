@@ -100,8 +100,8 @@ describe("renderChecklist", () => {
   });
 
   it("explains every check once, with criteria by name and level and how to test", () => {
-    expect(ios).toContain("- **6 Every input has a label or instructions (not just placeholder text)** — 3.3.2 Labels or Instructions (A). Focus each field with the screen reader.");
-    expect(ios).toContain("— 1.3.2 Meaningful Sequence (A) · 2.4.3 Focus Order (A).");
+    expect(ios).toContain("- **3.3.2** Every input has a label or instructions (not just placeholder text) — *Labels or Instructions (A).* Focus each field with the screen reader.");
+    expect(ios).toContain("- **1.3.2, 2.4.3** Reading and focus order is logical and matches the visual layout — *Meaningful Sequence (A) · Focus Order (A).*");
     expect(ios).toContain("*Only applies if the app has modals; none were found in the code, so mark N/A if there are none.*");
     expect(android).toContain("Set Settings → Display → Font size");
   });
@@ -109,7 +109,7 @@ describe("renderChecklist", () => {
   it("lists, for each screen, only the checks that apply to it", () => {
     const login = screenIn(ios, "Login");
     const inbox = screenIn(ios, "Inbox");
-    expect(login).toContain("- [ ] **2** Reading and focus order is logical and matches the visual layout · `focus-order`");
+    expect(login).toContain("- [ ] **1.3.2, 2.4.3** Reading and focus order is logical and matches the visual layout · `focus-order`");
     expect(login).toContain("`input-labels`");
     expect(inbox).not.toContain("`input-labels`");
     expect(inbox).toContain("`pointer-gestures`");
@@ -120,10 +120,10 @@ describe("renderChecklist", () => {
   it("puts automated findings and signals under the check they belong to on that screen", () => {
     // A scan finding pre-marks the line as failing; a "Verify" signal leaves it for the tester.
     expect(screenIn(ios, "Login")).toContain(
-      "- [!] **6** Every input has a label or instructions (not just placeholder text) · `input-labels` — scan found issues · not reviewed yet\n  ⚑ High · Text input has no accessible label — Login.tsx:12",
+      "- [!] **3.3.2** Every input has a label or instructions (not just placeholder text) · `input-labels` — scan found issues · not reviewed yet\n  ⚑ High · Text input has no accessible label — Login.tsx:12",
     );
-    expect(screenIn(ios, "Inbox")).toMatch(/- \[ \] \*\*\d+\*\* [^\n]*`pointer-gestures`\n {2}⚑ Verify · Gesture or drag: needs a single-tap alternative — Inbox\.tsx:7/);
-    expect(screenIn(ios, APP_WIDE)).toMatch(/- \[!\] \*\*\d+\*\* [^\n]*`orientation` — scan found issues · not reviewed yet\n {2}⚑ Medium · Screen orientation is locked — app\.json:4/);
+    expect(screenIn(ios, "Inbox")).toMatch(/- \[ \] \*\*2\.5\.1\*\* [^\n]*`pointer-gestures`\n {2}⚑ Verify · Gesture or drag: needs a single-tap alternative — Inbox\.tsx:7/);
+    expect(screenIn(ios, APP_WIDE)).toMatch(/- \[!\] \*\*1\.3\.4\*\* [^\n]*`orientation` — scan found issues · not reviewed yet\n {2}⚑ Medium · Screen orientation is locked — app\.json:4/);
   });
 
   it("collapses one issue across many files into a single line with severity, short paths, and +N more", () => {
@@ -145,7 +145,7 @@ describe("renderChecklist", () => {
       },
     ];
     const out = renderChecklist({ projectName: "Acme", targetLevel: "AA", groups: planChecklist([shared], ["ios"], "AA"), runs: many });
-    expect(out).toMatch(/### Scheduling\n\n#### Screen reader\n\n- \[!\] \*\*1\*\* [^\n]*`sr-name-role-value` — scan found issues · not reviewed yet\n {2}⚑ Medium · Touchable has no accessibility role — A\.js:1, B\.js:2, C\.js:3, D\.js:4, E\.js:5 \+2 more\n/);
+    expect(out).toMatch(/### Scheduling\n\n#### Screen reader\n\n- \[!\] \*\*4\.1\.2\*\* [^\n]*`sr-name-role-value` — scan found issues · not reviewed yet\n {2}⚑ Medium · Touchable has no accessibility role — A\.js:1, B\.js:2, C\.js:3, D\.js:4, E\.js:5 \+2 more\n/);
     const details = renderScanDetails({ projectName: "Acme", groups: planChecklist([shared], ["ios"], "AA"), runs: many });
     expect(details).toContain("  - `src/components/Card/index.js` line 6");
     expect(details).toContain("  - `src/components/G.js` line 7");
@@ -232,7 +232,7 @@ Issues that don't fit a check above — one per line.
     const groups = planChecklist(screens, ["ios", "android"], "AA");
     const regenerated = renderChecklist({ projectName: "Acme", targetLevel: "AA", groups, runs, previous: parsed });
     const android = regenerated.slice(regenerated.indexOf("# Android"), regenerated.indexOf("# Other findings"));
-    expect(android).toMatch(/### Login\n[\s\S]*?- \[!\] \*\*6\*\* [^\n]*`input-labels`: Email field is read as "edit box" \(critical\)\n {2}- Password field has no label either \[3\.3\.2\]/);
+    expect(android).toMatch(/### Login\n[\s\S]*?- \[!\] \*\*3\.3\.2\*\* [^\n]*`input-labels`: Email field is read as "edit box" \(critical\)\n {2}- Password field has no label either \[3\.3\.2\]/);
     expect(regenerated).toContain("- [!] iOS, Android · Inbox · 1.4.3 · Unread badge text is too light (medium)");
     const answered = (p: typeof parsed) =>
       p.rows.filter((r) => r.status !== "open").map((r) => `${r.target}|${r.itemId}|${r.screen ?? ""}|${r.status}|${JSON.stringify(r.issues)}`).sort();
@@ -297,8 +297,8 @@ Issues that don't fit a check above — one per line.
       const at = regenerated.indexOf(`### ${screen}\n`);
       return regenerated.slice(at).split("\n").find((l) => l.includes("`sr-name-role-value`"))!;
     };
-    expect(line("Login")).toBe("- [ ] **1** Screen reader announces the name, role, and state of every control · `sr-name-role-value`");
-    expect(line("Signup")).toBe("- [!] **1** Screen reader announces the name, role, and state of every control · `sr-name-role-value`");
+    expect(line("Login")).toBe("- [ ] **4.1.2** Screen reader announces the name, role, and state of every control · `sr-name-role-value`");
+    expect(line("Signup")).toBe("- [!] **4.1.2** Screen reader announces the name, role, and state of every control · `sr-name-role-value`");
   });
 
   it("carries answers from the check-first layout (one check, many screens) into the screen-by-screen one", () => {

@@ -170,7 +170,7 @@ describe("runWizard — React Native app", () => {
     const d = deps(cwd, p);
     await runWizard(d);
     expect(p.log).toEqual(["What would you like to do?"]);
-    expect(readFileSync(path, "utf8")).toMatch(/### Inbox\n[\s\S]*?- \[!\] \*\*\d+\*\* [^\n]*`pointer-gestures`: Delete is swipe-only, no button \(high\)/);
+    expect(readFileSync(path, "utf8")).toMatch(/### Inbox\n[\s\S]*?- \[!\] \*\*2\.5\.1\*\* [^\n]*`pointer-gestures`: Delete is swipe-only, no button \(high\)/);
     expect(d.output.join("\n")).toContain("kept 2 answers");
   });
 
@@ -199,7 +199,7 @@ describe("runWizard — React Native app", () => {
     expect(md).toContain("- **Checkout**");
     expect(md).toContain("### Checkout\n");
     // Screen contents are unknown, so feature checks are listed once app-wide.
-    expect(md).toMatch(/- \*\*\d+ Every input has a label[^\n]*\*Only applies if the app has form inputs; none were found in the code/);
+    expect(md).toMatch(/- \*\*3\.3\.2\*\* Every input has a label[^\n]*\*Only applies if the app has form inputs; none were found in the code/);
   });
 });
 
