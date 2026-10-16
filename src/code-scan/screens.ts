@@ -102,7 +102,7 @@ export async function discoverScreens(root: string): Promise<ScreenDiscovery> {
   };
 
   // ── Find screen entries ────────────────────────────────────────────────────
-  const found: Array<{ name: string; file?: string }> = [];
+  const found: Array<{ name: string; file?: string; group?: string; from?: string }> = [];
   let method: ScreenDiscovery["method"] = "none";
 
   for (const abs of files) {
@@ -147,7 +147,7 @@ export async function discoverScreens(root: string): Promise<ScreenDiscovery> {
               if (!name && expr && ts.isIdentifier(expr)) name = expr.text;
             }
           }
-          if (name && hasComponent) found.push({ name, file });
+          if (name && hasComponent) found.push({ name, file, from: abs });
         }
       }
       // createNativeStackNavigator({ screens: { Home: HomeScreen } }) and v4 createStackNavigator({ Home: HomeScreen })
@@ -168,7 +168,7 @@ export async function discoverScreens(root: string): Promise<ScreenDiscovery> {
               value = screen && ts.isPropertyAssignment(screen) ? screen.initializer : undefined;
             }
             const file = value && ts.isIdentifier(value) ? resolveIdent(value.text) : undefined;
-            if (file) found.push({ name, file });
+            if (file) found.push({ name, file, from: abs });
           }
         }
       }
@@ -215,10 +215,15 @@ export async function discoverScreens(root: string): Promise<ScreenDiscovery> {
     if (found.length > 0) method = "folders";
   }
 
+  // React Navigation: order screens the way the app is laid out (root stack, then
+  // each tab/stack in declared order), grouped by the navigators they sit in.
+  const ordered =
+    method === "react-navigation" ? navigationOrder(found, (f) => NAVIGATOR.test(source(f)?.text ?? ""), rel) : found;
+
   // Dedupe: same name, or same file under different names (keep the first name).
   // Nested navigators show up as "screens" too; their child screens are already listed.
-  const unique: Array<{ name: string; file?: string }> = [];
-  for (const s of found) {
+  const unique: Array<{ name: string; file?: string; group?: string }> = [];
+  for (const s of ordered) {
     if (method === "react-navigation" && s.file && NAVIGATOR.test(source(s.file)?.text ?? "")) continue;
     if (unique.some((u) => u.name === s.name || (s.file && u.file === s.file))) continue;
     unique.push(s);
@@ -236,7 +241,8 @@ export async function discoverScreens(root: string): Promise<ScreenDiscovery> {
   };
 
   const screens: ScreenInfo[] = unique.map((s) => {
-    if (!s.file) return { name: s.name, kind: "mobile" };
+    const group = s.group ? { group: s.group } : {};
+    if (!s.file) return { name: s.name, kind: "mobile", ...group };
     const seen = new Set<string>([s.file]);
     const queue = [s.file];
     while (queue.length > 0 && seen.size < 400) {
@@ -253,10 +259,58 @@ export async function discoverScreens(root: string): Promise<ScreenDiscovery> {
       file: rel(s.file),
       files: closure.map(rel).sort(),
       features: detectFeatures(closure.map((f) => source(f)?.text ?? "")),
+      ...group,
     };
   });
 
   return { screens, method };
+}
+
+/**
+ * Walk the navigator tree from the root: each navigator's screens in declared
+ * order, descending into nested navigators (tabs, stacks) where they appear.
+ * Screens are grouped by their navigator path, e.g. "Root" or "Main › BillingTab".
+ */
+function navigationOrder<T extends { name: string; file?: string; from?: string }>(
+  found: T[],
+  isNavigatorFile: (file: string) => boolean,
+  rel: (abs: string) => string,
+): Array<T & { group?: string }> {
+  const byNavigator = new Map<string, T[]>();
+  for (const entry of found) {
+    if (!entry.from) continue;
+    byNavigator.set(entry.from, [...(byNavigator.get(entry.from) ?? []), entry]);
+  }
+  const navigators = new Set(byNavigator.keys());
+  const isNested = (e: T) => Boolean(e.file && (navigators.has(e.file) || isNavigatorFile(e.file)));
+  const nested = new Set(found.filter(isNested).map((e) => e.file!));
+
+  // Roots: navigators no other navigator renders. Prefer App.* and navigator index files.
+  const rank = (f: string) => (/(^|\/)App\.[jt]sx?$/.test(rel(f)) ? 0 : /navigat\w*\/index\.[jt]sx?$/i.test(rel(f)) ? 1 : 2);
+  let roots = [...navigators].filter((f) => !nested.has(f));
+  if (roots.length === 0) roots = [...navigators];
+  roots.sort((a, b) => rank(a) - rank(b) || rel(a).localeCompare(rel(b)));
+
+  const label = (f: string) => {
+    const parts = rel(f).replace(/\.[jt]sx?$/, "").split("/");
+    return parts.at(-1) === "index" && parts.length > 1 ? parts.at(-2)! : parts.at(-1)!;
+  };
+  const out: Array<T & { group?: string }> = [];
+  const visited = new Set<string>();
+  const walk = (file: string, path: string[]) => {
+    if (visited.has(file)) return;
+    visited.add(file);
+    for (const entry of byNavigator.get(file) ?? []) {
+      if (isNested(entry)) {
+        if (navigators.has(entry.file!)) walk(entry.file!, [...path, entry.name]);
+        continue;
+      }
+      out.push({ ...entry, group: path.length ? path.join(" › ") : "Root" });
+    }
+  };
+  roots.forEach((root, i) => walk(root, i === 0 ? [] : [label(root)]));
+  for (const f of navigators) walk(f, [label(f)]); // anything not reachable from a root
+  return out;
 }
 
 // ── Module resolution ────────────────────────────────────────────────────────

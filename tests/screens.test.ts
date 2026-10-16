@@ -62,7 +62,13 @@ describe("discoverScreens — React Navigation", () => {
 
     const { screens, method } = await discoverScreens(root);
     expect(method).toBe("react-navigation");
-    expect(screens.map((s) => s.name)).toEqual(["Login", "Inbox", "Lazy", "Settings"]);
+    // In navigation order: the nested Tabs navigator's screens appear where Tabs is declared.
+    expect(screens.map((s) => [s.name, s.group])).toEqual([
+      ["Login", "Root"],
+      ["Inbox", "Root"],
+      ["Settings", "Tabs"],
+      ["Lazy", "Root"],
+    ]);
 
     const login = screens.find((s) => s.name === "Login")!;
     expect(login.file).toBe("src/screens/LoginScreen.tsx");
@@ -109,6 +115,51 @@ describe("discoverScreens — React Navigation", () => {
     expect(billing.features).toEqual(["inputs"]);
     // A namespace import really can use anything in the barrel, so it still follows all of it.
     expect(screens.find((s) => s.name === "Camera")!.files).toContain("src/components/CameraPermsInstructions.js");
+  });
+
+  it("orders screens root stack first, then each tab in declared order — not by file name", async () => {
+    const screen = (name: string) => `export default function ${name}() { return null; }`;
+    project({
+      "package.json": JSON.stringify({ dependencies: { "react-native": "0.76.0" } }),
+      // File names sort BillingTab < BottomNavigation < OrdersTab < index, which is not the app's order.
+      "src/navigator/index.js": `
+        import Login from "../screens/Login";
+        import Main from "./BottomNavigation";
+        const Stack = createNativeStackNavigator();
+        export default () => <Stack.Navigator><Stack.Screen name="Login" component={Login} /><Stack.Screen name="Main" component={Main} /></Stack.Navigator>;`,
+      "src/navigator/BottomNavigation/index.js": `
+        import Home from "../../screens/Home";
+        import OrdersTab from "../OrdersTab";
+        import BillingTab from "../BillingTab";
+        const Tab = createBottomTabNavigator();
+        export default () => <Tab.Navigator><Tab.Screen name="Home" component={Home} /><Tab.Screen name="OrdersTab" component={OrdersTab} /><Tab.Screen name="BillingTab" component={BillingTab} /></Tab.Navigator>;`,
+      "src/navigator/BillingTab.js": `
+        import Billing from "../screens/Billing";
+        import BillingComingSoon from "../screens/BillingComingSoon";
+        import PayNow from "../screens/PayNow";
+        import InvoiceHistory from "../screens/InvoiceHistory";
+        const Stack = createNativeStackNavigator();
+        export default () => <Stack.Navigator><Stack.Screen name="Billing" component={Billing} /><Stack.Screen name="BillingComingSoon" component={BillingComingSoon} /><Stack.Screen name="PayNow" component={PayNow} /><Stack.Screen name="InvoiceHistory" component={InvoiceHistory} /></Stack.Navigator>;`,
+      "src/navigator/OrdersTab.js": `
+        import AllOrders from "../screens/AllOrders";
+        import OrderDetails from "../screens/OrderDetails";
+        const Stack = createNativeStackNavigator();
+        export default () => <Stack.Navigator><Stack.Screen name="AllOrders" component={AllOrders} /><Stack.Screen name="OrderDetails" component={OrderDetails} /></Stack.Navigator>;`,
+      ...Object.fromEntries(
+        ["Login", "Home", "Billing", "BillingComingSoon", "PayNow", "InvoiceHistory", "AllOrders", "OrderDetails"].map((n) => [`src/screens/${n}.js`, screen(n)]),
+      ),
+    });
+    const { screens } = await discoverScreens(root);
+    expect(screens.map((s) => [s.name, s.group])).toEqual([
+      ["Login", "Root"],
+      ["Home", "Main"],
+      ["AllOrders", "Main › OrdersTab"],
+      ["OrderDetails", "Main › OrdersTab"],
+      ["Billing", "Main › BillingTab"],
+      ["BillingComingSoon", "Main › BillingTab"],
+      ["PayNow", "Main › BillingTab"],
+      ["InvoiceHistory", "Main › BillingTab"],
+    ]);
   });
 
   it("reads static navigator configs", async () => {

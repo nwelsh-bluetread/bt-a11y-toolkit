@@ -316,7 +316,12 @@ async function refreshScreens(deps: WizardDeps, saved: ScreenInfo[], ctx: Naviga
     // Not a React Native project (or unreadable) — context alone can still refresh details.
   }
   const all = applyContext(fresh, ctx);
-  return saved.map((s) => (s.kind === "mobile" ? (all.find((f) => f.name === s.name) ?? s) : s));
+  // Keep the user's selection, refreshed and in the current logical order (hand-added screens last).
+  const position = new Map(all.map((s, i) => [s.name, i]));
+  return saved
+    .map((s, i) => ({ s: s.kind === "mobile" ? (all.find((f) => f.name === s.name) ?? s) : s, i }))
+    .sort((a, b) => (position.get(a.s.name) ?? all.length + a.i) - (position.get(b.s.name) ?? all.length + b.i))
+    .map(({ s }) => s);
 }
 
 async function webPages(deps: WizardDeps): Promise<string[]> {

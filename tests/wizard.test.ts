@@ -266,10 +266,16 @@ describe("runWizard — context docs", () => {
     expect(md).toContain("**Context:** [context/navigation-map.md](context/navigation-map.md)");
     expect(md).toContain("**Main bottom tabs › BillingTab**\n\n- **Billing** — deep link `home/billing` · reached from: Login");
 
-    // Re-run: the saved context is re-applied without asking again.
+    // Re-run: the saved context is re-applied without asking again, and a saved
+    // selection in an old order is put back into the doc's order.
+    const saved = loadSession(cwd)!;
+    saved.screens.reverse();
+    writeFileSync(join(cwd, "a11y-audit", "session.json"), JSON.stringify(saved));
     const again = scripted([{ match: /What would you like to do/, answer: "rerun" }]);
     await runWizard(deps(cwd, again));
-    expect(loadSession(cwd)!.screens.find((s) => s.name === "Inbox")!.reachedFrom).toEqual(["Billing"]);
+    const rerun = loadSession(cwd)!;
+    expect(rerun.screens.map((s) => s.name)).toEqual(["Login", "Billing", "Inbox"]);
+    expect(rerun.screens.find((s) => s.name === "Inbox")!.reachedFrom).toEqual(["Billing"]);
   });
 });
 

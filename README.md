@@ -70,7 +70,9 @@ You'll be asked:
 4. **The compliance level.** Choose **AA** unless told otherwise; it's the
    legal standard.
 5. **Screens.** The toolkit finds the app's screens in its code (and in your
-   context doc) and lists them, grouped by section. If the app has several
+   context doc) and lists them in the app's navigation order (the root stack
+   first, then each tab in the order it's declared, with each tab's screens
+   together), grouped by section. With a context doc, the doc's order is used. If the app has several
    sections, tick the ones in scope (all are ticked to start). Then check the
    list looks right and press Enter. If something's missing, say No and edit
    the list.
