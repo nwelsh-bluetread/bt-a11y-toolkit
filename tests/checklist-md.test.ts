@@ -86,12 +86,20 @@ describe("renderChecklist", () => {
     return passText.slice(at, next === -1 ? undefined : next);
   };
 
-  it("is organized platform → testing pass → screen → checks", () => {
+  it("is organized platform → two passes (screen reader & glance, keyboard) → screen → checks", () => {
     expect(md.indexOf("# iOS")).toBeLessThan(md.indexOf("# Android"));
     const passes = [...ios.matchAll(/^## (\d+\. .+)$/gm)].map((m) => m[1]);
-    expect(passes).toEqual(["1. Screen reader", "2. Keyboard, switch & voice control", "3. Visual, text size & orientation", "4. Touch & gestures", "5. Cognitive: content, forms & behavior", "6. Media, motion & timing"]);
-    expect(ios).toMatch(/## 1\. Screen reader\n\n> \*\*Setup:\*\* Turn on VoiceOver/);
-    expect(android).toMatch(/## 1\. Screen reader\n\n> \*\*Setup:\*\* Turn on TalkBack/);
+    expect(passes).toEqual(["1. Screen reader & glance checks", "2. Keyboard"]);
+    expect(ios).toMatch(/## 1\. Screen reader & glance checks\n\n> \*\*Setup:\*\* Set the Accessibility Shortcut to VoiceOver/);
+    expect(android).toMatch(/## 1\. Screen reader & glance checks\n\n> \*\*Setup:\*\* Turn on the TalkBack shortcut/);
+    expect(pass(ios, 2)).toMatch(/> \*\*Setup:\*\* Turn VoiceOver off\. Pair a Bluetooth keyboard/);
+    // Within each screen of pass 1, checks are grouped by type, screen reader first; keyboard checks are only in pass 2.
+    const login = screenIn(pass(ios, 1), "Login");
+    const types = [...login.matchAll(/^#### (.+)$/gm)].map((m) => m[1]);
+    expect(types).toEqual(["Screen reader", "Voice & switch control", "Visual, text size & orientation", "Touch & gestures", "Cognitive: content, forms & behavior"]);
+    expect(login).not.toContain("`keyboard-operable`");
+    expect(screenIn(pass(ios, 2), "Login")).toContain("`keyboard-operable`");
+    expect(screenIn(pass(ios, 2), "Login")).not.toContain("#### ");
     const sr = pass(ios, 1);
     expect(sr.indexOf("### Login")).toBeLessThan(sr.indexOf("### Inbox"));
     expect(sr.indexOf("### Inbox")).toBeLessThan(sr.indexOf(`### ${APP_WIDE}`));
@@ -104,7 +112,7 @@ describe("renderChecklist", () => {
     );
     expect(sr).toContain("— 1.3.2 Meaningful Sequence (A) · 2.4.3 Focus Order (A).");
     expect(sr).toContain("*Only applies if the app has modals; none were found in the code, so mark N/A if there are none.*");
-    expect(pass(android, 3)).toContain("Set Settings → Display → Font size");
+    expect(pass(android, 1)).toContain("Set Settings → Display → Font size");
   });
 
   it("lists, for each screen, only the checks that apply to it", () => {
@@ -113,9 +121,9 @@ describe("renderChecklist", () => {
     expect(login).toContain("- [ ] **1.2** Reading and focus order is logical and matches the visual layout · `focus-order`");
     expect(login).toContain("`input-labels`");
     expect(inbox).not.toContain("`input-labels`");
-    expect(screenIn(pass(ios, 4), "Inbox")).toContain("`pointer-gestures`");
-    expect(screenIn(pass(ios, 4), "Login")).not.toContain("`pointer-gestures`");
-    expect(screenIn(pass(ios, 3), APP_WIDE)).toContain("`orientation`");
+    expect(screenIn(pass(ios, 1), "Inbox")).toContain("`pointer-gestures`");
+    expect(screenIn(pass(ios, 1), "Login")).not.toContain("`pointer-gestures`");
+    expect(screenIn(pass(ios, 1), APP_WIDE)).toContain("`orientation`");
   });
 
   it("puts automated findings and signals under the check they belong to on that screen", () => {
@@ -123,8 +131,8 @@ describe("renderChecklist", () => {
     expect(screenIn(pass(ios, 1), "Login")).toContain(
       "- [!] **1.6** Every input has a label or instructions (not just placeholder text) · `input-labels` — scan found issues · not reviewed yet\n  ⚑ High · Text input has no accessible label — Login.tsx:12",
     );
-    expect(screenIn(pass(ios, 4), "Inbox")).toMatch(/- \[ \] \*\*4\.1\*\* [^\n]*`pointer-gestures`\n {2}⚑ Verify · Gesture or drag: needs a single-tap alternative — Inbox\.tsx:7/);
-    expect(screenIn(pass(ios, 3), APP_WIDE)).toMatch(/- \[!\] \*\*3\.\d+\*\* [^\n]*`orientation` — scan found issues · not reviewed yet\n {2}⚑ Medium · Screen orientation is locked — app\.json:4/);
+    expect(screenIn(pass(ios, 1), "Inbox")).toMatch(/- \[ \] \*\*1\.\d+\*\* [^\n]*`pointer-gestures`\n {2}⚑ Verify · Gesture or drag: needs a single-tap alternative — Inbox\.tsx:7/);
+    expect(screenIn(pass(ios, 1), APP_WIDE)).toMatch(/- \[!\] \*\*1\.\d+\*\* [^\n]*`orientation` — scan found issues · not reviewed yet\n {2}⚑ Medium · Screen orientation is locked — app\.json:4/);
   });
 
   it("collapses one issue across many files into a single line with severity, short paths, and +N more", () => {
@@ -146,7 +154,7 @@ describe("renderChecklist", () => {
       },
     ];
     const out = renderChecklist({ projectName: "Acme", targetLevel: "AA", groups: planChecklist([shared], ["ios"], "AA"), runs: many });
-    expect(out).toMatch(/### Scheduling\n\n- \[!\] \*\*1\.1\*\* [^\n]*`sr-name-role-value` — scan found issues · not reviewed yet\n {2}⚑ Medium · Touchable has no accessibility role — A\.js:1, B\.js:2, C\.js:3, D\.js:4, E\.js:5 \+2 more\n/);
+    expect(out).toMatch(/### Scheduling\n\n#### Screen reader\n\n- \[!\] \*\*1\.1\*\* [^\n]*`sr-name-role-value` — scan found issues · not reviewed yet\n {2}⚑ Medium · Touchable has no accessibility role — A\.js:1, B\.js:2, C\.js:3, D\.js:4, E\.js:5 \+2 more\n/);
     const details = renderScanDetails({ projectName: "Acme", groups: planChecklist([shared], ["ios"], "AA"), runs: many });
     expect(details).toContain("  - `src/components/Card/index.js` line 6");
     expect(details).toContain("  - `src/components/G.js` line 7");

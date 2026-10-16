@@ -14,7 +14,7 @@ import { appendFileSync, copyFileSync, existsSync, mkdirSync, readdirSync, readF
 import { homedir } from "node:os";
 import { basename, isAbsolute, join } from "node:path";
 import { applyContext, mergeContexts, parseNavigationMap, UNLISTED_GROUP, type NavigationContext } from "../context.js";
-import { MANUAL_CHECKLIST, TEST_MODES, type AuditTarget, type ChecklistItem } from "../checklist.js";
+import { MANUAL_CHECKLIST, TEST_MODES, TEST_PASSES, type AuditTarget, type ChecklistItem } from "../checklist.js";
 import { isReactNativeProject, RN_RULES, type CodeScanResult } from "../code-scan/react-native.js";
 import { FEATURE_LABEL, isFile, screensFromUrls, type ScreenDiscovery, type ScreenInfo } from "../code-scan/screens.js";
 import { LIGHTHOUSE_AUDIT_MAP } from "../integrations/lighthouse.js";
@@ -488,7 +488,7 @@ function displayChecklist(deps: WizardDeps, session: AuditSession, groups: Plann
     out(`\n${bold(`Manual checklist — ${group.title} · WCAG ${session.project.targetLevel}`)}`);
     out(
       dim(
-        `${screens.length} ${noun}${screens.length === 1 ? "" : "s"}. Work through it one testing pass at a time, ${noun} by ${noun} within each pass` +
+        `${screens.length} ${noun}${screens.length === 1 ? "" : "s"}. Two passes: screen reader & glance checks, then keyboard — ${noun} by ${noun} within each` +
           (platforms.length > 1 ? ` — all of ${platforms[0]} first, then the same passes on ${platforms.slice(1).join(" and ")}.` : "."),
       ),
     );
@@ -506,14 +506,21 @@ function displayChecklist(deps: WizardDeps, session: AuditSession, groups: Plann
     }
     const order = new Map(MANUAL_CHECKLIST.map((i, n) => [i.id, n]));
     let n = 0;
-    for (const mode of TEST_MODES) {
-      const checks = [...onCount.values()].filter((c) => c.item.mode === mode.id).sort((a, b) => order.get(a.item.id)! - order.get(b.item.id)!);
-      if (checks.length === 0) continue;
-      const lines = checks.reduce((sum, c) => sum + c.screens + (c.appWide ? 1 : 0), 0);
-      out(`\n  ${bold(`${++n}. ${mode.title}`)} ${dim(`(${checks.length} checks · ${lines} to mark per platform)`)}`);
-      for (const c of checks) {
-        const where = [c.screens ? `${c.screens} ${noun}${c.screens === 1 ? "" : "s"}` : "", c.appWide ? (c.ifPresent ? "app-wide, if present" : "app-wide") : ""].filter(Boolean).join(" + ");
-        out(`    ☐ ${c.item.title} ${dim(`(${c.item.wcag.join(", ")}) — ${where}`)}`);
+    for (const testPass of TEST_PASSES) {
+      const inPass = testPass.modes.flatMap((m) =>
+        [...onCount.values()].filter((c) => c.item.mode === m).sort((a, b) => order.get(a.item.id)! - order.get(b.item.id)!),
+      );
+      if (inPass.length === 0) continue;
+      const lines = inPass.reduce((sum, c) => sum + c.screens + (c.appWide ? 1 : 0), 0);
+      out(`\n  ${bold(`${++n}. ${testPass.title}`)} ${dim(`(${inPass.length} checks · ${lines} to mark per platform, ${noun} by ${noun})`)}`);
+      for (const mode of TEST_MODES.filter((m) => testPass.modes.includes(m.id))) {
+        const checks = inPass.filter((c) => c.item.mode === mode.id);
+        if (checks.length === 0) continue;
+        if (testPass.modes.length > 1) out(`    ${dim(mode.title)}`);
+        for (const c of checks) {
+          const where = [c.screens ? `${c.screens} ${noun}${c.screens === 1 ? "" : "s"}` : "", c.appWide ? (c.ifPresent ? "app-wide, if present" : "app-wide") : ""].filter(Boolean).join(" + ");
+          out(`      ☐ ${c.item.title} ${dim(`(${c.item.wcag.join(", ")}) — ${where}`)}`);
+        }
       }
     }
 

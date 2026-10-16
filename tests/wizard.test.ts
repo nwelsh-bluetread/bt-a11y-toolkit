@@ -113,7 +113,8 @@ describe("runWizard — React Native app", () => {
     expect(out).toContain("React Native code scan");
     expect(out).toMatch(/Manual checklist — Mobile app — iOS \+ Android · WCAG AA/);
     expect(out).toContain("all of iOS first, then the same passes on Android");
-    expect(out).toMatch(/1\. Screen reader \(\d+ checks · \d+ to mark per platform\)/);
+    expect(out).toMatch(/1\. Screen reader & glance checks \(\d+ checks · \d+ to mark per platform, screen by screen\)/);
+    expect(out).toMatch(/2\. Keyboard \(\d+ checks/);
     expect(out).toContain("☐ Swipe, pinch, and drag gestures have a single-tap alternative (2.5.1) — 1 screen");
     expect(out).toContain("⚑ Automated findings by screen: Login (1)");
     expect(out).toContain("npx bt-a11y report");
@@ -170,7 +171,7 @@ describe("runWizard — React Native app", () => {
     const d = deps(cwd, p);
     await runWizard(d);
     expect(p.log).toEqual(["What would you like to do?"]);
-    expect(readFileSync(path, "utf8")).toMatch(/### Inbox\n[\s\S]*?- \[!\] \*\*4\.1\*\* [^\n]*`pointer-gestures`: Delete is swipe-only, no button \(high\)/);
+    expect(readFileSync(path, "utf8")).toMatch(/### Inbox\n[\s\S]*?- \[!\] \*\*1\.\d+\*\* [^\n]*`pointer-gestures`: Delete is swipe-only, no button \(high\)/);
     expect(d.output.join("\n")).toContain("kept 2 answers");
   });
 

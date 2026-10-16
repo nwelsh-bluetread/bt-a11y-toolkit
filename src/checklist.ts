@@ -45,7 +45,7 @@ export interface ChecklistItem {
   mode: TestMode;
 }
 
-export type TestMode = "screen-reader" | "keyboard" | "visual" | "touch" | "cognitive" | "media";
+export type TestMode = "screen-reader" | "voice" | "keyboard" | "visual" | "touch" | "cognitive" | "media";
 
 /**
  * Testing passes, in the order testers do them. Each starts with a one-time
@@ -62,11 +62,20 @@ export const TEST_MODES: Array<{ id: TestMode; title: string; setup: Partial<Rec
     },
   },
   {
-    id: "keyboard",
-    title: "Keyboard, switch & voice control",
+    id: "voice",
+    title: "Voice & switch control",
     setup: {
-      ios: "Turn VoiceOver off. Pair a Bluetooth keyboard and turn on Full Keyboard Access (Settings → Accessibility → Keyboards). Voice Control (Settings → Accessibility → Voice Control) is used for the label check.",
-      android: "Turn TalkBack off. Pair a Bluetooth or USB keyboard. Voice Access is used for the label check.",
+      ios: "Turn VoiceOver off and Voice Control on (Settings → Accessibility → Voice Control).",
+      android: "Turn TalkBack off and Voice Access on.",
+      web: "Use your OS voice control (Voice Control on Mac, Voice Access on Windows).",
+    },
+  },
+  {
+    id: "keyboard",
+    title: "Keyboard",
+    setup: {
+      ios: "Turn VoiceOver off. Pair a Bluetooth keyboard and turn on Full Keyboard Access (Settings → Accessibility → Keyboards).",
+      android: "Turn TalkBack off. Pair a Bluetooth or USB keyboard.",
       web: "Turn the screen reader off and put the mouse away: use Tab, Shift+Tab, Enter, Space, Esc, and the arrow keys.",
     },
   },
@@ -1076,12 +1085,12 @@ const MODES: Record<string, TestMode> = {
   "keyboard-operable": "keyboard",
   "character-shortcuts": "keyboard",
   "bypass-blocks": "keyboard",
-  "label-in-name": "keyboard",
+  "label-in-name": "voice",
   "focus-visible": "keyboard",
   "focus-not-obscured": "keyboard",
   "keyboard-no-exception": "keyboard",
   "focus-enhanced": "keyboard",
-  "concurrent-input": "keyboard",
+  "concurrent-input": "voice",
   "color-alone": "visual",
   "contrast": "visual",
   "resize-text": "visual",
@@ -1139,7 +1148,41 @@ export const MANUAL_CHECKLIST: ChecklistItem[] = ITEMS.map((item) => {
   return { ...item, ...scope, mode };
 });
 
-/** Setup text for a testing pass on a platform. */
+/**
+ * The passes testers actually make through the app, per platform. Everything
+ * that only needs the phone itself is done screen by screen in one pass
+ * (VoiceOver toggled with the shortcut); the keyboard checks, which need a
+ * keyboard paired, get their own pass.
+ */
+export const TEST_PASSES: Array<{ id: string; title: string; modes: TestMode[]; setup: Partial<Record<AuditTarget | "default", string>> }> = [
+  {
+    id: "main",
+    title: "Screen reader & glance checks",
+    modes: ["screen-reader", "voice", "visual", "touch", "cognitive", "media"],
+    setup: {
+      ios: "Set the Accessibility Shortcut to VoiceOver (Settings → Accessibility → Accessibility Shortcut) so a triple-click of the side button turns it on and off, and add Text Size to Control Center. On each screen, do the screen reader checks with VoiceOver on, then turn it off for the rest.",
+      android: "Turn on the TalkBack shortcut (hold both volume keys) and, if available, add Font size to Quick Settings. On each screen, do the screen reader checks with TalkBack on, then turn it off for the rest.",
+      web: "Have NVDA (Windows) or VoiceOver (Cmd+F5 on Mac) ready. On each page, do the screen reader checks with it on, then turn it off for the rest.",
+    },
+  },
+  {
+    id: "keyboard",
+    title: "Keyboard",
+    modes: ["keyboard"],
+    setup: {
+      ios: "Turn VoiceOver off. Pair a Bluetooth keyboard and turn on Full Keyboard Access (Settings → Accessibility → Keyboards), then go through every screen.",
+      android: "Turn TalkBack off. Pair a Bluetooth or USB keyboard, then go through every screen.",
+      web: "Turn the screen reader off and put the mouse away: use Tab, Shift+Tab, Enter, Space, Esc, and the arrow keys on every page.",
+    },
+  },
+];
+
+/** Setup text for a pass on a platform. */
+export function passSetup(pass: (typeof TEST_PASSES)[number], target: AuditTarget): string {
+  return pass.setup[target] ?? pass.setup.default ?? "";
+}
+
+/** Setup text for a testing mode on a platform. */
 export function modeSetup(mode: TestMode, target: AuditTarget): string {
   const m = TEST_MODES.find((x) => x.id === mode)!;
   return m.setup[target] ?? m.setup.default ?? "";
