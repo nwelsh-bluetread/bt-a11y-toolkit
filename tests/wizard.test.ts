@@ -121,8 +121,8 @@ describe("runWizard — React Native app", () => {
     const md = read("checklist.md");
     expect(md).toContain("# iOS");
     expect(md).toContain("## 1. Screen reader");
-    expect(md).toContain("- [!] **Login** — scan found issues · not reviewed yet\n  ⚑ High · Text input has no accessible label — Login.tsx:12");
-    expect(md).toContain("- [ ] **Inbox**\n  ⚑ Verify · Gesture or drag: needs a single-tap alternative — Inbox.tsx:9");
+    expect(md).toMatch(/### Login\n[\s\S]*?`input-labels` — scan found issues · not reviewed yet\n {2}⚑ High · Text input has no accessible label — Login\.tsx:12/);
+    expect(md).toMatch(/### Inbox\n[\s\S]*?- \[ \] [^\n]*`pointer-gestures`\n {2}⚑ Verify · Gesture or drag: needs a single-tap alternative — Inbox\.tsx:9/);
     expect(read("scan-details.md")).toContain("### High · Text input has no accessible label\n\n- **WCAG:** 3.3.2 Labels or Instructions (A), 4.1.2 Name, Role, Value (A)\n- **Where:**\n  - `src/Login.tsx` line 12");
     expect(read("report.md")).toContain("## WCAG 2.2 criteria coverage");
     expect(readFileSync(join(cwd, ".gitignore"), "utf8")).toContain("a11y-audit/");
@@ -146,12 +146,15 @@ describe("runWizard — React Native app", () => {
     // A tester marks the gestures check on the Inbox screen: fails on iOS, passes on Android.
     const path = join(cwd, "a11y-audit", "checklist.md");
     let md = readFileSync(path, "utf8");
-    const mark = (part: string, replacement: string) => {
-      const at = md.indexOf("`pointer-gestures`", md.indexOf(part));
-      md = md.slice(0, at) + md.slice(at).replace("- [ ] **Inbox**", replacement);
+    const mark = (part: string, edit: (line: string) => string) => {
+      const lines = md.split("\n");
+      let i = lines.indexOf(part);
+      while (!(lines[i]!.startsWith("- [ ]") && lines[i]!.includes("`pointer-gestures`"))) i++;
+      lines[i] = edit(lines[i]!);
+      md = lines.join("\n");
     };
-    mark("# iOS", "- [!] Inbox: Delete is swipe-only, no button (high)");
-    mark("# Android", "- [x] Inbox");
+    mark("# iOS", (l) => `${l.replace("- [ ]", "- [!]")}: Delete is swipe-only, no button (high)`);
+    mark("# Android", (l) => l.replace("- [ ]", "- [x]"));
     writeFileSync(path, md);
 
     const { assessment, coverage } = writeReports(cwd, loadSession(cwd)!);
@@ -167,7 +170,7 @@ describe("runWizard — React Native app", () => {
     const d = deps(cwd, p);
     await runWizard(d);
     expect(p.log).toEqual(["What would you like to do?"]);
-    expect(readFileSync(path, "utf8")).toContain("- [!] **Inbox**: Delete is swipe-only, no button (high)");
+    expect(readFileSync(path, "utf8")).toMatch(/### Inbox\n[\s\S]*?- \[!\] \*\*4\.1\*\* [^\n]*`pointer-gestures`: Delete is swipe-only, no button \(high\)/);
     expect(d.output.join("\n")).toContain("kept 2 answers");
   });
 
@@ -194,9 +197,9 @@ describe("runWizard — React Native app", () => {
     expect(session.automated).toEqual([]);
     const md = read("checklist.md");
     expect(md).toContain("- **Checkout**");
-    expect(md).toContain("- [ ] **Checkout**");
+    expect(md).toContain("### Checkout\n");
     // Screen contents are unknown, so feature checks are listed once app-wide.
-    expect(md).toMatch(/`input-labels`\n[\s\S]*?\*Only applies if the app has form inputs\. None were found in the code/);
+    expect(md).toMatch(/- \*\*1\.\d+ Every input has a label[^\n]*\*Only applies if the app has form inputs; none were found in the code/);
   });
 });
 
@@ -329,7 +332,7 @@ describe("runWizard — website", () => {
     expect(md).toContain("- **/about** — https://acme.test/about · ⚑ 2 automated findings");
     expect(md).toContain("  - ⚑ High · x (1.1.1; no check covers this)");
     expect(md).toContain("# Website");
-    expect(md).toContain("- [ ] **/about**");
+    expect(md).toContain("### /about\n");
     expect(existsSync(join(cwd, "a11y-audit", "report.json"))).toBe(true);
   });
 });

@@ -132,20 +132,24 @@ instead of switching settings screen by screen:
    5. **Cognitive: content, forms & behavior** (wording, forms and errors, consistency, sign-in)
    6. **Media, motion & timing**
 3. Each pass starts with a **Setup** line (for example, "Turn on VoiceOver and
-   keep it on for this whole section"). Under it are the checks, numbered by
-   pass (1.1, 1.2… then 2.1…). Each check shows its title in bold, the
-   **WCAG criteria** it covers (number, name, and level), **how to test** it,
-   and **the screens to test it on**.
+   keep it on for this whole section"), then a short list of the pass's checks,
+   numbered by pass (1.1, 1.2… then 2.1…), each with the **WCAG criteria** it
+   covers (number, name, and level) and **how to test** it.
+4. Then the pass goes **screen by screen**, in the app's navigation order:
+   under each screen's heading are the checks to do on that screen. Do them all
+   on one screen, then move to the next.
 
-Screens only get the checks that apply to them. A form check lists only the
-screens with forms, and a gesture check only the screens with swipe actions.
-Whole-app checks, like screen rotation and language, have a single
-**App-wide** line. The **Screens in scope** list at the top shows each screen's
+Screens only get the checks that apply to them. Form checks appear only on
+screens with forms, and gesture checks only on screens with swipe actions.
+Whole-app checks, like screen rotation and language, are listed once under
+**App-wide** at the end of each pass. The **Screens in scope** list at the top shows each screen's
 deep link, how it's reached, and what the scan found there.
 
-For each check:
-1. **Read "How to test."** It has step-by-step instructions for that platform.
-2. **Test it on each screen listed**, on a real phone.
+For each screen in a pass:
+1. **Open the screen** (its deep link and how it's reached are shown under its
+   heading).
+2. **Do each listed check**, on a real phone. The pass's check list at the top
+   has the "how to test" steps.
 3. **Look at any ⚑ lines** under a screen. They show what the automated checks
    already found there, one line per issue with its severity and where it is,
    e.g. `⚑ Medium · Touchable has no accessibility role — HeaderBackButton.js:29, LiveChatButton.js:10 +3 more`.
@@ -168,27 +172,26 @@ For each check:
    - If you mark a line `[x]` but the scan found an issue there,
      `npx bt-a11y report` warns you. The scan finding still counts, so change
      it to `[!]` unless you've confirmed the scan is wrong.
-4. **Mark each screen:**
+4. **Mark each check:**
 
 | You type | Meaning |
 | --- | --- |
-| `- [x] Login` | Passed on that screen |
-| `- [!] Login: what went wrong (high)` | Failed. Describe what happened; severity is optional |
-| `- [-] Login` | Not applicable (e.g. no videos on that screen) |
-| `- [ ] Login` | Not tested yet (leave as is) |
+| `- [x] **1.6** Every input has a label… · `input-labels`` | Passed on this screen |
+| `- [!] **1.6** … · `input-labels`: what went wrong (high)` | Failed. Describe what happened after a colon; severity is optional |
+| `- [-] **1.6** …` | Not applicable (e.g. no videos on this screen) |
+| `- [ ] **1.6** …` | Not tested yet (leave as is) |
 
 **Example:**
 ```
-### 1.6 **Every input has a label or instructions (not just placeholder text)** · `input-labels`
+### Signup
 
-**Criteria:** 3.3.2 Labels or Instructions (A)
+*deep link `signup` · reached from Login*
 
-**How to test:** Focus each field with the screen reader. It should announce a label…
-
-- [x] Login
-- [!] Signup: Email field is read out as "edit box" with no label (high)
+- [x] **1.1** Screen reader announces the name, role, and state of every control · `sr-name-role-value`
+- [x] **1.2** Reading and focus order is logical and matches the visual layout · `focus-order`
+- [!] **1.6** Every input has a label or instructions (not just placeholder text) · `input-labels`: Email field is read out as "edit box" with no label (high)
   - Password field has no label either (medium)
-- [ ] Settings
+- [ ] **1.7** Link and button purpose is clear from its text or context · `link-purpose`
 ```
 
 **Severity guide:**
@@ -326,18 +329,19 @@ affected file.
 
 **3. The manual checklist** — printed in the terminal and written to
 `a11y-audit/checklist.md`, organized to minimize switching tools:
-**platform → testing pass → check → screens**. Each platform (iOS, Android,
+**platform → testing pass → screen → checks**. Each platform (iOS, Android,
 Website) has six passes: screen reader; keyboard, switch & voice control;
-visual, text size & orientation; touch & gestures; cognitive (content, forms & behavior);
-and media, motion & timing. Each pass opens with a one-time setup, and each
-check lists only the screens it applies to: every screen for the basics, only
-screens with inputs for form checks, only screens with swipes for gesture
-checks, and one "App-wide" line for whole-app checks. ⚑ lines under a screen
-show what the scans found or flagged there. A "Screens in scope" index at the
-top gives each screen's deep link, how it's reached, its file, and its
-contents.
+visual, text size & orientation; touch & gestures; cognitive (content, forms &
+behavior); and media, motion & timing. Each pass opens with a one-time setup
+and a numbered list of its checks (criteria + how to test), then goes screen
+by screen in navigation order, listing only the checks that apply to each
+screen: every screen gets the basics, screens with inputs get the form checks,
+screens with swipes get the gesture checks, and whole-app checks go under
+"App-wide" at the end of the pass. ⚑ lines under a check show what the scans
+found or flagged there. A "Screens in scope" index at the top gives each
+screen's deep link, how it's reached, its file, and its contents.
 
-Testers fill in `checklist.md`, marking each screen line:
+Testers fill in `checklist.md`, marking each check under each screen:
 
 ```markdown
 # iOS
@@ -346,24 +350,26 @@ Testers fill in `checklist.md`, marking each screen line:
 
 > **Setup:** Turn on VoiceOver … and keep it on for this whole section.
 
-### 1.6 **Every input has a label or instructions (not just placeholder text)** · `input-labels`
+**Checks in this pass — how to test each:**
 
-**Criteria:** 3.3.2 Labels or Instructions (A)
+- **1.1 Screen reader announces the name, role, and state of every control** — 4.1.2 Name, Role, Value (A). Swipe right through every control…
+- **1.6 Every input has a label or instructions (not just placeholder text)** — 3.3.2 Labels or Instructions (A). Focus each field…
 
-**How to test:** Focus each field with the screen reader. …
+### Signup
 
-- [x] Login
-- [!] Signup: Email field is announced as "edit box" with no label (high)
+*deep link `signup` · reached from Login*
+
+- [x] **1.1** Screen reader announces the name, role, and state of every control · `sr-name-role-value`
+- [!] **1.6** Every input has a label or instructions (not just placeholder text) · `input-labels`: Email field is announced as "edit box" (high)
   - Password field has no label either (medium)
-  ⚑ rn-code-scan: Text input has no accessible label (src/Signup.tsx:12)
-- [-] Settings
+  ⚑ High · Text input has no accessible label — Signup.tsx:12
 ```
 
-`[x]` pass · `[!]` fail (describe the issue after the screen name, optional
-`(severity)` and `[criterion]`) · `[-]` not applicable · `[ ]` not checked
-yet. Issues that don't fit a check go under **Other findings** at the bottom.
-Checklists in the earlier screen-by-screen layout are converted, with their
-answers, the next time `npx bt-a11y` runs.
+`[x]` pass · `[!]` fail (describe the issue after the check, following a
+colon, with optional `(severity)` and `[criterion]`) · `[-]` not applicable ·
+`[ ]` not checked yet. Issues that don't fit a check go under **Other
+findings** at the bottom. Checklists in earlier layouts are converted, with
+their answers, the next time `npx bt-a11y` runs.
 
 Then **`npx bt-a11y report`** reads the scans + checklist and writes
 `a11y-audit/report.md` and `report.json` (score, findings with screen and
@@ -1066,7 +1072,7 @@ Each file can be run on its own with `npx vitest run tests/<file>`.
 | `tests/update.test.ts` | Reading the installed commit from the project's lockfile, and pinned versions, for `bt-a11y update`. | `npx vitest run tests/update.test.ts` |
 | `tests/context.test.ts` | Context docs: navigation-map tables (groups, nested stacks, deep links, "opens on"), Mermaid flows, and merging with screens found in code. | `npx vitest run tests/context.test.ts` |
 | `tests/screens.test.ts` | Screen discovery: React Navigation (barrels, path aliases, `getComponent`, nested navigators skipped), static configs, expo-router, folder fallback, feature detection. | `npx vitest run tests/screens.test.ts` |
-| `tests/checklist-md.test.ts` | The checklist file: planning (feature-tailored checks), the platform → testing pass → check → screens layout, ⚑ findings under the right screen, parsing marks/issues/Other findings, and carrying answers over (including from the earlier screen-first layout). | `npx vitest run tests/checklist-md.test.ts` |
+| `tests/checklist-md.test.ts` | The checklist file: planning (feature-tailored checks), the platform → testing pass → screen → checks layout, ⚑ findings under the right check, parsing marks/issues/Other findings, and carrying answers over (including from earlier layouts). | `npx vitest run tests/checklist-md.test.ts` |
 | `tests/summary-pdf.test.ts` | Summary PDF data (cover fields, severity totals match the report, findings named by screen + platform, overrides) and reading veraPDF PASS/FAIL results. | `npx vitest run tests/summary-pdf.test.ts` |
 | `tests/coverage.test.ts` | The WCAG 2.2 coverage matrix: level scoping and every status. | `npx vitest run tests/coverage.test.ts` |
 | `tests/wizard.test.ts` | The guided audit end to end with scripted answers: React Native, non-RN mobile, and web flows; only setup prompts; checklist written and displayed; filled-in checklist → report; re-run keeps answers. | `npx vitest run tests/wizard.test.ts` |

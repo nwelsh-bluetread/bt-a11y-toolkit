@@ -488,7 +488,7 @@ function displayChecklist(deps: WizardDeps, session: AuditSession, groups: Plann
     out(`\n${bold(`Manual checklist — ${group.title} · WCAG ${session.project.targetLevel}`)}`);
     out(
       dim(
-        `${screens.length} ${noun}${screens.length === 1 ? "" : "s"}. Work through it one testing pass at a time` +
+        `${screens.length} ${noun}${screens.length === 1 ? "" : "s"}. Work through it one testing pass at a time, ${noun} by ${noun} within each pass` +
           (platforms.length > 1 ? ` — all of ${platforms[0]} first, then the same passes on ${platforms.slice(1).join(" and ")}.` : "."),
       ),
     );

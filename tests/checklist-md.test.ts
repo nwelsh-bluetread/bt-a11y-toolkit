@@ -72,44 +72,59 @@ describe("renderChecklist", () => {
   const md = renderChecklist({ projectName: "Acme", targetLevel: "AA", groups, runs });
   const ios = md.slice(md.indexOf("# iOS"), md.indexOf("# Android"));
   const android = md.slice(md.indexOf("# Android"), md.indexOf("# Other findings"));
-  /** One check's block within a platform part. */
-  const check = (part: string, id: string) => {
-    const at = part.indexOf(`\`${id}\``);
-    return part.slice(at, part.indexOf("\n### ", at) === -1 ? undefined : part.indexOf("\n### ", at));
+  /** A testing pass ("## 1. …") within a platform part. */
+  const pass = (part: string, n: number) => {
+    const at = part.indexOf(`## ${n}. `);
+    const next = part.indexOf(`\n## ${n + 1}. `, at);
+    return part.slice(at, next === -1 ? undefined : next);
+  };
+  /** One screen's block within a pass. */
+  const screenIn = (passText: string, name: string) => {
+    const at = passText.indexOf(`### ${name}\n`);
+    if (at === -1) return "";
+    const next = passText.indexOf("\n### ", at + 4);
+    return passText.slice(at, next === -1 ? undefined : next);
   };
 
-  it("is organized platform → testing pass → check → screens", () => {
+  it("is organized platform → testing pass → screen → checks", () => {
     expect(md.indexOf("# iOS")).toBeLessThan(md.indexOf("# Android"));
     const passes = [...ios.matchAll(/^## (\d+\. .+)$/gm)].map((m) => m[1]);
     expect(passes).toEqual(["1. Screen reader", "2. Keyboard, switch & voice control", "3. Visual, text size & orientation", "4. Touch & gestures", "5. Cognitive: content, forms & behavior", "6. Media, motion & timing"]);
     expect(ios).toMatch(/## 1\. Screen reader\n\n> \*\*Setup:\*\* Turn on VoiceOver/);
     expect(android).toMatch(/## 1\. Screen reader\n\n> \*\*Setup:\*\* Turn on TalkBack/);
+    const sr = pass(ios, 1);
+    expect(sr.indexOf("### Login")).toBeLessThan(sr.indexOf("### Inbox"));
+    expect(sr.indexOf("### Inbox")).toBeLessThan(sr.indexOf(`### ${APP_WIDE}`));
   });
 
-  it("gives each check a numbered bold title, the criteria by name and level, and labeled how-to", () => {
-    expect(ios).toContain(
-      "### 1.6 **Every input has a label or instructions (not just placeholder text)** · `input-labels`\n\n" +
-        "**Criteria:** 3.3.2 Labels or Instructions (A)\n\n" +
-        "**How to test:** Focus each field with the screen reader.",
+  it("explains every check once per pass, with criteria by name and level and how to test", () => {
+    const sr = pass(ios, 1);
+    expect(sr).toContain(
+      "- **1.6 Every input has a label or instructions (not just placeholder text)** — 3.3.2 Labels or Instructions (A). Focus each field with the screen reader.",
     );
-    expect(ios).toContain("**Criteria:** 1.3.2 Meaningful Sequence (A) · 2.4.3 Focus Order (A)");
-    expect(ios).toContain("*Only applies if the app has modals. None were found in the code, so mark it N/A if there are none.*");
+    expect(sr).toContain("— 1.3.2 Meaningful Sequence (A) · 2.4.3 Focus Order (A).");
+    expect(sr).toContain("*Only applies if the app has modals; none were found in the code, so mark N/A if there are none.*");
+    expect(pass(android, 3)).toContain("Set Settings → Display → Font size");
   });
 
-  it("lists the screens each check applies to, with platform-specific how-to", () => {
-    expect(check(ios, "sr-name-role-value")).toMatch(/\*\*How to test:\*\* Turn on VoiceOver[^\n]*\n\n- \[!\] \*\*Login\*\* — scan found issues · not reviewed yet\n[\s\S]*- \[ \] \*\*Inbox\*\*/);
-    expect(check(ios, "input-labels")).toContain("- [!] **Login**");
-    expect(check(ios, "input-labels")).not.toContain("Inbox");
-    expect(check(ios, "pointer-gestures")).toContain("- [ ] **Inbox**");
-    expect(check(ios, "orientation")).toContain("- [!] **App-wide**");
-    expect(check(android, "resize-text")).toContain("**How to test:** Set Settings → Display → Font size");
+  it("lists, for each screen, only the checks that apply to it", () => {
+    const login = screenIn(pass(ios, 1), "Login");
+    const inbox = screenIn(pass(ios, 1), "Inbox");
+    expect(login).toContain("- [ ] **1.2** Reading and focus order is logical and matches the visual layout · `focus-order`");
+    expect(login).toContain("`input-labels`");
+    expect(inbox).not.toContain("`input-labels`");
+    expect(screenIn(pass(ios, 4), "Inbox")).toContain("`pointer-gestures`");
+    expect(screenIn(pass(ios, 4), "Login")).not.toContain("`pointer-gestures`");
+    expect(screenIn(pass(ios, 3), APP_WIDE)).toContain("`orientation`");
   });
 
-  it("puts automated findings and signals under the screen they belong to", () => {
+  it("puts automated findings and signals under the check they belong to on that screen", () => {
     // A scan finding pre-marks the line as failing; a "Verify" signal leaves it for the tester.
-    expect(check(ios, "input-labels")).toContain("- [!] **Login** — scan found issues · not reviewed yet\n  ⚑ High · Text input has no accessible label — Login.tsx:12");
-    expect(check(ios, "pointer-gestures")).toContain("- [ ] **Inbox**\n  ⚑ Verify · Gesture or drag: needs a single-tap alternative — Inbox.tsx:7");
-    expect(check(ios, "orientation")).toContain("- [!] **App-wide** — scan found issues · not reviewed yet\n  ⚑ Medium · Screen orientation is locked — app.json:4");
+    expect(screenIn(pass(ios, 1), "Login")).toContain(
+      "- [!] **1.6** Every input has a label or instructions (not just placeholder text) · `input-labels` — scan found issues · not reviewed yet\n  ⚑ High · Text input has no accessible label — Login.tsx:12",
+    );
+    expect(screenIn(pass(ios, 4), "Inbox")).toMatch(/- \[ \] \*\*4\.1\*\* [^\n]*`pointer-gestures`\n {2}⚑ Verify · Gesture or drag: needs a single-tap alternative — Inbox\.tsx:7/);
+    expect(screenIn(pass(ios, 3), APP_WIDE)).toMatch(/- \[!\] \*\*3\.\d+\*\* [^\n]*`orientation` — scan found issues · not reviewed yet\n {2}⚑ Medium · Screen orientation is locked — app\.json:4/);
   });
 
   it("collapses one issue across many files into a single line with severity, short paths, and +N more", () => {
@@ -131,7 +146,7 @@ describe("renderChecklist", () => {
       },
     ];
     const out = renderChecklist({ projectName: "Acme", targetLevel: "AA", groups: planChecklist([shared], ["ios"], "AA"), runs: many });
-    expect(out).toContain("- [!] **Scheduling** — scan found issues · not reviewed yet\n  ⚑ Medium · Touchable has no accessibility role — A.js:1, B.js:2, C.js:3, D.js:4, E.js:5 +2 more\n");
+    expect(out).toMatch(/### Scheduling\n\n- \[!\] \*\*1\.1\*\* [^\n]*`sr-name-role-value` — scan found issues · not reviewed yet\n {2}⚑ Medium · Touchable has no accessibility role — A\.js:1, B\.js:2, C\.js:3, D\.js:4, E\.js:5 \+2 more\n/);
     const details = renderScanDetails({ projectName: "Acme", groups: planChecklist([shared], ["ios"], "AA"), runs: many });
     expect(details).toContain("  - `src/components/Card/index.js` line 6");
     expect(details).toContain("  - `src/components/G.js` line 7");
@@ -218,7 +233,7 @@ Issues that don't fit a check above — one per line.
     const groups = planChecklist(screens, ["ios", "android"], "AA");
     const regenerated = renderChecklist({ projectName: "Acme", targetLevel: "AA", groups, runs, previous: parsed });
     const android = regenerated.slice(regenerated.indexOf("# Android"), regenerated.indexOf("# Other findings"));
-    expect(android).toContain('- [!] **Login**: Email field is read as "edit box" (critical)\n  - Password field has no label either [3.3.2]');
+    expect(android).toMatch(/### Login\n[\s\S]*?- \[!\] \*\*1\.6\*\* [^\n]*`input-labels`: Email field is read as "edit box" \(critical\)\n {2}- Password field has no label either \[3\.3\.2\]/);
     expect(regenerated).toContain("- [!] iOS, Android · Inbox · 1.4.3 · Unread badge text is too light (medium)");
     const answered = (p: typeof parsed) =>
       p.rows.filter((r) => r.status !== "open").map((r) => `${r.target}|${r.itemId}|${r.screen ?? ""}|${r.status}|${JSON.stringify(r.issues)}`).sort();
@@ -279,9 +294,34 @@ Issues that don't fit a check above — one per line.
     // On regenerate, a reviewed line is kept; an untouched pre-fill follows the current scan (here: fixed, so it's blank).
     const screensNow: ScreenInfo[] = ["Login", "Signup"].map((name) => ({ name, kind: "mobile", file: `src/${name}.tsx`, files: [`src/${name}.tsx`], features: [] }));
     const regenerated = renderChecklist({ projectName: "Acme", targetLevel: "AA", groups: planChecklist(screensNow, ["ios"], "AA"), runs: [], previous: parsed });
-    const block = regenerated.slice(regenerated.indexOf("`sr-name-role-value`"));
-    expect(block).toContain("- [ ] **Login**\n");
-    expect(block).toContain("- [!] **Signup**\n");
+    const line = (screen: string) => {
+      const at = regenerated.indexOf(`### ${screen}\n`);
+      return regenerated.slice(at).split("\n").find((l) => l.includes("`sr-name-role-value`"))!;
+    };
+    expect(line("Login")).toBe("- [ ] **1.1** Screen reader announces the name, role, and state of every control · `sr-name-role-value`");
+    expect(line("Signup")).toBe("- [!] **1.1** Screen reader announces the name, role, and state of every control · `sr-name-role-value`");
+  });
+
+  it("carries answers from the check-first layout (one check, many screens) into the screen-by-screen one", () => {
+    const checkFirst = [
+      "# iOS",
+      "## 1. Screen reader",
+      "### 1.6 **Every input has a label** · `input-labels`",
+      "- [x] **Login**",
+      "- [!] **Signup**: Email field has no label (high)",
+      "### 1.1 **Name, role, value** · `sr-name-role-value`",
+      "- [-] **App-wide**",
+    ].join("\n");
+    const before = parseChecklist(checkFirst);
+    const two: ScreenInfo[] = ["Login", "Signup"].map((name) => ({ name, kind: "mobile", file: `src/${name}.tsx`, files: [`src/${name}.tsx`], features: ["inputs"] }));
+    const after = parseChecklist(renderChecklist({ projectName: "A", targetLevel: "AA", groups: planChecklist(two, ["ios"], "AA"), runs: [], previous: before }));
+    const answered = (p: typeof before) => p.rows.filter((r) => r.status !== "open").map((r) => [r.screen, r.itemId, r.status, r.issues.map((i) => i.text)]);
+    expect(answered(after)).toEqual(
+      expect.arrayContaining([
+        ["Login", "input-labels", "pass", []],
+        ["Signup", "input-labels", "fail", ["Email field has no label"]],
+      ]),
+    );
   });
 
   it("reads the new layout: screen labels, App-wide, and issues", () => {
