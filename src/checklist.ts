@@ -585,7 +585,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
     howTo: {
       web: "Check small icon buttons, close (×) buttons, and inline links in dense lists. Each should be at least 24×24 CSS px or have spacing so a 24px circle doesn't overlap neighbors.",
       ios: "Accessibility Inspector's audit flags small hit regions; also try tapping small icons and closely spaced controls — they should not misfire.",
-      android: "Accessibility Scanner flags small touch targets; also try tapping small icons and closely spaced controls — they should not misfire.",
+      android: "Run `npx bt-a11y target-size` with the app open on a device or emulator: it measures every control and fills in this line. Otherwise, Accessibility Scanner flags small touch targets; also try tapping small icons and closely spaced controls — they should not misfire.",
     },
   },
   {

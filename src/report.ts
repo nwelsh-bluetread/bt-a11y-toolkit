@@ -1,4 +1,4 @@
-import type { Assessment, Finding, Severity } from "./types.js";
+import type { Assessment, Finding, Platform, Severity } from "./types.js";
 
 const SEVERITY_LABEL: Record<Severity, string> = {
   critical: "Critical",
@@ -58,6 +58,18 @@ export function formatJson(assessment: Assessment): string {
 }
 
 /** A full Markdown report suitable for the executive/verification deliverables. */
+const PLATFORM_NAME: Record<string, string> = { ios: "iOS", android: "Android", web: "Web", "react-native": "React Native" };
+const platformNames = (list: readonly string[]) => list.map((p) => PLATFORM_NAME[p] ?? p).join(", ");
+
+/** "· iOS only" / "· iOS + Android" when the assessment covers several platforms. */
+function platformTag(f: Finding, all: readonly string[] | undefined): string {
+  if (!all || all.length < 2) return "";
+  const on = f.platforms?.length ? all.filter((p) => f.platforms!.includes(p as Platform)) : all;
+  if (on.length === 0) return "";
+  const names = on.map((p) => PLATFORM_NAME[p] ?? p).join(" + ");
+  return on.length === all.length ? ` · ${names}` : ` · ${names} only`;
+}
+
 export function formatMarkdown(assessment: Assessment): string {
   const { overallScore, counts, wcag, categories, findings, platform, targetLevel, generatedAt } =
     assessment;
@@ -65,7 +77,7 @@ export function formatMarkdown(assessment: Assessment): string {
   lines.push(`# Accessibility Assessment`);
   lines.push("");
   lines.push(`- **Generated:** ${generatedAt}`);
-  lines.push(`- **Platform:** ${assessment.platforms?.join(", ") ?? platform}`);
+  lines.push(`- **Platform:** ${assessment.platforms ? platformNames(assessment.platforms) : platform}`);
   lines.push(`- **Target WCAG level:** ${targetLevel}`);
   lines.push(`- **Overall score:** ${overallScore}%`);
   lines.push("");
@@ -102,7 +114,7 @@ export function formatMarkdown(assessment: Assessment): string {
     lines.push("No findings. 🎉");
   } else {
     for (const f of sortFindings(findings)) {
-      lines.push(`### ${SEVERITY_ICON[f.severity]} ${f.title}`);
+      lines.push(`### ${SEVERITY_ICON[f.severity]} ${f.title}${platformTag(f, assessment.platforms)}`);
       lines.push("");
       lines.push(`- **Rule:** \`${f.ruleId}\``);
       lines.push(`- **Severity:** ${SEVERITY_LABEL[f.severity]}`);
@@ -110,7 +122,7 @@ export function formatMarkdown(assessment: Assessment): string {
       if (f.nodeId || f.nodeType) {
         lines.push(`- **Element:** ${f.nodeType ?? "unknown"}${f.nodeId ? ` (\`${f.nodeId}\`)` : ""}`);
       }
-      if (f.platforms?.length) lines.push(`- **Platforms:** ${f.platforms.join(", ")}`);
+      if (f.platforms?.length) lines.push(`- **Platforms:** ${platformNames(f.platforms)}`);
       if (f.source) lines.push(`- **Source:** ${f.source}`);
       lines.push(`- **Description:** ${f.description}`);
       if (f.remediation) lines.push(`- **Remediation:** ${f.remediation}`);

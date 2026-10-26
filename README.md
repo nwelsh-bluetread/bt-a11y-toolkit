@@ -119,7 +119,37 @@ the next step finds the rest.
 
 ### Step 4: Test each screen by hand
 
-Open `a11y-audit/checklist.md` in any text editor (VS Code works well). It has
+**The easy way: the checklist app.** Run:
+
+```bash
+npx bt-a11y checklist
+```
+
+This opens `a11y-audit/checklist.html` in your browser. Click **Open
+checklist.md…** and pick `a11y-audit/checklist.md`. Then pick iOS or Android
+and a screen on the left, and mark each check **Pass**, **Fail**, or **N/A**.
+On a fail, type what went wrong and pick a severity. Each check shows the scan's
+⚑ findings and a **How to test** note, and the sidebar shows which screens are
+done, failed, or still to go. Keyboard shortcuts: `P` pass, `F` fail, `N` N/A,
+`J`/`K` next/previous check, `]`/`[` next/previous screen, `?` for help.
+
+- **Use Chrome or Edge.** They save every mark straight back to
+  `checklist.md` as you go. In other browsers, your work is kept in the
+  browser until you click **Download .md** and replace the file.
+- **It writes the normal checklist format**, so everything below still
+  applies: you can switch between the app and a text editor at any time, and
+  `npx bt-a11y report` reads the result as usual. If the file changes while
+  the app has it open (for example, you re-run `npx bt-a11y`), the app stops
+  saving and asks whether to reload or overwrite.
+- **Scan pre-fills:** a check the scan already failed shows *Scan found issues
+  · not reviewed yet*. Test the screen, then click **Fail** to confirm it
+  (adding anything else you found), or change the mark if the scan is wrong.
+- **Other issues** you add on a screen go under *Other findings* at the end of
+  the file.
+- **Can't reach a screen?** Tick **Blocked** under its name and say why (no
+  test account, feature turned off, crashes).
+
+**Or edit the file by hand.** Open `a11y-audit/checklist.md` in any text editor (VS Code works well). It has
 **one section per platform**: iOS, then Android. Within each, you go **screen
 by screen**, and on each screen do every check, grouped by tool in this order:
 
@@ -201,6 +231,35 @@ For each screen in a pass:
 - **medium:** annoying, but there's a workaround
 - **low:** minor
 
+**Issues and notes under a check.** Indented lines under a check are read
+like this:
+
+- **Counted as issues:** `  - Password field has no label (medium)`, and
+  also `  High - Header doesn't work` without the dash.
+- **Kept as notes, not counted:** lines starting with `Note:` or `N/A -`, and
+  lines saying a check couldn't be tested ("Can't test without zoom").
+- **Under a `[x]` or `[-]` check:** any text is kept as a note.
+- **Check marked `[!]` but couldn't be tested:** the report warns about it.
+  Leave the check `[ ]` until it's tested.
+
+Re-running `npx bt-a11y` rewrites these lines in the standard form
+(`  - … (high)`, `  Note: …`) and doesn't drop any of them.
+
+**Can't reach or test a screen?** Add a Blocked line under its heading,
+with the reason if you know it. Blocked screens are listed in `report.md`,
+in the terminal, and in the PDF (with how many checks are still open), so the
+client can see what wasn't covered:
+```
+### PaymentDetail
+
+> **Blocked:** Test account has no open invoices
+```
+For any other note about a whole screen, add `> **Note:** …` the same way.
+**Don't rename the heading:** answers are matched to screens by it. (Headings
+that were already renamed, like `PaymentDetail - BLOCKED` or
+`PAPQuestions (step 1)`, are recognized and converted to these lines on the
+next run.)
+
 **Found something that doesn't fit any check?** Add it under **Other
 findings** at the bottom of the file:
 ```
@@ -211,6 +270,37 @@ findings** at the bottom of the file:
 person can do the iOS part and another the Android part at the same time.
 
 Save the file as you go. You can stop and come back any time.
+
+### Optional: measure touch targets automatically (Android)
+
+The 2.5.8 target-size check (24×24) doesn't need to be done by hand on
+Android. Connect a phone with USB debugging on (or start an emulator),
+open the app, sign in, and run:
+
+```bash
+npx bt-a11y target-size
+```
+
+The first time, it asks you to confirm the app's package and deep link scheme.
+It finds both itself and remembers them. Then choose which screens to measure:
+
+- **Screens with a deep link** open one after another on their own.
+- **All screens**: deep links open on their own, and for the rest it asks you to
+  open the screen on the phone and press Enter (`s` skips, `q` stops).
+- **Just the screen on the device now**, for a single screen.
+
+It reads the real size of every tappable control in dp. Controls under
+24×24 dp pass only if they're far enough from other controls (WCAG's spacing
+exception). Each measured screen's target-size line on the Android part of
+`checklist.md` is filled in as pass or fail, ending in *— measured on device*,
+with the too-small controls listed under it. Run it again after fixes and the
+lines update. If you edit a line yourself, it's yours, and the command leaves it
+alone. Blocked screens are skipped. iOS is still checked by hand.
+
+A few things it can't see: `hitSlop` (an extra tap area outside the view)
+doesn't show in the measurement, so re-check flagged controls that use it.
+If a deep link doesn't change the screen, that screen is skipped. Use
+`--wait 4000` if screens load slowly.
 
 ### Step 5: Build the report
 
@@ -224,13 +314,63 @@ This creates:
 
 - **`a11y-audit/a11y-audit-summary-<date>.pdf`**: the client-ready executive
   summary. It has a one-page cover (score, issue counts, key takeaway, top
-  priorities, remediation path), results by WCAG principle, a plain-language
-  WCAG reference table, and every finding with its screens and fix.
+  priorities), results by WCAG principle, iOS vs Android, a plain-language
+  WCAG reference table, what to fix first, the remediation path, and every
+  finding with its screens and fix.
 - **`a11y-audit/report.md`**: the working report, with an overall score, a
   summary of problems by severity, every finding (automated and yours) with
   the screen and platform it was found on, and a **WCAG coverage table**
   showing the status of every requirement: passed, failed, not applicable, or
-  not yet tested.
+  not yet tested, plus a **Blocked screens** table if any screens were marked
+  blocked.
+
+**iOS vs Android.** When the audit covers both, the report and the PDF compare
+them side by side: issues by severity, checklist progress, WCAG criteria
+passing, failing, and not tested yet, and blocked screens. Then they list what's
+**only on iOS** and **only on Android** (problems are matched by check and
+screen; code-scan findings come from shared code, so they count for both), and
+which **WCAG criteria differ by platform**, with real differences (passes on
+one, fails on the other) first. Every finding's heading in `report.md` ends in
+*· iOS only*, *· Android only*, or *· iOS + Android*.
+
+**Fix these first.** The report (and the PDF, and the terminal) ranks the
+fixes that clear the most failures for the least code, three ways:
+
+- **Components:** one shared file, e.g. *QuantityStepper*, which renders on 39 screens.
+- **Component families:** every component of one kind, e.g. *all modals* or
+  *all dropdowns & pickers*, recognized by name (`…Modal`, `…Picker`, `…Button`).
+- **Issue types:** one pattern everywhere, e.g. *text inputs with no label*,
+  or *font scaling turned off or capped*.
+
+Each one is worked out by removing its scan findings and recounting. It shows
+how many **failing checks** it clears (checklist lines, per screen and
+platform, that fail only because of it), which **WCAG criteria stop failing**,
+and the **score** change. Effort is the number of code locations to change; ⚡
+*quick win* marks 5 or fewer. Lines a tester failed with their own notes don't
+count as cleared, because that problem isn't in the scan.
+
+**Shared component issues.** Components rendered on two or more screens
+(a text component, a checkbox, a modal) that the code scan found problems in
+are listed once, with every issue, its line numbers and WCAG criteria, and how
+many screens use the component. The list is in `report.md`, in the PDF (top 12),
+and at the top of `checklist.md` (the **Shared components** button in the
+checklist app). Testers log a shared component's problem once, naming the
+component, instead of failing it on every screen.
+
+**How each WCAG criterion is reported** (in `report.md` and the PDF's WCAG
+reference table, with its level, plus a "Results by WCAG level" table):
+
+| Result | Meaning |
+| --- | --- |
+| **Pass** | Tested on every platform it applies to, with no failures |
+| **Fail** | A scan or a tester found a problem (with severity and how many findings) |
+| **N/A** | Testers marked it `[-]` because the app has none of that content, e.g. "No audio/video". The reason comes from the check (captions → audio/video, error messages → form inputs) |
+| **Web only** | Doesn't apply to native apps (Bypass Blocks, Multiple Ways, Text Spacing), so it isn't tested on iOS/Android |
+| **Not yet verified** | Testing isn't finished on every platform |
+
+N/A and Web only don't count for or against the score. Mark a check `[-]`
+only when the content doesn't exist; if it exists but you couldn't test it,
+leave it `[ ]` or mark the screen Blocked.
 
 The PDF's "key takeaway" and principle summaries are written automatically
 from the findings. To use your own wording, create
@@ -285,6 +425,8 @@ update their marks, and run `npx bt-a11y report` for the updated report.
 | Build or refresh the report | `npx bt-a11y report` |
 | Check the PDF tools are set up | `npx bt-a11y pdf-setup` |
 | Get the latest version of the toolkit | `npx bt-a11y update` |
+| Fill in the checklist in the browser | `npx bt-a11y checklist` |
+| Measure touch targets on Android | `npx bt-a11y target-size` |
 | Find the checklist to fill in | `a11y-audit/checklist.md` |
 | See every scan finding for a screen | `a11y-audit/scan-details.md` |
 | Find the client PDF | `a11y-audit/a11y-audit-summary-<date>.pdf` |

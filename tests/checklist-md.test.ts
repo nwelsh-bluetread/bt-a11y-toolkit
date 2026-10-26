@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ScreenInfo } from "../src/code-scan/screens.js";
-import { APP_WIDE, parseChecklist, planChecklist, renderChecklist, renderScanDetails } from "../src/wizard/checklist-md.js";
-import { checklistFindings, type AutomatedRun } from "../src/wizard/session.js";
+import { APP_WIDE, classifyIssueText, parseChecklist, parseScreenHeading, planChecklist, renderChecklist, renderScanDetails, type ChecklistRow } from "../src/wizard/checklist-md.js";
+import { blockedScreens, checklistFindings, formatBlockedMarkdown, type AutomatedRun } from "../src/wizard/session.js";
 import { wcag } from "../src/wcag.js";
 
 const screens: ScreenInfo[] = [
@@ -343,5 +343,95 @@ Issues that don't fit a check above — one per line.
       ["android", "orientation", undefined, "na"],
     ]);
     expect(rows[1]!.issues).toEqual([{ text: "Checkbox has no label", wcag: ["3.3.2"], severity: "high" }, { text: "Second field too" }]);
+  });
+});
+
+describe("indented text without a dash", () => {
+  const groups = planChecklist(screens, ["ios", "android"], "AA");
+  const base = renderChecklist({ projectName: "Demo", targetLevel: "AA", groups, runs: [] });
+  // First occurrences are in the iOS part, on Login.
+  const filled = base
+    .replace(/- \[ \] (\*\*4\.1\.2\*\* .*`sr-name-role-value`)/, "- [!] $1\n  High - Back caret doesn't read as a button\n  Low- reads the name twice\n  Note: header is an image\n  Phone number link")
+    .replace(/- \[ \] (\*\*1\.4\.10\*\* .*`reflow`)/, "- [!] $1\n  Cant test without font scaling/zoom")
+    .replace(/- \[ \] (\*\*3\.3\.2\*\* .*`input-labels`)/, "- [x] $1\n      Low - update header")
+    .replace(/- \[ \] (\*\*1\.4\.3, 1\.4\.11\*\* .*`contrast`)/, "- [-] $1\n  na - only a camera view");
+  const row = (rows: ChecklistRow[], id: string) => rows.find((r) => r.target === "ios" && r.screen === "Login" && r.itemId === id)!;
+
+  it("reads severity-first lines as issues, and Note / N/A / can't-test lines as notes", () => {
+    expect(classifyIssueText("High: tabs aren't announced")).toEqual({ issue: { text: "tabs aren't announced", severity: "high" } });
+    expect(classifyIssueText("Low-contrast placeholder")).toEqual({ issue: { text: "Low-contrast placeholder" } });
+    expect(classifyIssueText("NOTE: are there modals?")).toEqual({ note: "are there modals?" });
+
+    const parsed = parseChecklist(filled);
+    expect(row(parsed.rows, "sr-name-role-value")).toMatchObject({
+      status: "fail",
+      issues: [
+        { text: "Back caret doesn't read as a button", severity: "high" },
+        { text: "reads the name twice", severity: "low" },
+        { text: "Phone number link" },
+      ],
+      notes: ["header is an image"],
+    });
+    expect(row(parsed.rows, "reflow")).toMatchObject({ status: "fail", issues: [], notes: ["Cant test without font scaling/zoom"] });
+    expect(row(parsed.rows, "input-labels")).toMatchObject({ status: "pass", issues: [], notes: ["update header (low)"] });
+    expect(row(parsed.rows, "contrast")).toMatchObject({ status: "na", notes: ["only a camera view"] });
+    expect(parsed.warnings).toEqual([
+      expect.stringContaining("input-labels: has issue text but isn't marked [!] — kept as a note"),
+      expect.stringContaining("1 line(s) are marked [!] fail but say they couldn't be tested"),
+    ]);
+  });
+
+  it("keeps them when the checklist is regenerated, in the standard format", () => {
+    const parsed = parseChecklist(filled);
+    const regenerated = renderChecklist({ projectName: "Demo", targetLevel: "AA", groups, runs: [], previous: parsed });
+    expect(regenerated).toContain("`sr-name-role-value`: Back caret doesn't read as a button (high)\n  - reads the name twice (low)\n  - Phone number link\n  Note: header is an image\n");
+    expect(regenerated).toContain("`input-labels`\n  Note: update header (low)\n");
+    const reparsed = parseChecklist(regenerated);
+    for (const id of ["sr-name-role-value", "reflow", "input-labels", "contrast"]) {
+      const { lines: _a, ...before } = row(parsed.rows, id);
+      const { lines: _b, ...after } = row(reparsed.rows, id);
+      expect(after).toEqual(before);
+    }
+  });
+});
+
+describe("blocked screens and edited headings", () => {
+  const groups = planChecklist(screens, ["ios", "android"], "AA");
+  const names = screens.map((s) => s.name);
+
+  it("maps edited headings back to their screen", () => {
+    expect(parseScreenHeading("LOGIN - BLOCKED", names)).toEqual({ screen: "Login", blocked: { reason: "" } });
+    expect(parseScreenHeading("Inbox (step 2) - BLOCKED: no test account", names)).toEqual({ screen: "Inbox", blocked: { reason: "no test account" }, note: "step 2" });
+    expect(parseScreenHeading("INBOX: swipe rows", names)).toEqual({ screen: "Inbox", note: "swipe rows" });
+    expect(parseScreenHeading("Settings", names)).toEqual({ screen: "Settings" });
+  });
+
+  it("keeps answers, Blocked lines, and notes when the checklist is regenerated", () => {
+    // First occurrences are in the iOS part.
+    const md = renderChecklist({ projectName: "Demo", targetLevel: "AA", groups, runs: [] })
+      .replace(/### Login\n/, "### LOGIN (main flow) - BLOCKED\n")
+      .replace(/(### Inbox\n)/, "$1\n> **Blocked:** No test account\n");
+    const filled = md.replace(/- \[ \] (\*\*4\.1\.2\*\* .*`sr-name-role-value`)/, "- [x] $1");
+    const parsed = parseChecklist(filled, names);
+    expect(parsed.screenMarks).toEqual([
+      { target: "ios", screen: "Login", blocked: { reason: "" }, note: "main flow" },
+      { target: "ios", screen: "Inbox", blocked: { reason: "No test account" } },
+    ]);
+    expect(parsed.rows.find((r) => r.status === "pass")).toMatchObject({ target: "ios", screen: "Login", itemId: "sr-name-role-value" });
+
+    const regenerated = renderChecklist({ projectName: "Demo", targetLevel: "AA", groups, runs: [], previous: parsed });
+    expect(regenerated).toContain("### Login\n\n> **Blocked:**\n\n> **Note:** main flow\n");
+    expect(regenerated).toContain("### Inbox\n\n> **Blocked:** No test account\n");
+    const reparsed = parseChecklist(regenerated, names);
+    expect(reparsed.screenMarks).toEqual(parsed.screenMarks);
+    expect(reparsed.rows.filter((r) => r.status === "pass")).toHaveLength(1);
+
+    const blocked = blockedScreens(reparsed);
+    expect(blocked.map((b) => [b.screen, b.platforms, b.reasons])).toEqual([
+      ["Login", ["ios"], []],
+      ["Inbox", ["ios"], ["No test account"]],
+    ]);
+    expect(blocked[0]!.open).toBe(reparsed.rows.filter((r) => r.target === "ios" && r.screen === "Login" && r.status === "open").length);
+    expect(formatBlockedMarkdown(blocked)).toContain("| Inbox | iOS | No test account |");
   });
 });

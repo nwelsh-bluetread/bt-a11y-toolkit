@@ -1,0 +1,1115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Accessibility screen checklist</title>
+<style>
+  :root {
+    --bg: #f6f8fa; --panel: #fff; --text: #0d1b2a; --muted: #4a5868; --border: #d0d7de;
+    --accent: #0b6e6d; --accent-bg: #e3f4f4; --navy: #092846;
+    --pass: #146c2e; --pass-bg: #dcf3e2; --fail: #b3261e; --fail-bg: #fde4e1; --na: #4a5868; --na-bg: #e8ebef;
+    --high: #b3261e; --medium: #8a5300; --low: #4a5868; --verify: #3c4fa8;
+    --focus: #1a5fd0;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1117; --panel: #161b22; --text: #e6edf3; --muted: #9aa7b4; --border: #30363d;
+      --accent: #6fd3d2; --accent-bg: #10302f; --navy: #c9e6ff;
+      --pass: #6ddc8b; --pass-bg: #12301b; --fail: #ff8b80; --fail-bg: #3a1513; --na: #b4bfca; --na-bg: #262c34;
+      --high: #ff8b80; --medium: #f0b45a; --low: #b4bfca; --verify: #a5b4ff;
+      --focus: #79a8ff;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin: 0; font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+  code { font: 0.86em ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--na-bg); padding: 1px 4px; border-radius: 4px; }
+  a { color: var(--accent); }
+  .muted { color: var(--muted); }
+  [hidden] { display: none !important; }
+
+  .topbar { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--border); }
+  .topbar h1 { font-size: 16px; margin: 0; color: var(--navy); }
+  .topbar h1 .file { font-weight: 400; color: var(--muted); }
+  .progress { flex: 1 1 260px; min-width: 200px; font-size: 13px; }
+  .bar { height: 8px; border-radius: 4px; background: var(--na-bg); overflow: hidden; margin-top: 4px; display: flex; }
+  .bar span { display: block; height: 100%; }
+  .bar .b-pass { background: var(--pass); } .bar .b-fail { background: var(--fail); } .bar .b-na { background: var(--na); }
+  .actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .btn { border: 1px solid var(--border); background: var(--panel); padding: 5px 10px; border-radius: 6px; cursor: pointer; }
+  .btn:hover { background: var(--na-bg); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--panel); font-weight: 600; }
+  .save-status { font-size: 13px; color: var(--muted); min-width: 10ch; }
+  .save-status.warn { color: var(--fail); font-weight: 600; }
+
+  .layout { display: grid; grid-template-columns: 290px 1fr; height: calc(100% - 58px); }
+  #sidebar { border-right: 1px solid var(--border); background: var(--panel); overflow-y: auto; padding: 12px; }
+  #sidebar .tools { display: grid; gap: 6px; margin-bottom: 8px; }
+  #sidebar input[type=search] { width: 100%; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); }
+  #sidebar h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 14px 0 4px; }
+  #sidebar ul { list-style: none; margin: 0; padding: 0; }
+  #sidebar a { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 6px; text-decoration: none; color: var(--text); }
+  #sidebar a:hover { background: var(--na-bg); }
+  #sidebar a[aria-current="page"] { background: var(--accent-bg); font-weight: 600; box-shadow: inset 3px 0 0 var(--accent); }
+  .badge { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 10px; white-space: nowrap; }
+  .badge.pass { color: var(--pass); background: var(--pass-bg); }
+  .badge.fail { color: var(--fail); background: var(--fail-bg); }
+  .badge.todo { color: var(--muted); background: var(--na-bg); }
+
+  main { overflow-y: auto; padding: 20px 28px 80px; }
+  main:focus { outline: none; }
+  article { max-width: 980px; margin: 0 auto; }
+  .crumb { margin: 0; font-size: 13px; color: var(--muted); }
+  #screenTitle { margin: 2px 0 8px; font-size: 26px; color: var(--navy); display: flex; align-items: center; gap: 12px; }
+  #screenTitle:focus { outline: none; }
+  #screenTitle .badge { font-size: 13px; }
+  .meta p { margin: 2px 0; font-size: 14px; color: var(--muted); }
+
+  .group { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; margin-top: 18px; }
+  .group-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 6px 12px; }
+  .group h3 { margin: 0; font-size: 17px; }
+  .bulk { font-size: 13px; display: flex; gap: 6px; align-items: center; }
+  .bulk button { font-size: 12px; padding: 2px 8px; }
+  .setup { margin: 6px 0 0; font-size: 14px; padding: 6px 10px; background: var(--accent-bg); border-radius: 6px; }
+  details summary { cursor: pointer; color: var(--accent); font-size: 13px; width: fit-content; }
+  details p { margin: 6px 0 0; font-size: 14px; }
+  .setup-detail { margin-top: 6px; }
+
+  .checks { list-style: none; margin: 10px 0 0; padding: 0; }
+  .check { border-top: 1px solid var(--border); padding: 10px 0 10px 10px; border-left: 4px solid transparent; }
+  .check[data-mark="x"] { border-left-color: var(--pass); }
+  .check[data-mark="!"] { border-left-color: var(--fail); background: linear-gradient(90deg, var(--fail-bg), transparent 60%); }
+  .check[data-mark="-"] { border-left-color: var(--na); }
+  .check[data-mark="-"] .ctext { color: var(--muted); }
+  .check-main { display: grid; grid-template-columns: 3.2em 1fr auto; gap: 10px; align-items: start; }
+  .cid { font-weight: 700; color: var(--accent); padding-top: 4px; }
+  .ctext { padding-top: 4px; }
+  .slug { font-size: 11px; color: var(--muted); }
+  .marks { display: flex; gap: 4px; }
+  .mark { border: 1px solid var(--border); background: var(--panel); border-radius: 6px; padding: 4px 10px; cursor: pointer; white-space: nowrap; font-size: 13px; }
+  .mark:hover { background: var(--na-bg); }
+  .mark.m-pass[aria-pressed="true"] { background: var(--pass); border-color: var(--pass); color: var(--panel); font-weight: 600; }
+  .mark.m-fail[aria-pressed="true"] { background: var(--fail); border-color: var(--fail); color: var(--panel); font-weight: 600; }
+  .mark.m-na[aria-pressed="true"] { background: var(--na); border-color: var(--na); color: var(--panel); font-weight: 600; }
+  .check-body { margin-left: calc(3.2em + 10px); }
+  .flags { list-style: none; margin: 6px 0 0; padding: 0; font-size: 13px; }
+  .flag { padding: 2px 0; }
+  .flag.high { color: var(--high); } .flag.medium { color: var(--medium); } .flag.low { color: var(--low); } .flag.verify { color: var(--verify); }
+  .howto { margin-top: 4px; }
+
+  .issues { margin-top: 8px; display: grid; gap: 6px; }
+  .issue { display: flex; gap: 6px; align-items: center; }
+  .issue input, .issue select, textarea { border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; background: var(--bg); }
+  .issue .itext { flex: 1; min-width: 0; }
+  .issue .wcag { width: 6.5em; }
+  .remove { border: none; background: none; cursor: pointer; color: var(--muted); padding: 4px 8px; border-radius: 6px; }
+  .remove:hover { background: var(--fail-bg); color: var(--fail); }
+  .link { border: none; background: none; color: var(--accent); cursor: pointer; padding: 2px 0; justify-self: start; font-size: 13px; }
+  .link:hover { text-decoration: underline; }
+  textarea { width: 100%; min-height: 6em; resize: vertical; margin-top: 6px; }
+  .pager { display: flex; justify-content: space-between; margin-top: 24px; }
+  .pager a { padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); text-decoration: none; }
+
+  .welcome { max-width: 620px; margin: 8vh auto; background: var(--panel); border: 2px dashed var(--border); border-radius: 12px; padding: 28px; }
+  .welcome.drag { border-color: var(--accent); background: var(--accent-bg); }
+  .welcome h2 { margin-top: 0; color: var(--navy); }
+  .welcome .row { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+
+  dialog { border: 1px solid var(--border); border-radius: 10px; background: var(--panel); color: var(--text); max-width: min(1100px, 94vw); max-height: 88vh; padding: 0; }
+  dialog::backdrop { background: rgb(0 0 0 / .45); }
+  .dlg-head { position: sticky; top: 0; display: flex; justify-content: space-between; align-items: center; padding: 12px 18px; background: var(--panel); border-bottom: 1px solid var(--border); }
+  .dlg-head h2 { margin: 0; font-size: 18px; }
+  .dlg-body { padding: 12px 18px 18px; }
+  .dlg-body table { border-collapse: collapse; font-size: 13px; }
+  .dlg-body th, .dlg-body td { border-bottom: 1px solid var(--border); padding: 6px 8px; text-align: left; vertical-align: top; }
+  kbd { font: 12px ui-monospace, monospace; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; background: var(--bg); }
+  .dlg-body li { margin: 4px 0; }
+
+  @media (max-width: 820px) {
+    .layout { grid-template-columns: 1fr; height: auto; }
+    #sidebar { max-height: 40vh; border-right: none; border-bottom: 1px solid var(--border); }
+    main { padding: 16px; }
+    .check-main { grid-template-columns: 2.6em 1fr; }
+    .marks { grid-column: 1 / -1; }
+    .check-body { margin-left: 0; }
+  }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <h1>A11y screen checklist <span class="file" id="docTitle"></span></h1>
+  <div class="progress" id="progress" hidden></div>
+  <div class="actions">
+    <button type="button" class="btn" id="openBtn">Open .md…</button>
+    <button type="button" class="btn primary" id="enableWriteBtn" hidden>Allow saving to file</button>
+    <button type="button" class="btn" id="downloadBtn" hidden>Download .md</button>
+    <button type="button" class="btn" id="sharedBtn" hidden>Shared components</button>
+    <button type="button" class="btn" id="helpBtn">Help <kbd>?</kbd></button>
+    <span class="save-status" id="saveStatus" role="status" aria-live="polite"></span>
+  </div>
+  <input type="file" id="fileInput" accept=".md,text/markdown" hidden>
+</header>
+
+<div class="layout">
+  <nav id="sidebar" aria-label="Screens" hidden>
+    <div class="tools">
+      <input type="search" id="filter" placeholder="Filter screens" aria-label="Filter screens">
+      <label><input type="checkbox" id="hideDone"> Hide finished screens</label>
+    </div>
+    <div id="screenList"></div>
+  </nav>
+  <main id="main" tabindex="-1">
+    <div class="welcome" id="welcome">
+      <h2>Open a screen checklist</h2>
+      <p>Pick <code>a11y-audit/screen-checklist-android.md</code> (or <code>-ios.md</code>).</p>
+      <p>In Chrome or Edge, every mark saves straight back to the file as you go. In other browsers, your work is kept in this browser until you click <strong>Download .md</strong> and replace the file.</p>
+      <div class="row"><button type="button" class="btn primary" id="welcomeOpenBtn">Open file…</button></div>
+      <div class="row" id="recent"></div>
+      <p class="muted">Or drop the .md file here.</p>
+    </div>
+  </main>
+</div>
+
+<dialog id="sharedDialog" aria-labelledby="sharedTitle">
+  <div class="dlg-head"><h2 id="sharedTitle">Shared components (flagged on many screens)</h2><button type="button" class="btn" data-close>Close</button></div>
+  <div class="dlg-body">
+    <p><strong>Only fail a screen for one of these if you actually see or hear the problem on that screen.</strong> Name the component in the issue, e.g. <em>side menu close button has no name (Menu)</em>.</p>
+    <div id="sharedTable"></div>
+  </div>
+</dialog>
+
+<dialog id="helpDialog" aria-labelledby="helpTitle">
+  <div class="dlg-head"><h2 id="helpTitle">How it works</h2><button type="button" class="btn" data-close>Close</button></div>
+  <div class="dlg-body">
+    <ul>
+      <li>Pick a screen on the left and work down its checks. Each group's <strong>Setup</strong> line tells you which device setting to use.</li>
+      <li>Mark each check <strong>Pass</strong>, <strong>Fail</strong>, or <strong>N/A</strong>. Click the active button again to clear it.</li>
+      <li>On a fail, describe each problem and pick a severity. The first issue goes on the check's line; the rest go on indented lines below it.</li>
+      <li><strong>⚑ High/Medium</strong>: the code scan found this in this screen's own code. <strong>⚑ Verify</strong>: the scan can't judge it, so check by hand. Pass or fail is still your call.</li>
+      <li>A screen <strong>passes</strong> when every check is Pass or N/A, and <strong>fails</strong> if any check fails or it has an Other issue.</li>
+      <li>When you're done, run <code>node a11y-audit/screen-checklist.mjs apply</code> to copy results into checklist.md.</li>
+    </ul>
+    <h3>Keyboard</h3>
+    <ul>
+      <li><kbd>P</kbd> Pass and <kbd>N</kbd> N/A, then move to the next check</li>
+      <li><kbd>F</kbd> Fail and jump to the issue field. <kbd>Enter</kbd> goes to the next check, <kbd>Esc</kbd> back to the buttons</li>
+      <li><kbd>U</kbd> clear the mark</li>
+      <li><kbd>J</kbd> / <kbd>K</kbd> next / previous check</li>
+      <li><kbd>]</kbd> / <kbd>[</kbd> next / previous screen</li>
+    </ul>
+    <h3>Saving</h3>
+    <p>Chrome and Edge write to the .md file as you go. If the file changes on disk while it's open here (for example, you edit it in VS Code), saving stops and asks what to do. In other browsers, your work stays in this browser until you download it.</p>
+  </div>
+</dialog>
+
+<dialog id="conflictDialog" aria-labelledby="conflictTitle">
+  <div class="dlg-head"><h2 id="conflictTitle">The file changed on disk</h2></div>
+  <div class="dlg-body">
+    <p>Something else changed the file after it was opened here. Saving now would overwrite that change.</p>
+    <div class="row" style="display:flex;gap:8px;flex-wrap:wrap">
+      <button type="button" class="btn" id="conflictReload">Reload from disk (lose my changes here)</button>
+      <button type="button" class="btn primary" id="conflictOverwrite">Overwrite with my version</button>
+    </div>
+  </div>
+</dialog>
+
+<script>
+// <core>
+const CHECK_RE = /^- \[(.?)\] (\*\*(?:\[(\d+\.\d+)\]\([^)]*\)|(\d+\.\d+))\*\* (.+?) · `([^`]+)`)(.*)$/;
+const FLAG_RE = /^\s+⚑ /;
+const SUB_RE = /^\s+- /;
+const SCREEN_ANCHOR_RE = /^<a id="(screen-[^"]+)"><\/a>$/;
+const SCAN_SUFFIX = ' — scan found issues · not reviewed yet';
+const NOTES_PLACEHOLDER = '<!-- Anything worth remembering about this screen. Notes stay in this file. -->';
+const OTHER_PLACEHOLDER = '<!-- - [!] 1.4.3 · Disabled button text is unreadable (medium) -->';
+const SEVERITIES = ['high', 'medium', 'low'];
+const SEV_RE = /\s*\((high|medium|low)\)\s*$/i;
+
+const normalizeMark = m => (m === '' || m === undefined ? ' ' : m.toLowerCase());
+
+function splitSeverity(s) {
+  const m = s.match(SEV_RE);
+  return m
+    ? { text: s.slice(0, m.index).trim(), severity: m[1].toLowerCase() }
+    : { text: s.trim(), severity: '' };
+}
+
+function joinSeverity({ text, severity }) {
+  const t = text.replace(/\s+/g, ' ').trim();
+  if (!severity) return t;
+  return t ? `${t} (${severity})` : `(${severity})`;
+}
+
+function parseOtherLine(s) {
+  const m = s.match(/^(\d+\.\d+(?:\.\d+)?)\s*·\s*(.*)$/);
+  return { wcag: m ? m[1] : '', ...splitSeverity(m ? m[2] : s) };
+}
+
+function formatOther(item) {
+  const body = joinSeverity(item);
+  const wcag = item.wcag.trim();
+  if (!body && !wcag) return '';
+  return wcag ? `${wcag} · ${body}` : body;
+}
+
+function parseDoc(text) {
+  const lines = text.split('\n');
+  const blocks = [];
+  const screens = [];
+  const checks = [];
+  const sectionOf = new Map();
+  const refs = new Map();
+  const passes = new Map();
+  const sharedRows = [];
+  let title = '';
+  let zone = 'intro';
+  let section = '';
+  let screen = null;
+  let group = null;
+  let cur = null;
+  let raw = null;
+  let pendingAnchor = null;
+  let refPass = null;
+
+  const pushRaw = line => {
+    if (!raw) blocks.push((raw = { type: 'raw', lines: [] }));
+    raw.lines.push(line);
+  };
+  const startBlock = b => {
+    blocks.push(b);
+    raw = null;
+    cur = b;
+    return b;
+  };
+
+  for (const line of lines) {
+    let m;
+    if (cur?.type === 'notes') {
+      if (SCREEN_ANCHOR_RE.test(line) || /^#{1,3} /.test(line)) cur = null;
+      else {
+        cur.lines.push(line);
+        continue;
+      }
+    }
+    if (cur?.type === 'other') {
+      if (line.startsWith('**')) cur = null;
+      else {
+        cur.lines.push(line);
+        continue;
+      }
+    }
+    if (cur?.type === 'check') {
+      if (FLAG_RE.test(line)) {
+        cur.lines.push(line);
+        cur.flagLines.push(line);
+        cur.flags.push(line.trim().replace(/^⚑\s*/, ''));
+        continue;
+      }
+      if (SUB_RE.test(line)) {
+        cur.lines.push(line);
+        cur.issues.push(splitSeverity(line.replace(SUB_RE, '')));
+        continue;
+      }
+      cur = null;
+    }
+
+    if (line === '# Checks by screen') zone = 'checks';
+    else if (/^# Reference/.test(line)) {
+      zone = 'reference';
+      screen = group = null;
+    } else if (zone === 'intro') {
+      if (!title && (m = line.match(/^# (.+)$/))) title = m[1];
+      else if ((m = line.match(/^\*\*([^*]+)\*\*$/))) section = m[1];
+      else if ((m = line.match(/^- \[.+\]\(#(screen-[^)]+)\)$/))) sectionOf.set(m[1], section);
+      else if (line.startsWith('| `')) sharedRows.push(line.split('|').slice(1, -1).map(c => c.trim()));
+    } else if (zone === 'checks') {
+      if ((m = line.match(SCREEN_ANCHOR_RE))) pendingAnchor = m[1];
+      else if ((m = line.match(/^### (.+)$/))) {
+        screen = {
+          name: m[1].trim(),
+          anchor: pendingAnchor,
+          section: sectionOf.get(pendingAnchor) ?? '',
+          meta: [],
+          groups: [],
+          other: null,
+          notes: null,
+        };
+        screens.push(screen);
+        group = null;
+      } else if (screen) {
+        if ((m = line.match(/^\*\*(\d+)\. (.+?)\*\*(?: \((.+)\))?$/))) {
+          group = { num: Number(m[1]), title: m[2], setup: m[3] ?? '', checks: [] };
+          screen.groups.push(group);
+        } else if (line.startsWith('**Other issues')) {
+          pushRaw(line);
+          screen.other = startBlock({ type: 'other', screen, lines: [], dirty: false });
+          continue;
+        } else if (line.startsWith('**Notes')) {
+          pushRaw(line);
+          screen.notes = startBlock({ type: 'notes', screen, lines: [], dirty: false });
+          continue;
+        } else if ((m = line.match(CHECK_RE)) && group) {
+          const rest = m[7];
+          const note = rest.replace(SCAN_SUFFIX, '').replace(/^\s*:\s*/, '').trim();
+          const b = startBlock({
+            type: 'check',
+            index: checks.length,
+            screen,
+            group,
+            lines: [line],
+            mark: normalizeMark(m[1]),
+            body: m[2],
+            id: m[3] ?? m[4],
+            text: m[5],
+            slug: m[6],
+            extra: rest.includes(SCAN_SUFFIX) ? SCAN_SUFFIX : '',
+            issues: note ? [splitSeverity(note)] : [],
+            flags: [],
+            flagLines: [],
+            dirty: false,
+          });
+          checks.push(b);
+          group.checks.push(b);
+          continue;
+        } else if (!group && line.trim() && !line.startsWith('[↑')) {
+          screen.meta.push(line.trim());
+        }
+      }
+    } else if (zone === 'reference') {
+      if ((m = line.match(/^## (\d+)\. (.+)$/))) {
+        refPass = { title: m[2], setup: '' };
+        passes.set(Number(m[1]), refPass);
+      } else if (refPass && line.startsWith('> **Setup:**')) {
+        refPass.setup = line.replace(/^> \*\*Setup:\*\*\s*/, '');
+      } else if ((m = line.match(/^- <a id="check-[^"]+"><\/a>\*\*(\d+\.\d+) (.+?)\*\* — (.+)$/))) {
+        refs.set(m[1], { title: m[2], body: m[3] });
+      }
+    }
+    pushRaw(line);
+  }
+
+  for (const s of screens) {
+    if (s.other) {
+      s.other.items = [];
+      s.other.extraLines = [];
+      for (const l of s.other.lines) {
+        const m = l.match(/^- \[!\] (.+)$/);
+        if (m) s.other.items.push(parseOtherLine(m[1].trim()));
+        else if (l.trim() && l.trim() !== OTHER_PLACEHOLDER) s.other.extraLines.push(l);
+      }
+    }
+    if (s.notes) {
+      const list = s.notes.lines.filter(l => l.trim() !== NOTES_PLACEHOLDER);
+      while (list.length && !list[0].trim()) list.shift();
+      while (list.length && !list[list.length - 1].trim()) list.pop();
+      s.notes.text = list.join('\n');
+    }
+  }
+
+  return { title, blocks, screens, checks, refs, passes, sharedRows };
+}
+
+function serialize(doc) {
+  const out = [];
+  for (const b of doc.blocks) {
+    if (b.type === 'raw' || !b.dirty) {
+      out.push(...b.lines);
+    } else if (b.type === 'check') {
+      const [first, ...more] = b.issues.map(joinSeverity).filter(Boolean);
+      out.push(`- [${b.mark}] ${b.body}${b.extra}${first ? `: ${first}` : ''}`);
+      out.push(...b.flagLines);
+      more.forEach(t => out.push(`  - ${t}`));
+    } else if (b.type === 'other') {
+      const items = b.items.map(formatOther).filter(Boolean).map(t => `- [!] ${t}`);
+      out.push('', OTHER_PLACEHOLDER, ...b.extraLines, ...items, '');
+    } else if (b.type === 'notes') {
+      // Headings would end the Notes section when screen-checklist.mjs parses the file.
+      const notes = b.text
+        .replace(/^\s*\n/, '')
+        .trimEnd()
+        .split('\n')
+        .map(l => (/^#{1,3} /.test(l) || SCREEN_ANCHOR_RE.test(l) ? `\\${l}` : l));
+      out.push('', ...(notes.join('').trim() ? [...notes, ''] : []), NOTES_PLACEHOLDER, '');
+    }
+  }
+  return out.join('\n');
+}
+
+function screenStatus(s) {
+  const checks = s.groups.flatMap(g => g.checks);
+  let pass = 0, fail = 0, na = 0;
+  for (const c of checks) {
+    if (c.mark === 'x') pass++;
+    else if (c.mark === '!') fail++;
+    else if (c.mark === '-') na++;
+  }
+  const others = s.other ? s.other.items.filter(formatOther).length : 0;
+  const left = checks.length - pass - fail - na;
+  return { total: checks.length, pass, fail, na, left, others, failed: fail > 0 || others > 0, done: left === 0 };
+}
+// </core>
+
+const MARKS = [
+  { mark: 'x', label: 'Pass', icon: '✓', key: 'p', cls: 'pass' },
+  { mark: '!', label: 'Fail', icon: '✗', key: 'f', cls: 'fail' },
+  { mark: '-', label: 'N/A', icon: '–', key: 'n', cls: 'na' },
+];
+const SESSION_PREFIX = 'a11y-checklist-session:';
+const LAST_FILE_KEY = 'a11y-checklist-last-file';
+const LAST_SCREEN_PREFIX = 'a11y-checklist-screen:';
+
+const $ = s => document.querySelector(s);
+const main = $('#main');
+const esc = s =>
+  String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+const cap = s => s[0].toUpperCase() + s.slice(1);
+
+let doc = null;
+const state = { fileName: '', handle: null, pendingHandle: null, lastModified: 0, current: 0, saveTimer: null, saving: false, conflict: false };
+
+function renderInline(md) {
+  return esc(md)
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[\s(])_(.+?)_(?=$|[\s).,])/g, '$1<em>$2</em>')
+    .replace(/\[([^\]]+)\]\(#shared-components\)/g, '<a href="#shared-components" data-shared>$1</a>')
+    .replace(/\[([^\]]+)\]\(#(screen-[^)]+)\)/g, '<a href="#$2">$1</a>')
+    .replace(/\[([^\]]+)\]\(#[^)]*\)/g, '$1')
+    .replace(/&lt;br&gt;/g, '<br>');
+}
+
+function badge(st) {
+  if (st.failed) return `<span class="badge fail">Fail${st.left ? ` · ${st.left} left` : ''}</span>`;
+  if (st.done) return '<span class="badge pass">Pass</span>';
+  return `<span class="badge todo">${st.left} left</span>`;
+}
+
+function flagClass(f) {
+  const m = f.match(/^(High|Medium|Low|Verify)\b/i);
+  return m ? m[1].toLowerCase() : '';
+}
+
+// ---------- rendering ----------
+
+function renderSidebar() {
+  const q = $('#filter').value.trim().toLowerCase();
+  const hideDone = $('#hideDone').checked;
+  let html = '';
+  let lastSection = null;
+  doc.screens.forEach((s, i) => {
+    const st = screenStatus(s);
+    if (q && !s.name.toLowerCase().includes(q)) return;
+    if (hideDone && st.done && i !== state.current) return;
+    if (s.section !== lastSection) {
+      if (lastSection !== null) html += '</ul>';
+      html += `<h2>${esc(s.section || 'Screens')}</h2><ul>`;
+      lastSection = s.section;
+    }
+    html += `<li><a href="#${s.anchor}"${i === state.current ? ' aria-current="page"' : ''}><span>${esc(s.name)}</span>${badge(st)}</a></li>`;
+  });
+  if (lastSection !== null) html += '</ul>';
+  $('#screenList').innerHTML = html || '<p class="muted">No screens match.</p>';
+}
+
+function renderProgress() {
+  let total = 0, pass = 0, fail = 0, na = 0, sPass = 0, sFail = 0;
+  for (const s of doc.screens) {
+    const st = screenStatus(s);
+    total += st.total;
+    pass += st.pass;
+    fail += st.fail;
+    na += st.na;
+    if (st.failed) sFail++;
+    else if (st.done) sPass++;
+  }
+  const done = pass + fail + na;
+  const pct = n => `${((n / total) * 100).toFixed(2)}%`;
+  const el = $('#progress');
+  el.innerHTML = `
+    <div><strong>${done}</strong> of ${total} checks done · Screens: ${sPass} passed, ${sFail} failed, ${doc.screens.length - sPass - sFail} to go</div>
+    <div class="bar" role="img" aria-label="${pass} pass, ${fail} fail, ${na} not applicable, ${total - done} not checked">
+      <span class="b-pass" style="width:${pct(pass)}"></span><span class="b-fail" style="width:${pct(fail)}"></span><span class="b-na" style="width:${pct(na)}"></span>
+    </div>`;
+}
+
+function refreshStatus() {
+  renderSidebar();
+  renderProgress();
+  const b = $('#screenBadge');
+  if (b) b.innerHTML = badge(screenStatus(doc.screens[state.current]));
+}
+
+function issueRow(item, k, withWcag) {
+  return `<div class="issue" data-ii="${k}">
+    ${withWcag ? `<input class="wcag" data-field="wcag" value="${esc(item.wcag)}" placeholder="1.4.3" aria-label="WCAG criterion for issue ${k + 1}">` : ''}
+    <input class="itext" data-field="text" value="${esc(item.text)}" placeholder="What's wrong, e.g. Pay button text overlaps the icon" aria-label="Issue ${k + 1} description">
+    <select data-field="severity" aria-label="Issue ${k + 1} severity">
+      <option value="">Severity…</option>
+      ${SEVERITIES.map(s => `<option value="${s}"${item.severity === s ? ' selected' : ''}>${cap(s)}</option>`).join('')}
+    </select>
+    <button type="button" class="remove" aria-label="Remove issue ${k + 1}">✕</button>
+  </div>`;
+}
+
+const showIssues = c => c.mark === '!' || c.issues.some(i => i.text || i.severity);
+
+function issuesHtml(c) {
+  return `${c.issues.map((it, k) => issueRow(it, k, false)).join('')}
+    <button type="button" class="link add-issue">+ Add ${c.issues.length ? 'another ' : ''}issue</button>`;
+}
+
+function checkHtml(c) {
+  const ref = doc.refs.get(c.id);
+  return `<li class="check" data-ci="${c.index}" data-mark="${esc(c.mark)}">
+    <div class="check-main">
+      <span class="cid">${c.id}</span>
+      <div class="ctext"><span id="ct${c.index}">${esc(c.text)}</span> <code class="slug">${esc(c.slug)}</code></div>
+      <div class="marks" role="group" aria-label="Result for check ${c.id}">
+        ${MARKS.map(m => `<button type="button" class="mark m-${m.cls}" data-mark="${m.mark}" aria-pressed="${c.mark === m.mark}" aria-describedby="ct${c.index}" title="${m.label} (${m.key.toUpperCase()})">${m.icon} ${m.label}</button>`).join('')}
+      </div>
+    </div>
+    <div class="check-body">
+      ${c.flags.length ? `<ul class="flags">${c.flags.map(f => `<li class="flag ${flagClass(f)}">⚑ ${renderInline(f)}</li>`).join('')}</ul>` : ''}
+      ${ref ? `<details class="howto"><summary>How to test</summary><p>${renderInline(ref.body)}</p></details>` : ''}
+      <div class="issues"${showIssues(c) ? '' : ' hidden'}>${issuesHtml(c)}</div>
+    </div>
+  </li>`;
+}
+
+function groupHtml(g) {
+  const ref = doc.passes.get(g.num);
+  const title = esc(`${g.num}. ${g.title}`);
+  return `<section class="group" data-group="${g.num}" aria-labelledby="g${g.num}">
+    <div class="group-head">
+      <h3 id="g${g.num}">${title}</h3>
+      <div class="bulk"><span class="muted">Set unchecked to</span>
+        <button type="button" class="btn" data-bulk="x" aria-label="Set unchecked checks in ${title} to Pass">Pass</button>
+        <button type="button" class="btn" data-bulk="-" aria-label="Set unchecked checks in ${title} to N/A">N/A</button>
+      </div>
+    </div>
+    ${g.setup ? `<p class="setup"><strong>Setup:</strong> ${esc(g.setup)}</p>` : ''}
+    ${ref?.setup ? `<details class="setup-detail"><summary>Setup details</summary><p>${renderInline(ref.setup)}</p></details>` : ''}
+    <ul class="checks">${g.checks.map(checkHtml).join('')}</ul>
+  </section>`;
+}
+
+function otherItemsHtml(s) {
+  return `${s.other.items.map((it, k) => issueRow(it, k, true)).join('')}
+    <button type="button" class="link add-other">+ Add issue</button>`;
+}
+
+function renderScreen() {
+  const i = state.current;
+  const s = doc.screens[i];
+  const prev = doc.screens[i - 1];
+  const next = doc.screens[i + 1];
+  main.innerHTML = `<article>
+    <p class="crumb">${esc(s.section)}</p>
+    <h2 id="screenTitle" tabindex="-1">${esc(s.name)} <span id="screenBadge">${badge(screenStatus(s))}</span></h2>
+    <div class="meta">${s.meta.map(l => `<p>${renderInline(l)}</p>`).join('')}</div>
+    ${s.groups.map(groupHtml).join('')}
+    ${s.other ? `<section class="group other" aria-labelledby="otherTitle">
+      <h3 id="otherTitle">Other issues on this screen</h3>
+      <p class="muted">Problems no check covers. Add the WCAG criterion if you know it.</p>
+      <div class="issues other-items">${otherItemsHtml(s)}</div>
+    </section>` : ''}
+    ${s.notes ? `<section class="group">
+      <h3><label for="notesInput">Notes</label></h3>
+      <p class="muted">How you reached the screen, test account, questions for the team. Notes stay in this file.</p>
+      <textarea id="notesInput" rows="4">${esc(s.notes.text)}</textarea>
+    </section>` : ''}
+    <nav class="pager" aria-label="Previous and next screen">
+      ${prev ? `<a href="#${prev.anchor}">← ${esc(prev.name)}</a>` : '<span></span>'}
+      ${next ? `<a href="#${next.anchor}">${esc(next.name)} →</a>` : ''}
+    </nav>
+  </article>`;
+}
+
+function renderShared() {
+  const rows = doc.sharedRows;
+  $('#sharedTable').innerHTML = rows.length
+    ? `<table><thead><tr><th>Component</th><th>Imported by</th><th>Scan found</th><th>Check</th></tr></thead><tbody>
+        ${rows.map(r => `<tr>${r.map(c => `<td>${renderInline(c)}</td>`).join('')}</tr>`).join('')}
+      </tbody></table>`
+    : '<p class="muted">This file has no shared-components table.</p>';
+}
+
+// ---------- editing ----------
+
+function markDirty(block) {
+  block.dirty = true;
+  scheduleSave();
+}
+
+function updateRow(li, c) {
+  li.dataset.mark = c.mark;
+  li.querySelectorAll('.mark').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mark === c.mark)));
+  const box = li.querySelector('.issues');
+  box.innerHTML = issuesHtml(c);
+  box.hidden = !showIssues(c);
+}
+
+function setMark(c, mark, li) {
+  c.mark = mark;
+  if (mark === '!' && !c.issues.length) c.issues.push({ text: '', severity: '' });
+  if (mark !== '!') c.issues = c.issues.filter(i => i.text || i.severity);
+  markDirty(c);
+  updateRow(li, c);
+  refreshStatus();
+}
+
+const rows = () => [...main.querySelectorAll('.check')];
+
+function focusRow(li) {
+  if (!li) return;
+  const btn = li.querySelector('.mark[aria-pressed="true"]') ?? li.querySelector('.mark');
+  btn.focus();
+  li.scrollIntoView({ block: 'nearest' });
+}
+
+function nextRow(li, step = 1) {
+  const all = rows();
+  const i = li ? all.indexOf(li) : -1;
+  return all[i + step];
+}
+
+function issueTarget(el) {
+  const li = el.closest('.check');
+  if (li) return { list: doc.checks[li.dataset.ci].issues, block: doc.checks[li.dataset.ci], li };
+  if (el.closest('.other-items')) {
+    const other = doc.screens[state.current].other;
+    return { list: other.items, block: other, li: null };
+  }
+  return null;
+}
+
+function rerenderIssues(target) {
+  if (target.li) updateRow(target.li, target.block);
+  else main.querySelector('.other-items').innerHTML = otherItemsHtml(doc.screens[state.current]);
+}
+
+main.addEventListener('click', e => {
+  const t = e.target;
+  if (t.closest('a[data-shared]')) {
+    e.preventDefault();
+    $('#sharedDialog').showModal();
+    return;
+  }
+  const markBtn = t.closest('.mark');
+  if (markBtn) {
+    const li = markBtn.closest('.check');
+    const c = doc.checks[li.dataset.ci];
+    const mark = c.mark === markBtn.dataset.mark ? ' ' : markBtn.dataset.mark;
+    setMark(c, mark, li);
+    if (mark === '!') li.querySelector('.itext')?.focus();
+    else li.querySelector(`.mark[data-mark="${markBtn.dataset.mark}"]`).focus();
+    return;
+  }
+  const bulk = t.closest('[data-bulk]');
+  if (bulk) {
+    const section = bulk.closest('.group');
+    section.querySelectorAll('.check').forEach(li => {
+      const c = doc.checks[li.dataset.ci];
+      if (!['x', '!', '-'].includes(c.mark)) setMark(c, bulk.dataset.bulk, li);
+    });
+    return;
+  }
+  if (t.closest('.add-issue, .add-other')) {
+    const target = issueTarget(t);
+    target.list.push(target.li ? { text: '', severity: '' } : { wcag: '', text: '', severity: '' });
+    rerenderIssues(target);
+    const inputs = (target.li ?? main.querySelector('.other-items')).querySelectorAll('.itext');
+    inputs[inputs.length - 1]?.focus();
+    return;
+  }
+  const remove = t.closest('.remove');
+  if (remove) {
+    const target = issueTarget(remove);
+    const k = Number(remove.closest('.issue').dataset.ii);
+    target.list.splice(k, 1);
+    markDirty(target.block);
+    rerenderIssues(target);
+    refreshStatus();
+    const scope = target.li ?? main.querySelector('.other-items');
+    (scope.querySelectorAll('.itext')[Math.max(0, k - 1)] ?? scope.querySelector('.add-issue, .add-other') ?? scope.querySelector('.mark'))?.focus();
+  }
+});
+
+main.addEventListener('input', e => {
+  const t = e.target;
+  if (t.id === 'notesInput') {
+    const notes = doc.screens[state.current].notes;
+    notes.text = t.value;
+    markDirty(notes);
+    return;
+  }
+  const field = t.dataset.field;
+  if (!field) return;
+  const target = issueTarget(t);
+  const k = Number(t.closest('.issue').dataset.ii);
+  target.list[k][field] = t.value;
+  markDirty(target.block);
+  if (!target.li) refreshStatus();
+});
+
+document.addEventListener('keydown', e => {
+  if (!doc || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (document.querySelector('dialog[open]')) return;
+  const t = e.target;
+  const li = t.closest?.('.check');
+  if (t.matches('input, textarea, select')) {
+    if (!li) return;
+    if (e.key === 'Escape') focusRow(li);
+    if (e.key === 'Enter' && t.matches('input')) {
+      e.preventDefault();
+      focusRow(nextRow(li) ?? li);
+    }
+    return;
+  }
+  const key = e.key.toLowerCase();
+  if (key === '?') {
+    $('#helpDialog').showModal();
+    return;
+  }
+  if (key === ']' || key === '[') {
+    const s = doc.screens[state.current + (key === ']' ? 1 : -1)];
+    if (s) location.hash = s.anchor;
+    return;
+  }
+  if (key === 'j' || key === 'k') {
+    e.preventDefault();
+    focusRow(nextRow(li, key === 'j' ? 1 : -1) ?? (li ? null : rows()[0]));
+    return;
+  }
+  if (!li) return;
+  const c = doc.checks[li.dataset.ci];
+  if (key === 'u') {
+    setMark(c, ' ', li);
+    focusRow(li);
+    return;
+  }
+  const m = MARKS.find(x => x.key === key);
+  if (!m) return;
+  e.preventDefault();
+  setMark(c, m.mark, li);
+  if (m.mark === '!') li.querySelector('.itext')?.focus();
+  else focusRow(nextRow(li) ?? li);
+});
+
+// ---------- navigation ----------
+
+function goToHash() {
+  if (!doc) return;
+  const anchor = decodeURIComponent(location.hash.slice(1));
+  const i = doc.screens.findIndex(s => s.anchor === anchor);
+  if (i < 0) {
+    location.replace(`#${doc.screens[state.current].anchor}`);
+    return;
+  }
+  state.current = i;
+  localStorage.setItem(LAST_SCREEN_PREFIX + state.fileName, anchor);
+  renderScreen();
+  renderSidebar();
+  main.scrollTop = 0;
+  $('#screenTitle').focus({ preventScroll: true });
+}
+window.addEventListener('hashchange', goToHash);
+
+$('#filter').addEventListener('input', renderSidebar);
+$('#hideDone').addEventListener('change', renderSidebar);
+
+// ---------- files & saving ----------
+
+function setStatus(text, warn = false) {
+  const el = $('#saveStatus');
+  el.textContent = text;
+  el.classList.toggle('warn', warn);
+}
+
+// A copy of the current text lives in localStorage so a page reload (e.g. VS Code Live Server
+// reacting to the file write) restores the work without reopening the file.
+function readSession(name) {
+  try {
+    return JSON.parse(localStorage.getItem(SESSION_PREFIX + name));
+  } catch {
+    return null;
+  }
+}
+
+function writeSession(onDisk) {
+  try {
+    localStorage.setItem(
+      SESSION_PREFIX + state.fileName,
+      JSON.stringify({ text: serialize(doc), savedAt: Date.now(), lastModified: state.lastModified, onDisk })
+    );
+    localStorage.setItem(LAST_FILE_KEY, state.fileName);
+  } catch {
+    setStatus('Browser storage is full. Download the .md to keep your work.', true);
+  }
+}
+
+function scheduleSave() {
+  writeSession(false);
+  if (state.pendingHandle) {
+    setStatus('Not saved to the file yet: click “Allow saving to file”', true);
+    return;
+  }
+  if (!state.handle) {
+    setStatus('Saved in this browser · Download .md to update the file');
+    return;
+  }
+  if (state.conflict) return;
+  setStatus('Saving…');
+  clearTimeout(state.saveTimer);
+  state.saveTimer = setTimeout(writeToFile, 500);
+}
+
+async function writeToFile({ force = false } = {}) {
+  if (state.saving) {
+    state.saveTimer = setTimeout(writeToFile, 300);
+    return;
+  }
+  state.saving = true;
+  try {
+    const before = await state.handle.getFile();
+    if (!force && before.lastModified !== state.lastModified) {
+      state.conflict = true;
+      setStatus('File changed on disk. Not saved.', true);
+      $('#conflictDialog').showModal();
+      return;
+    }
+    const w = await state.handle.createWritable();
+    await w.write(serialize(doc));
+    await w.close();
+    state.lastModified = (await state.handle.getFile()).lastModified;
+    state.conflict = false;
+    writeSession(true);
+    setStatus(`Saved to file ${new Date().toLocaleTimeString()}`);
+  } catch (err) {
+    setStatus(`Couldn't write the file (${err.message}). Your work is kept in this browser.`, true);
+  } finally {
+    state.saving = false;
+  }
+}
+
+$('#conflictOverwrite').addEventListener('click', async () => {
+  $('#conflictDialog').close();
+  await writeToFile({ force: true });
+});
+$('#conflictReload').addEventListener('click', async () => {
+  $('#conflictDialog').close();
+  state.conflict = false;
+  const f = await state.handle.getFile();
+  state.lastModified = f.lastModified;
+  loadText(await f.text(), f.name, { source: 'disk' });
+});
+
+/**
+ * source: 'open' asks before discarding unsaved browser work, 'disk' takes the file as is,
+ * 'session' restores the browser copy after a reload.
+ */
+function loadText(text, name, { source = 'open' } = {}) {
+  let parsed = parseDoc(text);
+  if (!parsed.screens.length) {
+    alert(`${name} doesn't look like a screen checklist: it has no "# Checks by screen" section.`);
+    return false;
+  }
+  state.fileName = name;
+  const session = source === 'open' ? readSession(name) : null;
+  let restored = false;
+  if (session && !session.onDisk && session.text !== text) {
+    const when = new Date(session.savedAt).toLocaleString();
+    restored = confirm(`This browser has unsaved work on ${name} from ${when}. Use it instead of what's in the file?`);
+    if (restored) parsed = parseDoc(session.text);
+  }
+  doc = parsed;
+  document.title = `${doc.title || name} · checklist`;
+  $('#docTitle').textContent = `· ${name}`;
+  ['#sidebar', '#progress', '#downloadBtn', '#sharedBtn'].forEach(s => ($(s).hidden = false));
+  renderShared();
+  renderProgress();
+  const last = localStorage.getItem(LAST_SCREEN_PREFIX + name);
+  const fromHash = decodeURIComponent(location.hash.slice(1));
+  const start = [fromHash, last].map(a => doc.screens.findIndex(s => s.anchor === a)).find(i => i >= 0) ?? 0;
+  state.current = start;
+  if (location.hash === `#${doc.screens[start].anchor}`) goToHash();
+  else location.hash = doc.screens[start].anchor;
+
+  if (restored) scheduleSave();
+  else if (source === 'session') {
+    localStorage.setItem(LAST_FILE_KEY, name);
+    if (state.pendingHandle) setStatus('Restored · click “Allow saving to file” to keep saving to it', true);
+    else setStatus('Restored from this browser · Download .md to update the file');
+  } else {
+    writeSession(true);
+    if (state.handle) setStatus('Saving to file as you go');
+    else if (state.pendingHandle) setStatus('Read-only: click “Allow saving to file”', true);
+    else setStatus('Saved in this browser · Download .md to update the file');
+  }
+  return true;
+}
+
+// Remembered file handles (IndexedDB) let Chrome/Edge reopen the same file after a reload.
+function idb() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('a11y-screen-checklist', 1);
+    req.onupgradeneeded = () => req.result.createObjectStore('kv');
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function idbGet(key) {
+  const db = await idb();
+  return new Promise(resolve => {
+    const req = db.transaction('kv').objectStore('kv').get(key);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => resolve(undefined);
+  });
+}
+async function idbSet(key, value) {
+  const db = await idb();
+  db.transaction('kv', 'readwrite').objectStore('kv').put(value, key);
+}
+
+async function rememberHandle(handle) {
+  try {
+    const handles = (await idbGet('handles')) ?? {};
+    handles[handle.name] = handle;
+    await idbSet('handles', handles);
+  } catch {}
+}
+
+async function loadFromHandle(handle) {
+  let perm = await handle.queryPermission({ mode: 'readwrite' }).catch(() => 'prompt');
+  if (perm !== 'granted') perm = await handle.requestPermission({ mode: 'readwrite' }).catch(() => 'prompt');
+  const file = await handle.getFile();
+  state.handle = perm === 'granted' ? handle : null;
+  state.pendingHandle = perm === 'granted' ? null : handle;
+  state.lastModified = file.lastModified;
+  $('#enableWriteBtn').hidden = perm === 'granted';
+  rememberHandle(handle);
+  loadText(await file.text(), file.name);
+}
+
+$('#enableWriteBtn').addEventListener('click', async () => {
+  const h = state.pendingHandle;
+  if (!h) return;
+  if ((await h.requestPermission({ mode: 'readwrite' }).catch(() => 'denied')) !== 'granted') return;
+  state.handle = h;
+  state.pendingHandle = null;
+  $('#enableWriteBtn').hidden = true;
+  const f = await h.getFile();
+  const onDisk = await f.text();
+  if (onDisk === serialize(doc)) {
+    state.lastModified = f.lastModified;
+    writeSession(true);
+    setStatus('Saving to file as you go');
+    return;
+  }
+  if (f.lastModified !== state.lastModified) {
+    state.conflict = true;
+    $('#conflictDialog').showModal();
+    return;
+  }
+  await writeToFile();
+});
+
+async function openPicker() {
+  if (!window.showOpenFilePicker) {
+    $('#fileInput').click();
+    return;
+  }
+  try {
+    const [handle] = await showOpenFilePicker({
+      id: 'a11y-checklist',
+      types: [{ description: 'Markdown', accept: { 'text/markdown': ['.md'] } }],
+    });
+    await loadFromHandle(handle);
+  } catch (err) {
+    if (err.name !== 'AbortError') alert(err.message);
+  }
+}
+$('#openBtn').addEventListener('click', openPicker);
+$('#welcomeOpenBtn').addEventListener('click', openPicker);
+
+$('#fileInput').addEventListener('change', async e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  state.handle = state.pendingHandle = null;
+  $('#enableWriteBtn').hidden = true;
+  loadText(await file.text(), file.name);
+  e.target.value = '';
+});
+
+$('#downloadBtn').addEventListener('click', () => {
+  const url = URL.createObjectURL(new Blob([serialize(doc)], { type: 'text/markdown' }));
+  const a = Object.assign(document.createElement('a'), { href: url, download: state.fileName });
+  a.click();
+  URL.revokeObjectURL(url);
+  setStatus(`Downloaded ${state.fileName}. Move it into a11y-audit/ to replace the old one.`);
+});
+
+$('#sharedBtn').addEventListener('click', () => $('#sharedDialog').showModal());
+$('#helpBtn').addEventListener('click', () => $('#helpDialog').showModal());
+document.querySelectorAll('dialog [data-close]').forEach(b => b.addEventListener('click', () => b.closest('dialog').close()));
+
+const welcome = $('#welcome');
+document.addEventListener('dragover', e => {
+  e.preventDefault();
+  welcome?.classList.add('drag');
+});
+document.addEventListener('dragleave', () => welcome?.classList.remove('drag'));
+document.addEventListener('drop', async e => {
+  e.preventDefault();
+  welcome?.classList.remove('drag');
+  const item = [...e.dataTransfer.items].find(i => i.kind === 'file');
+  if (!item) return;
+  const handle = item.getAsFileSystemHandle ? await item.getAsFileSystemHandle() : null;
+  if (handle?.kind === 'file') {
+    await loadFromHandle(handle);
+    return;
+  }
+  const file = item.getAsFile();
+  state.handle = state.pendingHandle = null;
+  loadText(await file.text(), file.name);
+});
+
+(async function restore() {
+  let handles = {};
+  try {
+    handles = (await idbGet('handles')) ?? {};
+  } catch {}
+
+  const recent = $('#recent');
+  recent.innerHTML = Object.keys(handles)
+    .map(name => `<button type="button" class="btn" data-reopen="${esc(name)}">Reopen ${esc(name)}</button>`)
+    .join('');
+  recent.addEventListener('click', e => {
+    const b = e.target.closest('[data-reopen]');
+    if (b) loadFromHandle(handles[b.dataset.reopen]).catch(err => alert(err.message));
+  });
+
+  const name = localStorage.getItem(LAST_FILE_KEY);
+  if (!name) return;
+  const handle = handles[name];
+  const perm = handle ? await handle.queryPermission({ mode: 'readwrite' }).catch(() => 'prompt') : null;
+  if (perm === 'granted') {
+    try {
+      await loadFromHandle(handle);
+      return;
+    } catch {}
+  }
+  const session = readSession(name);
+  if (!session) return;
+  state.handle = null;
+  state.pendingHandle = handle ?? null;
+  state.lastModified = session.lastModified ?? 0;
+  $('#enableWriteBtn').hidden = !handle;
+  loadText(session.text, name, { source: 'session' });
+})();
+</script>
+</body>
+</html>

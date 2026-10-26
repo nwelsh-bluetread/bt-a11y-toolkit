@@ -5,8 +5,9 @@
  * automated scan results. Manual results live in `a11y-audit/checklist.md`,
  * which testers edit by hand; `bt-a11y report` reads both and writes the report.
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { findingsToAssessment } from "../audit.js";
 import { MANUAL_CHECKLIST, type AuditTarget } from "../checklist.js";
 import type { CodeSignal } from "../code-scan/react-native.js";
@@ -16,6 +17,9 @@ import type { Assessment, Finding, WcagLevel } from "../types.js";
 import { WCAG } from "../wcag.js";
 import { emptyChecklist, parseChecklist, type ParsedChecklist } from "./checklist-md.js";
 import { buildCoverage, formatCoverageMarkdown, type Coverage } from "./coverage.js";
+import { buildQuickWins, checksClearedByFile, formatQuickWinsMarkdown, type QuickWins } from "./quick-wins.js";
+import { formatSharedComponentsMarkdown, sharedComponents } from "./shared-components.js";
+import { comparePlatforms, formatPlatformMarkdown } from "./platforms.js";
 
 export type ProjectType = "web" | "mobile" | "both";
 export type MobileStack = "react-native" | "native" | "flutter" | "unknown";
@@ -34,6 +38,8 @@ export interface AutomatedRun {
   checked?: string[];
   /** Code locations a tester should verify by hand. */
   signals?: CodeSignal[];
+  /** Checks the tool fully verified on a screen (e.g. target size measured on a device), so their checklist line is filled in. */
+  verified?: Array<{ screen: string; criteria: string[]; summary: string }>;
   findings: Finding[];
 }
 
@@ -49,6 +55,8 @@ export interface AuditSession {
     targetLevel: WcagLevel;
     /** Pages scanned (web). */
     urls?: string[];
+    /** Saved by `bt-a11y target-size`: the Android app to measure and its deep link scheme ("" = no deep links). */
+    device?: { androidPackage?: string; scheme?: string };
   };
   screens: ScreenInfo[];
   automated: AutomatedRun[];
@@ -64,6 +72,20 @@ export function sessionPath(cwd: string): string {
 
 export function checklistPath(cwd: string): string {
   return join(cwd, SESSION_DIR, "checklist.md");
+}
+
+/** The browser GUI for filling in checklist.md, copied next to it. */
+export function checklistUiPath(cwd: string): string {
+  return join(cwd, SESSION_DIR, "checklist.html");
+}
+
+/** Copy the checklist GUI into the audit folder (refreshed every run, so toolkit updates reach it). */
+export function installChecklistUi(cwd: string): string {
+  const dest = checklistUiPath(cwd);
+  mkdirSync(dirname(dest), { recursive: true });
+  // Works from src/ under tsx and from dist/.
+  copyFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "assets", "checklist-ui", "checklist.html"), dest);
+  return dest;
 }
 
 export function newSession(project: AuditSession["project"], screens: ScreenInfo[] = []): AuditSession {
@@ -91,9 +113,49 @@ export function upsertRun(session: AuditSession, run: AutomatedRun): void {
   session.automated.push(run);
 }
 
-export function loadChecklist(cwd: string): ParsedChecklist {
+/** Pass the audit's screen names so headings testers edited still map to their screen. */
+export function loadChecklist(cwd: string, screenNames: string[] = []): ParsedChecklist {
   const path = checklistPath(cwd);
-  return existsSync(path) ? parseChecklist(readFileSync(path, "utf8")) : emptyChecklist();
+  return existsSync(path) ? parseChecklist(readFileSync(path, "utf8"), screenNames) : emptyChecklist();
+}
+
+export interface BlockedScreen {
+  screen: string;
+  platforms: AuditTarget[];
+  reasons: string[];
+  /** Manual checks on this screen still open, across its blocked platforms. */
+  open: number;
+}
+
+const PLATFORM_LABEL: Record<AuditTarget, string> = { ios: "iOS", android: "Android", web: "Web" };
+
+/** Screens testers marked blocked, one entry per screen across platforms, in checklist order. */
+export function blockedScreens(checklist: ParsedChecklist): BlockedScreen[] {
+  const byScreen = new Map<string, BlockedScreen>();
+  for (const mark of checklist.screenMarks) {
+    if (!mark.blocked) continue;
+    const screen = mark.screen ?? "App-wide";
+    const entry = byScreen.get(screen) ?? { screen, platforms: [], reasons: [], open: 0 };
+    if (!entry.platforms.includes(mark.target)) entry.platforms.push(mark.target);
+    if (mark.blocked.reason && !entry.reasons.includes(mark.blocked.reason)) entry.reasons.push(mark.blocked.reason);
+    entry.open += checklist.rows.filter((r) => r.target === mark.target && r.screen === mark.screen && r.status === "open").length;
+    byScreen.set(screen, entry);
+  }
+  return [...byScreen.values()];
+}
+
+export function formatBlockedMarkdown(blocked: BlockedScreen[]): string {
+  if (blocked.length === 0) return "";
+  const cell = (s: string) => s.replace(/\|/g, "\\|");
+  return [
+    `## Blocked screens (${blocked.length})`,
+    "",
+    "Testers couldn't reach or test these screens, so their manual results are incomplete and any problems on them aren't in this report yet.",
+    "",
+    "| Screen | Platforms | Reason | Checks not done |",
+    "| --- | --- | --- | ---: |",
+    ...blocked.map((b) => `| ${cell(b.screen)} | ${b.platforms.map((p) => PLATFORM_LABEL[p]).join(", ")} | ${cell(b.reasons.join("; ")) || "—"} | ${b.open} |`),
+  ].join("\n");
 }
 
 const ITEMS = new Map(MANUAL_CHECKLIST.map((i) => [i.id, i]));
@@ -185,24 +247,51 @@ export function buildSessionAssessment(session: AuditSession, parsed: ParsedChec
 export function writeReports(
   cwd: string,
   session: AuditSession,
-): { assessment: Assessment; coverage: Coverage; checklist: ParsedChecklist; markdown: string; json: string } {
-  const checklist = loadChecklist(cwd);
+): {
+  assessment: Assessment;
+  coverage: Coverage;
+  checklist: ParsedChecklist;
+  blocked: BlockedScreen[];
+  quickWins: QuickWins;
+  markdown: string;
+  json: string;
+} {
+  const checklist = loadChecklist(cwd, session.screens.map((s) => s.name));
   const assessment = buildSessionAssessment(session, checklist);
   const coverage = buildCoverage(session, checklist);
+  const blocked = blockedScreens(checklist);
+  const quickWins = buildQuickWins(session, checklist);
+  const quickWinsMd = formatQuickWinsMarkdown(quickWins);
+  const shared = sharedComponents(session.screens, session.automated.flatMap((r) => r.findings));
+  const sharedMd = formatSharedComponentsMarkdown(shared, checksClearedByFile(session, checklist, shared.map((c) => c.file)));
+  // Compare the mobile platforms (a website, if also audited, is a different product).
+  const mobile = session.project.targets.filter((t) => t !== "web");
+  const platforms = comparePlatforms(assessment.findings, checklist, coverage, blocked, mobile, session.automated);
+  const platformsMd = platforms ? formatPlatformMarkdown(platforms) : "";
   const dir = join(cwd, SESSION_DIR);
   mkdirSync(dir, { recursive: true });
   const markdown = join(dir, "report.md");
   const json = join(dir, "report.json");
   writeFileSync(
     markdown,
-    formatMarkdown(assessment).replace("# Accessibility Assessment", `# Accessibility Assessment — ${session.project.name}`) +
+    insertBeforeFindings(
+      formatMarkdown(assessment).replace("# Accessibility Assessment", `# Accessibility Assessment — ${session.project.name}`),
+      // Overview sections go above the long findings list; the coverage matrix stays at the end.
+      [platformsMd, quickWinsMd, sharedMd, blocked.length ? formatBlockedMarkdown(blocked) : ""].filter(Boolean).join("\n\n"),
+    ) +
       "\n\n" +
       formatCoverageMarkdown(coverage) +
       "\n",
     "utf8",
   );
-  writeFileSync(json, formatJson({ ...assessment, coverage } as Assessment) + "\n", "utf8");
-  return { assessment, coverage, checklist, markdown, json };
+  writeFileSync(json, formatJson({ ...assessment, coverage, blockedScreens: blocked, quickWins, sharedComponents: shared, platforms } as Assessment) + "\n", "utf8");
+  return { assessment, coverage, checklist, blocked, quickWins, markdown, json };
+}
+
+function insertBeforeFindings(markdown: string, sections: string): string {
+  if (!sections) return markdown;
+  const at = markdown.indexOf("\n## Findings\n");
+  return at < 0 ? `${markdown}\n\n${sections}` : `${markdown.slice(0, at)}\n${sections}\n${markdown.slice(at)}`;
 }
 
 function truncate(text: string, max: number): string {

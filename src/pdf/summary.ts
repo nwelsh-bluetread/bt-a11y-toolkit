@@ -18,7 +18,11 @@ import type { AuditTarget } from "../checklist.js";
 import type { ScreenInfo } from "../code-scan/screens.js";
 import type { Assessment, Finding, Severity } from "../types.js";
 import type { ParsedChecklist } from "../wizard/checklist-md.js";
-import type { AuditSession } from "../wizard/session.js";
+import { buildCoverage, criterionResult, levelResults, type CriterionResult } from "../wizard/coverage.js";
+import { buildQuickWins, effortText, impactText, quickWinTitle, topQuickWins } from "../wizard/quick-wins.js";
+import { blockedScreens, type AuditSession } from "../wizard/session.js";
+import { issueText, sharedComponents } from "../wizard/shared-components.js";
+import { comparePlatforms, PLATFORM_LABEL } from "../wizard/platforms.js";
 
 /** One finding in the renderer's input schema. */
 export interface SummaryFinding {
@@ -54,6 +58,27 @@ export interface SummaryData {
   principleSummaries: Record<string, string>;
   scorecard: Array<{ category: string; score: number; priority: string; findings: number }>;
   findings: SummaryFinding[];
+  /** Each in-scope criterion's result across platforms, shown in the WCAG reference table. */
+  criteriaResults?: Record<string, { result: CriterionResult; reason?: string; note?: string }>;
+  /** Criteria at each level by result. */
+  levelResults?: Array<{ level: string; total: number; counts: Record<CriterionResult, number> }>;
+  /** The fixes worth the most for the least code, for the "Fix these first" section. */
+  quickWins?: Array<{ title: string; issues: string; effort: string; impact: string; screens: number; quick: boolean }>;
+  /** iOS vs Android side by side, when the audit covers both. */
+  platformComparison?: {
+    names: string[];
+    rows: Array<{ label: string; values: Array<string | number> }>;
+    summary: string;
+    only: Array<{ platform: string; issues: Array<{ title: string; severity: Severity; screens: number }>; more: number }>;
+    differ: Array<{ id: string; name: string; statuses: string[] }>;
+    note?: string;
+  };
+  /** Components used on several screens that have issues, most widely used first. */
+  sharedComponents?: Array<{ name: string; file: string; screens: number; worst: Severity; issues: string[] }>;
+  /** How many more shared components report.md lists beyond the ones shown. */
+  sharedComponentsMore?: number;
+  /** Screens testers couldn't test, listed in the PDF's detailed results. */
+  blockedScreens?: Array<{ screen: string; platforms: string[]; reason: string; open: number }>;
   footer: string;
   [override: string]: unknown;
 }
@@ -85,6 +110,8 @@ export function buildSummaryData(
     .join(" + ");
 
   const answered = checklist.rows.filter((r) => r.status !== "open").length;
+  const blocked = blockedScreens(checklist);
+  const coverage = buildCoverage(session, checklist);
   const tools = [...new Set(session.automated.map((r) => TOOL_LABEL[r.tool] ?? r.tool))];
 
   const data: SummaryData = {
@@ -111,6 +138,21 @@ export function buildSummaryData(
       findings: c.findingCount,
     })),
     findings,
+    quickWins: topQuickWins(buildQuickWins(session, checklist), 5).map((w) => ({
+      title: quickWinTitle(w),
+      issues: w.kind === "issue" ? `${w.members.length} component${w.members.length === 1 ? "" : "s"}` : w.issues.join("; "),
+      effort: effortText(w),
+      impact: impactText(w),
+      screens: w.screens,
+      quick: w.quickWin,
+    })),
+    ...sharedSummary(session),
+    ...platformSummary(session, assessment, checklist, coverage, blocked),
+    criteriaResults: Object.fromEntries(coverage.rows.map((r) => [r.id, criterionResult(r)])),
+    levelResults: levelResults(coverage),
+    ...(blocked.length
+      ? { blockedScreens: blocked.map((b) => ({ screen: b.screen, platforms: b.platforms.map((t) => TARGET_LABEL[t]), reason: b.reasons.join("; "), open: b.open })) }
+      : {}),
     footer:
       `Automated checks (${tools.length ? tools.join(", ") : "none run"}) cover only part of WCAG. ` +
       `Findings marked "manual" come from hands-on screen reader and device testing (${answered} of ${checklist.rows.length} checklist checks completed). ` +
@@ -119,7 +161,63 @@ export function buildSummaryData(
   return { ...data, ...overrides };
 }
 
-const TOOL_LABEL: Record<string, string> = { "rn-code-scan": "React Native code scan", axe: "axe-core", lighthouse: "Lighthouse" };
+const STATUS_TEXT: Record<string, string> = { fail: "Fail", pass: "Pass", na: "N/A", "scan-clear": "Not verified", "not-tested": "Not tested yet", "not-applicable": "Web only" };
+
+function platformSummary(
+  session: AuditSession,
+  assessment: Assessment,
+  checklist: ParsedChecklist,
+  coverage: ReturnType<typeof buildCoverage>,
+  blocked: ReturnType<typeof blockedScreens>,
+): Pick<SummaryData, "platformComparison"> {
+  const c = comparePlatforms(assessment.findings, checklist, coverage, blocked, session.project.targets.filter((t) => t !== "web"), session.automated);
+  if (!c) return {};
+  const s = c.summaries;
+  return {
+    platformComparison: {
+      names: c.targets.map((t) => PLATFORM_LABEL[t]),
+      rows: [
+        { label: "Issues found", values: s.map((x) => x.findings.total) },
+        { label: "Critical / high", values: s.map((x) => `${x.findings.critical} / ${x.findings.high}`) },
+        { label: "Checklist checks done", values: s.map((x) => `${x.checks.answered} of ${x.checks.total}`) },
+        { label: "WCAG criteria failing", values: s.map((x) => x.criteria.fail) },
+        { label: "WCAG criteria passing", values: s.map((x) => x.criteria.pass) },
+        { label: "Not tested yet", values: s.map((x) => x.criteria["not-tested"] + x.criteria["scan-clear"]) },
+        ...(s.some((x) => x.blocked) ? [{ label: "Blocked screens", values: s.map((x) => x.blocked) }] : []),
+      ],
+      summary: `${c.shared} problem${c.shared === 1 ? " was" : "s were"} found on both platforms; ${c.targets
+        .map((t) => `${c.only[t]?.reduce((n, i) => n + i.screens.length, 0) ?? 0} only on ${PLATFORM_LABEL[t]}`)
+        .join(", ")}. Problems found in the code count for both, since the app shares its code.`,
+      only: c.targets.map((t) => ({
+        platform: PLATFORM_LABEL[t],
+        issues: (c.only[t] ?? []).slice(0, 5).map((i) => ({ title: i.title, severity: i.severity, screens: i.screens.length })),
+        more: Math.max(0, (c.only[t]?.length ?? 0) - 5),
+      })),
+      differ: c.criteria.map((r) => ({ id: r.id, name: r.name, statuses: c.targets.map((t) => STATUS_TEXT[r.byTarget[t] ?? ""] ?? "—") })),
+      ...(c.measuredOnly.length
+        ? { note: c.measuredOnly.map((m) => `${m.tool} ran on ${m.targets.map((t) => PLATFORM_LABEL[t]).join(" and ")} only, so its findings aren't a difference between platforms.`).join(" ") }
+        : {}),
+    },
+  };
+}
+
+const SHARED_SHOWN = 12;
+
+function sharedSummary(session: AuditSession): Pick<SummaryData, "sharedComponents" | "sharedComponentsMore"> {
+  const list = sharedComponents(session.screens, session.automated.flatMap((r) => r.findings));
+  if (!list.length) return {};
+  return {
+    sharedComponents: list.slice(0, SHARED_SHOWN).map((c) => ({ name: c.name, file: c.file, screens: c.screens.length, worst: c.worst, issues: c.issues.map(issueText) })),
+    ...(list.length > SHARED_SHOWN ? { sharedComponentsMore: list.length - SHARED_SHOWN } : {}),
+  };
+}
+
+const TOOL_LABEL: Record<string, string> = {
+  "rn-code-scan": "React Native code scan",
+  axe: "axe-core",
+  lighthouse: "Lighthouse",
+  "device-target-size": "touch target measurement on Android",
+};
 
 function toSummaryFinding(f: Finding, screens: ScreenInfo[], targets: AuditTarget[]): SummaryFinding {
   const file = typeof f.evidence?.file === "string" ? f.evidence.file : undefined;
@@ -147,7 +245,7 @@ function toSummaryFinding(f: Finding, screens: ScreenInfo[], targets: AuditTarge
     group: f.source === "manual" ? `${f.ruleId}|${title}` : f.ruleId,
     rule: f.ruleId,
     severity: f.severity,
-    reportedBy: f.source === "rn-code-scan" ? "code scan" : (f.source ?? "manual"),
+    reportedBy: f.source === "rn-code-scan" ? "code scan" : f.source === "device" ? "measured on device" : (f.source ?? "manual"),
     wcag: f.wcag.map((c) => c.id),
     pages: where,
     ...(file ? { location: `${file}${lines.length ? `:${lines.slice(0, 10).join(", ")}${lines.length > 10 ? ", …" : ""}` : ""}` } : {}),

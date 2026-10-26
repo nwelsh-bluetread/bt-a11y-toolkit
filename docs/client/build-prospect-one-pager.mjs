@@ -19,18 +19,19 @@ const htmlPath = join(here, 'prospect-one-pager.html');
 const reportCss = readFileSync(join(SKILL, 'scripts/render.mjs'), 'utf8').match(/const CSS = `([\s\S]*?)\n`;/)[1];
 
 const CSS = `
-@page { size: Letter; margin: 0.4in 0.5in 0.35in; }
+@page { size: Letter; margin: 0.32in 0.5in 0.28in; }
 h1 { font-size: 24pt; }
-.masthead { grid-template-columns: 1fr; padding-bottom: 8px; }
+.masthead { grid-template-columns: 1fr; padding-bottom: 5px; }
 .lede { max-width: none; }
-h2.section { font-size: 13pt; margin: 6px 0 4px; }
-.why { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+h2.section { font-size: 13pt; margin: 4px 0 3px; }
+.why { display: grid; grid-template-columns: 1fr 1.9fr 1fr 1fr; gap: 16px; }
+.why p b { color: var(--ink); font-weight: 600; }
 .why section { border-top: 3px solid var(--high); padding-top: 6px; }
 .why h3 { font-size: 10.5pt; line-height: 1.2; margin-bottom: 3px; }
 .why p { font-size: 8pt; line-height: 1.4; color: var(--muted); }
 .section-intro { font-size: 8.5pt; line-height: 1.4; margin: -2px 0 5px; }
 .levels { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; list-style: none; margin: 0; padding: 0; }
-.levels > li { padding: 6px 12px; border-top: 4px solid var(--critical); background: var(--card); border-radius: 0 0 8px 8px; font-size: 8pt; line-height: 1.4; }
+.levels > li { padding: 5px 12px; border-top: 4px solid var(--critical); background: var(--card); border-radius: 0 0 8px 8px; font-size: 8pt; line-height: 1.4; }
 .levels > li:nth-child(2) { border-top-color: var(--high); }
 .levels > li:nth-child(3) { border-top-color: var(--medium); }
 .levels h3 { font-size: 12pt; display: flex; justify-content: space-between; align-items: baseline; }
@@ -40,7 +41,7 @@ h2.section { font-size: 13pt; margin: 6px 0 4px; }
 .levels ul li { margin: 1px 0; }
 .levels .who { margin-top: 5px; padding-top: 4px; border-top: 1px solid var(--line); }
 .rec { display: inline-block; font-size: 7pt; font-weight: 600; background: var(--high); color: #fff; border-radius: 999px; padding: 1px 7px; margin-left: 4px; vertical-align: 1px; }
-.bottom { display: grid; grid-template-columns: 1.55fr 1fr; gap: 10px; margin-top: 4px; }
+.bottom { display: grid; grid-template-columns: 1.55fr 1fr; gap: 10px; margin-top: 2px; }
 .sample { padding: 8px 12px; }
 .sample .tiles { grid-template-columns: 1.5fr repeat(4, 1fr); gap: 6px; margin: 4px 0 6px; }
 .sample .tile { padding: 6px 8px; font-size: 7pt; border-radius: 8px; white-space: nowrap; }
@@ -62,7 +63,7 @@ h2.section { font-size: 13pt; margin: 6px 0 4px; }
 .faq { display: grid; grid-template-columns: 1.25fr 1fr 1fr; gap: 6px 18px; }
 .faq h3 { font-family: var(--sans); font-size: 8.5pt; font-weight: 600; line-height: 1.3; }
 .faq p { font-size: 8pt; line-height: 1.35; color: var(--muted); margin-top: 1px; }
-.cta { margin-top: 6px; display: flex; justify-content: space-between; align-items: center; padding: 6px 14px; background: var(--ink); color: #fff; border-radius: 10px; font-size: 9pt; }
+.cta { margin-top: 5px; display: flex; justify-content: space-between; align-items: center; padding: 6px 14px; background: var(--ink); color: #fff; border-radius: 10px; font-size: 9pt; }
 .cta .disclaimer { font-size: 7pt; color: #c9cbd0; white-space: nowrap; margin-left: 12px; }
 .cta strong { font-family: var(--serif); font-size: 11pt; font-weight: 600; }
 `;
@@ -95,12 +96,12 @@ const html = `<!doctype html>
       <p>Thousands of U.S. accessibility lawsuits are filed every year. An audit shows where you stand.</p>
     </section>
     <section>
-      <h3>Contracts and RFPs</h3>
-      <p>Buyers ask for a VPAT or proof of WCAG AA before they sign.</p>
+      <h3>New legal deadlines</h3>
+      <p><b>ADA Title II</b> (Apr 2027–28): state and local governments, public universities, special districts. <b>EU Accessibility Act</b> (2025): businesses selling to EU consumers. <b>Section 508</b>: federal agencies and vendors.</p>
     </section>
     <section>
-      <h3>New legal deadlines</h3>
-      <p>ADA Title II (2027–28), the EU Accessibility Act and Section 508 all require it.</p>
+      <h3>Contracts and RFPs</h3>
+      <p>Buyers ask for a VPAT or proof of WCAG AA before they sign.</p>
     </section>
     <section>
       <h3>A better product</h3>
@@ -114,30 +115,30 @@ const html = `<!doctype html>
     <li>
       <h3>Level A</h3>
       <p class="q">Can people use it at all?</p>
-      <p>The bare minimum (31 criteria). Removes the blockers that lock people out.</p>
+      <p>The bare minimum (31 criteria).</p>
       <ul><li>Works with a keyboard alone</li><li>Images have text descriptions</li><li>Videos have captions</li></ul>
-      <p class="who"><b>On its own:</b> not enough for most legal or contract needs.</p>
+      <p class="who"><b>Effort:</b> lowest (code fixes).<br><b>Return:</b> removes blockers; rarely enough alone for legal or contract needs.</p>
     </li>
     <li>
       <h3>Level AA <span class="rec">Recommended</span></h3>
       <p class="q">Can people use it comfortably?</p>
-      <p>The standard laws and contracts point to (24 more criteria).</p>
+      <p>What laws and contracts cite (24 more).</p>
       <ul><li>Text has enough contrast to read</li><li>Works when zoomed to 200%</li><li>Keyboard focus is always visible</li></ul>
-      <p class="who"><b>Why move up:</b> legal risk drops and contracts open up.</p>
+      <p class="who"><b>Added effort:</b> moderate (design and front-end, done with A).<br><b>Return:</b> meets laws and contracts; the biggest drop in legal risk.</p>
     </li>
     <li>
       <h3>Level AAA</h3>
       <p class="q">Is it the best it can be?</p>
-      <p>The highest level (31 more). The W3C doesn't advise requiring it site-wide.</p>
+      <p>The highest level (31 more criteria).</p>
       <ul><li>Stronger contrast (7:1)</li><li>Sign language for video</li><li>Plain language, no time limits</li></ul>
-      <p class="who"><b>Who needs it:</b> key flows in healthcare, government, education.</p>
+      <p class="who"><b>Added effort:</b> high, ongoing (content, media, brand colors).<br><b>Return:</b> diminishing site-wide (the W3C doesn't advise it); worth it for key flows in healthcare, government, education.</p>
     </li>
   </ol>
 
   <h2 class="section">How we score your product</h2>
   <ol class="steps">
     <li><h3><span class="step-n mono">1</span> Scan</h3><p>Automated tools and scripts check every page of your product.</p></li>
-    <li><h3><span class="step-n mono">2</span> Test by hand</h3><p>Tools catch only 30–40% of issues, so we test by hand (screen readers, keyboards, etc)</p></li>
+    <li><h3><span class="step-n mono">2</span> Test by hand</h3><p>Tools catch 30–40% of issues, so we also test with screen readers.</p></li>
     <li><h3><span class="step-n mono">3</span> Verify and rate</h3><p>Every issue is confirmed, mapped to WCAG and rated.</p></li>
     <li><h3><span class="step-n mono">4</span> Score</h3><p>Start at 100, subtract points per issue.</p></li>
   </ol>
@@ -181,14 +182,14 @@ const html = `<!doctype html>
   <div class="faq">
     <section>
       <h3>Can't we just use a plugin?</h3>
-      <p>Automated tools catch only 30–40% of issues. We combine several tools with hands-on keyboard and screen reader testing to build your score.</p>
+      <p>Plugins and scanners catch only 30–40% of issues. We add hands-on keyboard and screen reader testing.</p>
     </section>
     <section>
-      <h3>Do you fix the issues too, or just find them?</h3>
-      <p>Both. You get developer ready tickets and a phased plan. We can make the fixes or support your team, then re-test.</p>
+      <h3>Do you fix issues, or just find them?</h3>
+      <p>Both. You get developer-ready tickets and a phased plan; we fix or support your team, then re-test.</p>
     </section>
     <section>
-      <h3>What we need from you?</h3>
+      <h3>What do you need from us?</h3>
       <p>Your key pages or sitemap, test accounts for each user role, staging access, and code access.</p>
     </section>
   </div>

@@ -8,6 +8,8 @@
  *
  * Usage:
  *   bt-a11y start                    (guided audit: a few questions, then scans + per-screen checklist)
+ *   bt-a11y checklist                (open the checklist GUI in the browser)
+ *   bt-a11y target-size              (measure touch targets on an Android device)
  *   bt-a11y report                   (build the audit from scans + the filled-in checklist)
  *   bt-a11y code [dir]               (scan React Native source code)
  *   bt-a11y audit <tree.json> [--platform web|ios|android|react-native]
@@ -42,6 +44,7 @@ interface ParsedArgs {
   jira: boolean;
   minSeverity?: Severity;
   pdf: boolean;
+  waitMs?: number;
 }
 
 function parseArgs(argv: string[]): ParsedArgs {
@@ -88,6 +91,9 @@ function parseArgs(argv: string[]): ParsedArgs {
       case "--jira":
         args.jira = true;
         break;
+      case "--wait":
+        args.waitMs = Number(rest[++i]);
+        break;
       case "--no-pdf":
         args.pdf = false;
         break;
@@ -107,6 +113,8 @@ const HELP = `bt-a11y — BlueTread Accessibility Toolkit
 Usage:
   bt-a11y                       Same as 'bt-a11y start'
   bt-a11y start                 Guided audit: a few questions → scans → per-screen checklist
+  bt-a11y checklist             Open the checklist GUI (a11y-audit/checklist.html) in the browser
+  bt-a11y target-size [--wait <ms>]  Measure touch targets (WCAG 2.5.8) on an Android device
   bt-a11y report [options]      Build the audit from the scans + filled-in a11y-audit/checklist.md
   bt-a11y code [dir] [options]  Scan React Native source code (default: current folder)
   bt-a11y pdf-setup             Check/install what the summary PDF needs (Chrome, pikepdf, veraPDF)
@@ -126,6 +134,16 @@ Commands:
                 the screens (found in the code) or pages to audit. Then runs the
                 automated checks on its own and writes a per-screen manual
                 checklist to a11y-audit/checklist.md for testers to fill in.
+  checklist     Refreshes a11y-audit/checklist.html and opens it. It edits
+                a11y-audit/checklist.md in place: pass / fail / N/A buttons,
+                issue fields with severity, progress per screen. Chrome or Edge
+                save straight to the file; other browsers download it.
+  target-size   Measures every tappable control on a connected Android phone or
+                emulator (adb), screen by screen: deep-linked screens open on
+                their own, you open the rest. Controls under 24×24 dp fail
+                unless they're spaced apart (the WCAG exception). Fills in the
+                target-size line on checklist.md for each measured screen.
+                --wait sets the pause after each deep link (default 2500).
   report        Reads the scans + a11y-audit/checklist.md and writes
                 a11y-audit/report.md + report.json (with the WCAG 2.2 coverage
                 matrix) and the executive-summary PDF
@@ -393,6 +411,45 @@ async function runStartCommand(): Promise<void> {
   }
 }
 
+async function runChecklistCommand(): Promise<void> {
+  const { checklistPath, installChecklistUi } = await import("./wizard/session.js");
+  const { existsSync } = await import("node:fs");
+  const cwd = process.cwd();
+  if (!existsSync(checklistPath(cwd))) {
+    process.stderr.write("No a11y-audit/checklist.md here yet. Run 'bt-a11y start' first.\n");
+    process.exitCode = 1;
+    return;
+  }
+  const ui = installChecklistUi(cwd);
+  process.stdout.write(`Checklist app: ${ui}\nOpen ${checklistPath(cwd)} from it. Use Chrome or Edge so marks save straight to the file.\n`);
+  const [cmd, cmdArgs] =
+    process.platform === "darwin" ? ["open", [ui]] : process.platform === "win32" ? ["cmd", ["/c", "start", "", ui]] : ["xdg-open", [ui]];
+  spawn(cmd, cmdArgs, { stdio: "ignore", detached: true }).on("error", () => {}).unref();
+}
+
+async function runTargetSizeCommand(args: ParsedArgs): Promise<void> {
+  const [{ runTargetSize, systemAdb }, { inquirerPrompter, isPromptExit }, { writeChecklistFiles }] = await Promise.all([
+    import("./device/android.js"),
+    import("./wizard/prompts.js"),
+    import("./wizard/index.js"),
+  ]);
+  try {
+    await runTargetSize({
+      cwd: process.cwd(),
+      prompter: await inquirerPrompter(),
+      out: (text) => process.stdout.write(text + "\n"),
+      adb: systemAdb(),
+      sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+      waitMs: args.waitMs,
+      writeChecklist: (cwd, session) => void writeChecklistFiles(cwd, session),
+    });
+  } catch (err) {
+    if (isPromptExit(err)) return;
+    process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
+    process.exitCode = 1;
+  }
+}
+
 async function runCodeCommand(args: ParsedArgs): Promise<void> {
   const { scanReactNative } = await import("./code-scan/react-native.js");
   const { findingsToAssessment } = await import("./audit.js");
@@ -447,7 +504,7 @@ async function runReportCommand(args: ParsedArgs): Promise<void> {
     process.exitCode = 1;
     return;
   }
-  const { assessment, coverage, checklist, markdown, json } = writeReports(process.cwd(), session);
+  const { assessment, coverage, checklist, blocked, quickWins, markdown, json } = writeReports(process.cwd(), session);
   for (const w of checklist.warnings) process.stderr.write(`Checklist warning — ${w}\n`);
   const rows = checklist.rows;
   const prefilled = rows.filter((r) => r.reviewed === false).length;
@@ -458,6 +515,17 @@ async function runReportCommand(args: ParsedArgs): Promise<void> {
       (prefilled ? ` · ${prefilled} failed by the scan but not reviewed yet (delete "not reviewed yet" once tested)` : "") +
       "\n",
   );
+  const { topQuickWins, quickWinTitle, effortText, impactText } = await import("./wizard/quick-wins.js");
+  const top = topQuickWins(quickWins, 3);
+  if (top.length) {
+    process.stdout.write("Fix these first (details in report.md):\n");
+    for (const w of top) process.stdout.write(`  ${w.quickWin ? "⚡" : "•"} ${quickWinTitle(w)}: ${effortText(w)} → ${impactText(w)}\n`);
+  }
+  if (blocked.length) {
+    const label: Record<string, string> = { ios: "iOS", android: "Android", web: "Web" };
+    process.stdout.write(`Blocked screens (${blocked.length}), listed in the report:\n`);
+    for (const b of blocked) process.stdout.write(`  ⊘ ${b.screen} (${b.platforms.map((p) => label[p]).join(", ")})${b.reasons.length ? ` — ${b.reasons.join("; ")}` : ""}\n`);
+  }
   process.stdout.write(`WCAG 2.2 criteria coverage:\n${coverageSummaryLines(coverage).map((l) => `  ${l}`).join("\n")}\n`);
   process.stdout.write(`\nReport written:\n  ${markdown}\n  ${json}\n`);
 
@@ -517,6 +585,12 @@ async function main(): Promise<void> {
   switch (args.command) {
     case "start":
       await runStartCommand();
+      break;
+    case "checklist":
+      await runChecklistCommand();
+      break;
+    case "target-size":
+      await runTargetSizeCommand(args);
       break;
     case "report":
       await runReportCommand(args);

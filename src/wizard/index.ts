@@ -19,10 +19,11 @@ import { isReactNativeProject, RN_RULES, type CodeScanResult } from "../code-sca
 import { FEATURE_LABEL, isFile, screensFromUrls, type ScreenDiscovery, type ScreenInfo } from "../code-scan/screens.js";
 import { LIGHTHOUSE_AUDIT_MAP } from "../integrations/lighthouse.js";
 import type { Assessment, Finding, Severity, WcagLevel } from "../types.js";
-import { findingOnSection, planChecklist, renderChecklist, renderScanDetails, type PlannedGroup } from "./checklist-md.js";
+import { findingOnSection, planChecklist, renderChecklist, renderScanDetails, type ParsedChecklist, type PlannedGroup } from "./checklist-md.js";
 import type { Prompter } from "./prompts.js";
 import {
   checklistPath,
+  installChecklistUi,
   loadChecklist,
   loadSession,
   newSession,
@@ -117,8 +118,24 @@ export async function runWizard(deps: WizardDeps): Promise<void> {
   await runAutomated(deps, session, scanners);
   saveSession(cwd, session);
 
+  const { groups, previous } = writeChecklistFiles(cwd, session);
+  const checklistUi = installChecklistUi(cwd);
+  const { markdown } = writeReports(cwd, session);
+
+  displayChecklist(deps, session, groups);
+  // Answers a person gave — not [!] lines the scan pre-filled.
+  const answered = previous.rows.filter((r) => r.status !== "open" && r.reviewed !== false).length;
+  out("");
+  out(green(`✓ Checklist: ${checklistPath(cwd)}`) + (answered ? dim(` (kept ${answered} answers)`) : ""));
+  out(green(`✓ Checklist app: ${checklistUi}`) + dim(" (open it in Chrome or Edge to fill in checklist.md: npx bt-a11y checklist)"));
+  out(green(`✓ Report so far (automated results): ${markdown}`));
+  out(`\nNext: test each screen and mark the checklist, then run ${bold("npx bt-a11y report")} to build the report and summary PDF.\n`);
+}
+
+/** Rewrite checklist.md (keeping testers' answers) and scan-details.md from the session's screens and runs. */
+export function writeChecklistFiles(cwd: string, session: AuditSession): { groups: PlannedGroup[]; previous: ParsedChecklist } {
   const groups = planChecklist(session.screens, session.project.targets, session.project.targetLevel);
-  const previous = loadChecklist(cwd);
+  const previous = loadChecklist(cwd, session.screens.map((s) => s.name));
   writeFileSync(
     checklistPath(cwd),
     renderChecklist({
@@ -136,15 +153,7 @@ export async function runWizard(deps: WizardDeps): Promise<void> {
     renderScanDetails({ projectName: session.project.name, groups, runs: session.automated }) + "\n",
     "utf8",
   );
-  const { markdown } = writeReports(cwd, session);
-
-  displayChecklist(deps, session, groups);
-  // Answers a person gave — not [!] lines the scan pre-filled.
-  const answered = previous.rows.filter((r) => r.status !== "open" && r.reviewed !== false).length;
-  out("");
-  out(green(`✓ Checklist: ${checklistPath(cwd)}`) + (answered ? dim(` (kept ${answered} answers)`) : ""));
-  out(green(`✓ Report so far (automated results): ${markdown}`));
-  out(`\nNext: test each screen and mark the checklist, then run ${bold("npx bt-a11y report")} to build the report and summary PDF.\n`);
+  return { groups, previous };
 }
 
 // ── 0. Context ───────────────────────────────────────────────────────────────

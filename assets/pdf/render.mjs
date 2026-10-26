@@ -152,11 +152,12 @@ function render(data) {
   const urlPages = allPages.filter(isUrl);
   const scope = data.scope ?? `${plural(urlPages.length, 'page')}${allPages.length > urlPages.length ? ' + global shell' : ''}`;
   const inferredUsed = findings.some((f) => f.wcagInferred);
+  const blocked = data.blockedScreens ?? [];
 
   const meta = [
     ['Audit date', fmtDate(data.auditDate ?? data.generated ?? new Date().toISOString())],
     ['Target', data.standard ?? `WCAG 2.2 ${level}`],
-    ['Scope', scope],
+    ['Scope', blocked.length ? `${scope} · ${plural(blocked.length, `blocked ${noun}`)}` : scope],
     ['Prepared by', data.preparedBy ?? 'BlueTread'],
   ];
 
@@ -209,6 +210,25 @@ function render(data) {
 
   const levels = level === 'A' ? ['A'] : ['A', 'AA'];
   // Called from the template, after `criteria` below is built.
+  // Pass / N/A / web only / not verified per criterion, when the toolkit supplies results.
+  const results = data.criteriaResults;
+  const RESULT_TEXT = { pass: '✓ Pass', na: 'N/A', 'platform-na': 'Web only', 'not-verified': 'Not yet verified' };
+  const resultCell = (id, c) => {
+    const r = results?.[id];
+    if (c) return `${badge(c.severity)}<span class="ref-n">${plural(c.n, 'finding')}${r?.note ? ` · ${esc(r.note)}` : ''}</span>`;
+    if (!r || r.result === 'fail') return '<span class="muted">—</span>';
+    const why = r.result === 'platform-na' ? "Doesn't apply to native apps" : r.result === 'na' ? (r.reason ?? '').replace(/ in the app$/, '') : r.note;
+    return `<span class="result result-${r.result}">${RESULT_TEXT[r.result]}</span>${why ? `<span class="ref-n">${esc(why)}</span>` : ''}`;
+  };
+  const LEVEL_COLS = [['pass', 'Pass'], ['fail', 'Fail'], ['na', 'N/A'], ['platform-na', 'Web only'], ['not-verified', 'Not yet verified']];
+  const levelTable = data.levelResults?.length ? `
+    <section class="card wide">
+      <h3>Results by WCAG level</h3>
+      <table><thead><tr><th scope="col">Level</th>${LEVEL_COLS.map(([, l]) => `<th scope="col" class="num">${l}</th>`).join('')}<th scope="col" class="num">Criteria</th></tr></thead>
+      <tbody>${data.levelResults.map((l) => `<tr><td>Level ${esc(l.level)}</td>${LEVEL_COLS.map(([k]) => `<td class="num">${l.counts[k]}</td>`).join('')}<td class="num">${l.total}</td></tr>`).join('')}</tbody></table>
+      <p class="fine"><strong>N/A</strong>: the app has none of the content the criterion covers (for example, no audio or video). <strong>Web only</strong>: the criterion applies to websites, not native apps (for example, Bypass Blocks). Neither counts for or against the score. <strong>Not yet verified</strong>: testing isn't finished for this criterion on every platform.</p>
+    </section>` : '';
+
   const reference = () => PRINCIPLES.map((p, pi) => {
     const rows = Object.entries(WCAG).filter(([id, [, lv]]) => id.startsWith(`${pi + 1}.`) && levels.includes(lv));
     return `
@@ -218,7 +238,7 @@ function render(data) {
       <tbody>${rows.map(([id, [name, lv, desc]]) => {
         const c = criteria.get(id);
         return `<tr><td><code>${id}</code>${c?.inferred ? '*' : ''} ${esc(name)}</td><td>${lv}</td><td>${esc(desc)}</td>
-          <td>${c ? `${badge(c.severity)}<span class="ref-n">${plural(c.n, 'finding')}</span>` : '<span class="muted">—</span>'}</td></tr>`;
+          <td>${resultCell(id, c)}</td></tr>`;
       }).join('')}</tbody></table>
     </section>`;
   }).join('');
@@ -268,6 +288,63 @@ function render(data) {
       <tbody>${data.scorecard.map((r) => `<tr><td>${esc(r.category)}</td>
         <td><span class="mini-track" aria-hidden="true"><span style="width:${r.score}%"></span></span> ${r.score}%</td>
         <td>${badge(String(r.priority).toLowerCase())}</td><td class="num">${r.findings}</td></tr>`).join('')}</tbody></table>
+    </section>` : '';
+
+  const pc = data.platformComparison;
+  const platformSection = pc ? `
+  <section class="keep">
+    <h2>${pc.names.map(esc).join(' vs ')}</h2>
+    <p class="ref-intro">Each platform is tested separately: the screen reader, voice control, keyboard and text-size settings all differ. ${esc(pc.summary)}</p>
+    <div class="grid">
+      <section class="card">
+        <h3>Side by side</h3>
+        <table><thead><tr><th scope="col">Measure</th>${pc.names.map((n) => `<th scope="col" class="num">${esc(n)}</th>`).join('')}</tr></thead>
+        <tbody>${pc.rows.map((r) => `<tr><th scope="row">${esc(r.label)}</th>${r.values.map((v) => `<td class="num">${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table>
+      </section>
+      ${pc.only.map((o) => `
+      <section class="card">
+        <h3>Only on ${esc(o.platform)}</h3>
+        ${o.issues.length ? `<ul class="issues">${o.issues.map((i) => `<li>${badge(i.severity)}<span class="issue-title">${esc(i.title)} <span class="muted">(${plural(i.screens, noun)})</span></span></li>`).join('')}</ul>
+        ${o.more ? `<p class="more">+ ${plural(o.more, 'more issue type')} in the detailed findings</p>` : ''}` : '<p class="muted">Nothing found only on this platform.</p>'}
+      </section>`).join('')}
+    </div>
+    ${pc.differ.length ? `
+    <section class="card wide">
+      <h3>WCAG criteria that differ by platform</h3>
+      <table><thead><tr><th scope="col">Criterion</th>${pc.names.map((n) => `<th scope="col">${esc(n)}</th>`).join('')}</tr></thead>
+      <tbody>${pc.differ.map((d) => `<tr><td><code>${esc(d.id)}</code> ${esc(d.name)}</td>${d.statuses.map((st) => `<td>${st === 'Fail' ? badge('high').replace(/>[^<]*</, '>Fail<') : esc(st)}</td>`).join('')}</tr>`).join('')}</tbody></table>
+    </section>` : ''}
+    ${pc.note ? `<p class="fine">${esc(pc.note)}</p>` : ''}
+  </section>` : '';
+
+  const wins = data.quickWins ?? [];
+  const quickWins = wins.length ? `
+  <section class="keep">
+    <h2>Fix these first</h2>
+    <p class="ref-intro">The changes that clear the most failures for the least code, worked out by removing each one's findings and recounting. Cleared checks still need a quick re-test after the fix.</p>
+    <section class="card wide">
+      <table><thead><tr><th scope="col">#</th><th scope="col">Fix</th><th scope="col">Effort</th><th scope="col" class="num">${Noun}s</th><th scope="col">Payoff</th></tr></thead>
+      <tbody>${wins.map((w, i) => `<tr><td class="num">${i + 1}</td><td><strong>${esc(w.title)}</strong>${w.quick ? ' <span class="result result-pass">Quick win</span>' : ''}<br><span class="ref-n">${esc(w.issues)}</span></td>
+        <td>${esc(w.effort)}</td><td class="num">${w.screens}</td><td>${esc(w.impact)}</td></tr>`).join('')}</tbody></table>
+    </section>
+  </section>` : '';
+
+  const shared = data.sharedComponents ?? [];
+  const sharedTable = shared.length ? `
+    <section class="card wide">
+      <h3>Shared component issues</h3>
+      <p class="fine">Components used on several ${noun}s. Fixing one fixes it everywhere it's used.</p>
+      <table><thead><tr><th scope="col">Component</th><th scope="col" class="num">${Noun}s</th><th scope="col">Issues</th></tr></thead>
+      <tbody>${shared.map((c) => `<tr><td><strong>${esc(c.name)}</strong><br><code class="ref-n">${esc(c.file)}</code></td><td class="num">${c.screens}</td><td>${c.issues.map(esc).join('<br>')}</td></tr>`).join('')}</tbody></table>
+      ${data.sharedComponentsMore ? `<p class="fine">+ ${plural(data.sharedComponentsMore, 'more component')} in the full report.</p>` : ''}
+    </section>` : '';
+
+  const blockedTable = blocked.length ? `
+    <section class="card wide">
+      <h3>Blocked ${noun}s <span class="muted">· ${blocked.length}</span></h3>
+      <p class="fine">Testers couldn't reach or test these ${noun}s, so their manual results are incomplete and any problems on them aren't in this report yet.</p>
+      <table><thead><tr><th scope="col">${Noun}</th><th scope="col">Platforms</th><th scope="col">Reason</th><th scope="col" class="num">Checks not done</th></tr></thead>
+      <tbody>${blocked.map((b) => `<tr><td>${esc(b.screen)}</td><td>${esc(b.platforms.join(', '))}</td><td>${esc(b.reason || '—')}</td><td class="num">${b.open}</td></tr>`).join('')}</tbody></table>
     </section>` : '';
 
   const detail = PRINCIPLES.filter((p) => byP[p.key].length).map((p) => `
@@ -337,20 +414,18 @@ function render(data) {
     </section>
   </div>
 
-  <section class="cover-phases" aria-label="Remediation path at a glance">
-    <h2>Remediation path</h2>
-    <ol>${phases.map((p, i) => `<li><span class="eyebrow mono">Phase ${i + 1}${p.duration ? ` · ${esc(p.duration)}` : ''}</span><strong>${esc(p.title)}</strong><span class="muted">${plural(p.items.length, 'fix')}</span></li>`).join('')}</ol>
-  </section>
-
   <div class="page-break"></div>
   <h2>Results by principle</h2>
   <div class="grid">${PRINCIPLES.map(principleCard).join('')}</div>
   ${inferredUsed ? '<p class="fine">* Criterion not mapped by the source tool; assigned by the reviewer.</p>' : ''}
+  ${platformSection}
 
   <div class="page-break"></div>
   <h2>WCAG 2.2 Level ${level} reference</h2>
-  <p class="ref-intro">Every success criterion required for Level ${level}, in plain language, with what this audit found.${data.targetLevel === 'AAA' ? ' Level AAA criteria are not listed.' : ''} A blank result means nothing surfaced in this audit's testing; it isn't a guarantee of conformance.</p>
+  <p class="ref-intro">Every success criterion required for Level ${level}, in plain language, with what this audit found.${data.targetLevel === 'AAA' ? ' Level AAA criteria are not listed.' : ''} ${results ? '<strong>Pass</strong>: tested on every platform with no failures. <strong>N/A</strong>: the app has none of that content (for example, no audio or video). <strong>Web only</strong>: applies to websites, not native apps. <strong>Not yet verified</strong>: testing isn\'t finished. A pass reflects this audit\'s testing; it isn\'t a guarantee of conformance.' : "A blank result means nothing surfaced in this audit's testing; it isn't a guarantee of conformance."}</p>
   ${reference()}
+
+  ${quickWins}
 
   <section class="keep">
   <h2>Recommended remediation path</h2>
@@ -364,8 +439,11 @@ function render(data) {
 
   <h2>Detailed results</h2>
   <div class="grid">${levelPassing}${scoreTable}</div>
+  ${levelTable}
   ${criteriaTable}
   ${scorecard}
+  ${sharedTable}
+  ${blockedTable}
 
   <h2>Findings</h2>
   <p class="fine">Issues reported on several ${noun}s by the same rule are merged into one entry.${inferredUsed ? ' * marks a criterion assigned by the reviewer.' : ''}</p>
@@ -401,6 +479,7 @@ code, .mono { font-family: var(--mono); font-size: 8pt; }
 a { color: var(--pass-ink); }
 .eyebrow { font-size: 7.5pt; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
 .muted { color: var(--muted); font-weight: 400; }
+tbody th[scope="row"] { text-align: left; font-weight: 500; }
 .fine { font-size: 8pt; color: var(--muted); margin-top: 6px; }
 
 .masthead { display: grid; grid-template-columns: 1.7fr 1fr; gap: 12px 24px; padding-bottom: 14px; border-bottom: 1.5px solid var(--ink); }
@@ -481,6 +560,12 @@ a { color: var(--pass-ink); }
 .ref td { padding: 4px 6px; }
 .ref .badge { min-width: 0; margin-right: 4px; }
 .ref-n { font-size: 7.5pt; color: var(--muted); white-space: nowrap; }
+.result { display: inline-block; font-size: 7pt; font-weight: 600; border-radius: 4px; padding: 1px 6px; margin-right: 4px; border: 1px solid transparent; }
+.result-pass { background: var(--pass-bg); color: var(--pass-ink); border-color: var(--pass-ink); }
+.result-na { color: var(--ink); border-color: var(--muted); }
+.result-platform-na { color: var(--ink); border: 1px dashed var(--muted); }
+.result-not-verified { color: var(--muted); font-weight: 400; padding-left: 0; }
+.ref .ref-n { white-space: normal; }
 .keep { break-inside: avoid; }
 h2 { break-after: avoid; }
 .takeaway { margin-top: 12px; padding: 10px 16px; border-left: 4px solid var(--critical); background: var(--fail-bg); border-radius: 0 8px 8px 0; font-family: var(--serif); font-size: 12pt; line-height: 1.35; }
@@ -496,13 +581,6 @@ h2 { break-after: avoid; }
 .priorities li:first-child { border-top: 0; padding-top: 0; }
 .p-title { font-weight: 600; font-size: 8.5pt; line-height: 1.3; }
 .p-meta { font-size: 7.5pt; color: var(--muted); margin-top: 1px; }
-.cover-phases { margin-top: 12px; break-inside: avoid; }
-.cover-phases h2 { font-size: 14pt; margin: 0 0 8px; }
-.cover-phases ol { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-.cover-phases li { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border-top: 3px solid var(--ink); background: var(--card); border-radius: 0 0 8px 8px; font-size: 9pt; }
-.cover-phases li:nth-child(2) { border-top-color: #6b6e74; }
-.cover-phases li:nth-child(3) { border-top-color: #b3b5ba; }
-.cover-phases .muted { font-size: 8pt; }
 table { width: 100%; border-collapse: collapse; font-size: 8.5pt; }
 th { text-align: left; font-size: 7.5pt; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); font-weight: 600; padding: 4px 6px; border-bottom: 1px solid var(--ink); }
 td { padding: 6px; border-bottom: 1px solid var(--line); vertical-align: top; }

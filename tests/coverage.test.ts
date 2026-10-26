@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { emptyChecklist, parseChecklist, type ParsedChecklist } from "../src/wizard/checklist-md.js";
-import { buildCoverage, coverageSummaryLines, formatCoverageMarkdown } from "../src/wizard/coverage.js";
+import { buildCoverage, coverageSummaryLines, criterionResult, formatCoverageMarkdown, levelResults } from "../src/wizard/coverage.js";
 import { newSession, type AuditSession } from "../src/wizard/session.js";
 import { wcag } from "../src/wcag.js";
 
@@ -80,7 +80,44 @@ describe("buildCoverage", () => {
   it("summarizes counts per platform", () => {
     const [web, ios] = coverageSummaryLines(buildCoverage(session(), emptyChecklist()));
     expect(web).toBe("Website: 55 not tested");
-    expect(ios).toMatch(/^iOS: \d+ not tested · \d+ don't apply$/);
+    expect(ios).toMatch(/^iOS: \d+ not tested · 3 web only$/);
+  });
+
+  it("says why a criterion is N/A: no such content, or web only", () => {
+    expect(cell(session(), "2.4.1", "ios")).toMatchObject({ status: "not-applicable", reason: "Web only: doesn't apply to native apps" });
+    const parsed = checklist([["captions", "-"], ["sr-name-role-value", "-"]]);
+    expect(cell(session(), "1.2.2", "ios", parsed)).toMatchObject({ status: "na", reason: "No audio/video in the app" });
+    expect(cell(session(), "4.1.2", "ios", parsed)).toMatchObject({ status: "na", reason: "Marked not applicable by testers" });
+  });
+});
+
+describe("criterion results by level", () => {
+  const mobile = () => ({ ...newSession({ name: "T", type: "mobile" as const, targets: ["ios" as const], targetLevel: "AA" as const }) });
+
+  it("combines platforms into one result per criterion", () => {
+    const parsed = checklist([["captions", "-"], ["sr-name-role-value", "x"], ["color-alone", "!"]]);
+    const rows = buildCoverage(mobile(), parsed).rows;
+    const result = (id: string) => criterionResult(rows.find((r) => r.id === id)!);
+    expect(result("1.2.2")).toEqual({ result: "na", reason: "No audio/video in the app" });
+    expect(result("2.4.1")).toEqual({ result: "platform-na", reason: "Web only: doesn't apply to native apps" });
+    expect(result("4.1.2").result).toBe("pass");
+    expect(result("1.4.1").result).toBe("fail");
+    expect(result("3.3.2").result).toBe("not-verified");
+
+    const both = buildCoverage(session(), checklist([["sr-name-role-value", "x"]])).rows.find((r) => r.id === "4.1.2")!;
+    expect(criterionResult(both)).toEqual({ result: "not-verified", note: "Passes on iOS so far" });
+  });
+
+  it("counts each level on its own and shows it in the report", () => {
+    const coverage = buildCoverage(mobile(), checklist([["captions", "-"]]));
+    const [a, aa] = levelResults(coverage);
+    expect(a).toMatchObject({ level: "A", total: 31, counts: { na: 1, "platform-na": 1 } });
+    expect(aa).toMatchObject({ level: "AA", counts: { "platform-na": 2 } });
+    expect(a!.counts.pass + a!.counts.fail + a!.counts.na + a!.counts["platform-na"] + a!.counts["not-verified"]).toBe(31);
+    const md = formatCoverageMarkdown(coverage);
+    expect(md).toContain("| Level | Pass | Fail | N/A | Web only | Not yet verified | Criteria |");
+    expect(md).toContain("➖ N/A: no such content (No audio/video)");
+    expect(md).toContain("| 2.4.1 Bypass Blocks | A | 🌐 Web only |");
   });
 });
 

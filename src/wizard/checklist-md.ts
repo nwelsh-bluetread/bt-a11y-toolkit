@@ -17,6 +17,7 @@
  *   - [x] Login                                          ← pass
  *   - [!] Signup: Email field reads "edit box" (high)    ← fail + issue (+ optional severity)
  *     - Password field has no label too (medium)        ← more issues on the same screen
+ *     Note: only on the second visit                    ← a note: kept, not counted as an issue
  *   - [-] Settings                                       ← not applicable
  *   - [ ] App-wide                                       ← not checked yet
  *
@@ -38,6 +39,7 @@ import { FEATURE_LABEL, type ScreenInfo } from "../code-scan/screens.js";
 import type { Finding, Severity, WcagLevel } from "../types.js";
 import { WCAG } from "../wcag.js";
 import type { AutomatedRun } from "./session.js";
+import { sharedComponents, sharedComponentsChecklistLines } from "./shared-components.js";
 
 export type CheckStatus = "pass" | "fail" | "na" | "open";
 
@@ -118,6 +120,7 @@ const APP_WIDE_LABEL = "App-wide";
 export function renderChecklist({ projectName, targetLevel, groups, runs, previous, contextFiles }: RenderInput): string {
   const kept = new Map<string, ChecklistRow>();
   for (const row of previous?.rows ?? []) kept.set(answerKey(row.target, row.itemId, row.screen), row);
+  const marks = new Map((previous?.screenMarks ?? []).map((m) => [`${m.target}|${m.screen ?? ""}`, m]));
 
   const out: string[] = [];
   out.push(`# Accessibility checklist — ${projectName}`);
@@ -131,7 +134,9 @@ export function renderChecklist({ projectName, targetLevel, groups, runs, previo
   out.push("- `[x]` pass · `[!]` fail · `[-]` not applicable · `[ ]` not checked yet");
   out.push('- For a failure, describe it after the check, with an optional severity: ``- [!] **1.6** Every input has a label… · `input-labels`: Email field is read as "text field" (high)``');
   out.push("- Put more issues for the same check on indented lines below it: `  - Password field has no label either (medium)`");
+  out.push("- For a note that isn't an issue, indent it and start with `Note:` (`  Note: only happens on the second visit`). Notes are kept but not counted.");
   out.push("- To narrow a failure to specific criteria, add them in brackets: `[2.5.1]`. Add a screenshot path anywhere in the text.");
+  out.push("- Can't reach a screen? Add `> **Blocked:** why` under its heading. It's listed under Blocked screens in the report. For other notes about a screen, add `> **Note:** …` (don't rename the heading: answers are matched to screens by it).");
   out.push("");
   out.push(
     `⚑ lines are what the automated scans found or flagged. Where a scan found an issue, the line starts as \`[!] … ${UNREVIEWED_HINT}\` — the scan's finding is already in the report, but **the screen still needs testing**: the scan only sees what's literally in the code. Test the rest of the screen, add anything else you find after a colon, then **delete "${UNREVIEWED_HINT}"**. \`⚑ Verify\` lines are things to check by hand. Full details of every scan finding (all files, why it matters, how to fix) are in [scan-details.md](scan-details.md). When you're done, run **\`npx bt-a11y report\`**.`,
@@ -141,6 +146,8 @@ export function renderChecklist({ projectName, targetLevel, groups, runs, previo
     out.push(`**Context:** ${contextFiles.map((f) => `[${f}](${f})`).join(", ")}. Use it to find each screen; deep links and "reached from" below come from it.`);
   }
   out.push(...screenIndex(groups, runs));
+  const mobileScreens = groups.filter((g) => g.kind === "mobile").flatMap((g) => g.sections.flatMap((s) => (s.screen ? [s.screen] : [])));
+  out.push(...sharedComponentsChecklistLines(sharedComponents(mobileScreens, runs.flatMap((r) => r.findings))));
 
   for (const group of groups) {
     const allScreens = group.sections.flatMap((s) => (s.screen ? [s.screen] : []));
@@ -214,6 +221,9 @@ export function renderChecklist({ projectName, targetLevel, groups, runs, previo
             out.push("");
             out.push(where);
           }
+          const mark = marks.get(`${target}|${section.screen?.name ?? ""}`);
+          if (mark?.blocked) out.push("", `> **Blocked:**${mark.blocked.reason ? ` ${mark.blocked.reason}` : ""}`);
+          if (mark?.note) out.push("", `> **Note:** ${mark.note}`);
           for (const mode of modesHere) {
             const checks = here.filter((c) => c.item.mode === mode.id);
             if (checks.length === 0) continue;
@@ -224,14 +234,23 @@ export function renderChecklist({ projectName, targetLevel, groups, runs, previo
             }
             for (const { item } of checks) {
               const screen = section.screen?.name;
-              // Untouched pre-fills aren't answers — rebuild them from the current scan.
+              // Untouched pre-fills and device results aren't a tester's answers — rebuild them from the current runs.
               const previousRow = kept.get(answerKey(target, item.id, screen));
-              const row = previousRow?.reviewed === false ? undefined : previousRow;
+              const measured = screen ? verifiedOn(runs, target, screen, item) : undefined;
+              // A measurement fills in lines nobody has answered yet; a tester's answer always wins.
+              const unanswered = previousRow?.reviewed === false || previousRow?.auto || (measured && previousRow?.status === "open");
+              const row = unanswered ? undefined : previousRow;
               const notes = scanNotes(item, section, runs, allScreens, [target]);
               // A scan finding here means the check already fails on this screen: start it as [!], marked as not reviewed.
               const scanFailed = notes.some((x) => !x.startsWith(VERIFY_NOTE));
               const label = `**${number.get(item.id)}** ${item.title} · \`${item.id}\``;
-              out.push(...(row ? serializeRow(row, label) : [scanFailed ? `- [!] ${label} ${UNREVIEWED_HINT}` : `- [ ] ${label}`]));
+              out.push(
+                ...(row
+                  ? serializeRow(row, label)
+                  : measured
+                    ? [`- [${measured.failed ? "!" : "x"}] ${label} ${AUTO_HINT} (${measured.summary})`]
+                    : [scanFailed ? `- [!] ${label} ${UNREVIEWED_HINT}` : `- [ ] ${label}`]),
+              );
               for (const note of notes) out.push(`  ${note}`);
             }
           }
@@ -257,9 +276,12 @@ export function renderChecklist({ projectName, targetLevel, groups, runs, previo
 /** Write a parsed answer back as checklist lines under a (possibly new) label. */
 function serializeRow(row: ChecklistRow, label: string): string[] {
   const mark = { pass: "x", fail: "!", na: "-", open: " " }[row.status];
-  const text = (i: ChecklistIssue) => `${i.text}${i.wcag?.length ? ` [${i.wcag.join(", ")}]` : ""}${i.severity ? ` (${i.severity})` : ""}`.trim();
   const [first, ...rest] = row.issues;
-  return [`- [${mark}] ${label}${first ? `: ${text(first)}` : ""}`, ...rest.map((i) => `  - ${text(i)}`)];
+  return [
+    `- [${mark}] ${label}${first ? `: ${issueText(first)}` : ""}`,
+    ...rest.map((i) => `  - ${issueText(i)}`),
+    ...(row.notes ?? []).map((n) => `  Note: ${n}`),
+  ];
 }
 
 function answerKey(target: AuditTarget, itemId: string, screen: string | undefined): string {
@@ -317,11 +339,15 @@ function sectionMeta(section: PlannedSection, runs: AutomatedRun[], screens: Scr
 export function findingOnSection(f: Finding, section: PlannedSection, screens: ScreenInfo[]): boolean {
   const file = typeof f.evidence?.file === "string" ? f.evidence.file : undefined;
   const page = typeof f.evidence?.page === "string" ? f.evidence.page : undefined;
+  // Found on a running app: tied to the screen by name, not by source file.
+  const onScreen = typeof f.evidence?.screen === "string" && !file ? f.evidence.screen : undefined;
   if (section.screen) {
     if (section.screen.kind === "web") return Boolean(page && page === section.screen.url);
+    if (onScreen) return onScreen === section.screen.name;
     return Boolean(file && section.screen.files?.includes(file));
   }
   // App-wide: findings no screen claims.
+  if (onScreen) return !screens.some((s) => s.name === onScreen);
   if (file) return !screens.some((s) => s.files?.includes(file));
   if (page) return !screens.some((s) => s.url === page);
   return true;
@@ -396,6 +422,22 @@ const VERIFY_SHORT: Record<string, string> = {
   timeout: "Long timer: check users can extend time limits",
   "no-announcements": "No announcements found in code: check status messages are read out",
 };
+
+/** Starts lines a tool filled in by measuring the running app; rebuilt on every run until a tester edits the line. */
+export const AUTO_HINT = "— measured on device";
+const AUTO_RE = /\s*— measured on device(?: \([^)]*\))?\s*$/;
+
+/** A run that fully verified this check on this screen and platform, and whether it found failures there. */
+function verifiedOn(runs: AutomatedRun[], target: AuditTarget, screen: string, item: ChecklistItem): { summary: string; failed: boolean } | undefined {
+  for (const run of runs) {
+    if (!run.targets.includes(target)) continue;
+    const v = run.verified?.find((x) => x.screen === screen && x.criteria.some((c) => item.wcag.includes(c)));
+    if (!v) continue;
+    const failed = run.findings.some((f) => f.evidence?.screen === screen && f.wcag.some((c) => item.wcag.includes(c.id)));
+    return { summary: v.summary, failed };
+  }
+  return undefined;
+}
 
 /** Appended to lines the scan pre-filled as failing, until a tester has reviewed the screen. */
 export const UNREVIEWED_HINT = "— scan found issues · not reviewed yet";
@@ -481,12 +523,16 @@ export interface ChecklistRow {
   target: AuditTarget;
   status: CheckStatus;
   issues: ChecklistIssue[];
+  /** Tester notes under the check ("  Note: …"): kept on regenerate, not counted as issues. */
+  notes?: string[];
   /** The raw lines, so answers survive regenerating the file. */
   lines: string[];
   /** An automated scan found an issue for this check on this screen (a ⚑ line under it). */
   flagged?: boolean;
   /** False for a scan pre-fill nobody has reviewed yet (still has the "not reviewed yet" note). */
   reviewed?: false;
+  /** Filled in by measuring the running app ("— measured on device"); a tester hasn't edited it. */
+  auto?: true;
 }
 
 export interface OtherFinding extends ChecklistIssue {
@@ -494,8 +540,20 @@ export interface OtherFinding extends ChecklistIssue {
   screen?: string;
 }
 
+/** What a tester noted about a whole screen on one platform: blocked, or a free-form note. */
+export interface ScreenMark {
+  target: AuditTarget;
+  /** Screen/page name, or undefined for app-wide. */
+  screen?: string;
+  /** The screen couldn't be tested; `reason` may be empty. */
+  blocked?: { reason: string };
+  note?: string;
+}
+
 export interface ParsedChecklist {
   rows: ChecklistRow[];
+  /** Blocked screens and screen notes ("> **Blocked:** …", "> **Note:** …", or a "- BLOCKED" heading). */
+  screenMarks: ScreenMark[];
   other: OtherFinding[];
   /** Raw text of the "Other findings" section below the instructions, kept on regenerate. */
   otherRaw: string;
@@ -503,11 +561,25 @@ export interface ParsedChecklist {
 }
 
 export function emptyChecklist(): ParsedChecklist {
-  return { rows: [], other: [], otherRaw: "", warnings: [] };
+  return { rows: [], screenMarks: [], other: [], otherRaw: "", warnings: [] };
 }
 
-export function parseChecklist(md: string): ParsedChecklist {
+/**
+ * Read a filled-in checklist. Pass the audit's screen names so headings testers
+ * edited ("PAPQuestions (step 1)", "QRREGISTER - BLOCKED", "VALIDATE_INFORMATION")
+ * still map to their screen; the extra text becomes a screen note.
+ */
+export function parseChecklist(md: string, knownScreens: string[] = []): ParsedChecklist {
   const result = emptyChecklist();
+  const marks = new Map<string, ScreenMark>();
+  const addMark = (target: AuditTarget, screen: string | undefined, add: { blocked?: { reason: string }; note?: string }) => {
+    if (!add.blocked && !add.note) return;
+    const key = `${target}|${screen ?? ""}`;
+    const mark = marks.get(key) ?? { target, ...(screen ? { screen } : {}) };
+    if (add.blocked) mark.blocked = { reason: [mark.blocked?.reason, add.blocked.reason].filter(Boolean).join("; ") };
+    if (add.note && !mark.note?.includes(add.note)) mark.note = [mark.note, add.note].filter(Boolean).join("; ");
+    marks.set(key, mark);
+  };
   let group: "mobile" | "web" | "other" | undefined;
   /** The platform of the current "# iOS" / "# Android" / "# Website" part (new layout). */
   let partTarget: AuditTarget | undefined;
@@ -569,11 +641,23 @@ export function parseChecklist(md: string): ParsedChecklist {
       // "### 1.1 **Check** · `id`" is a check heading (lines are screens);
       // "### Login" is a screen heading inside a pass (lines are checks).
       itemId = id;
-      screenHeading = id ? undefined : line.slice(4).trim().replace(/^\*\*(.+)\*\*$/, "$1");
+      screenHeading = undefined;
+      if (!id) {
+        const heading = parseScreenHeading(line.slice(4).trim().replace(/^\*\*(.+)\*\*$/, "$1"), knownScreens);
+        screenHeading = heading.screen;
+        if (partTarget) addMark(partTarget, isAppWideHeading(heading.screen) ? undefined : heading.screen, heading);
+      }
       lastRow = undefined;
       return;
     }
     if (!itemId && screenHeading === undefined) return;
+
+    const screenLine = screenHeading !== undefined && partTarget ? /^>\s*\*\*(Blocked|Note):?\*\*:?\s*(.*)$/i.exec(line) : null;
+    if (screenLine) {
+      const text = screenLine[2]!.trim();
+      addMark(partTarget!, isAppWideHeading(screenHeading!) ? undefined : screenHeading, screenLine[1]!.toLowerCase() === "blocked" ? { blocked: { reason: text } } : { note: text });
+      return;
+    }
 
     const mark = /^- \[(.)\]\s*(.+)$/.exec(line);
     if (mark) {
@@ -583,6 +667,7 @@ export function parseChecklist(md: string): ParsedChecklist {
       let screen: string | undefined;
       let rest: string;
       let hinted = false;
+      let auto = false;
       let lineItem = itemId;
       if (screenHeading !== undefined && !legacy) {
         // Screen-by-screen: "- [ ] **1.1** Title · `id`: issue".
@@ -593,10 +678,14 @@ export function parseChecklist(md: string): ParsedChecklist {
           hinted = true;
           body = body.replace(UNREVIEWED_RE, " ");
         }
+        if (AUTO_RE.test(body)) {
+          auto = true;
+          body = body.replace(AUTO_RE, "");
+        }
         const id = /`([a-z0-9-]+)`/.exec(body);
         if (!id) return;
         lineItem = id[1];
-        screen = screenHeading === APP_WIDE || screenHeading === APP_WIDE_LABEL ? undefined : screenHeading;
+        screen = isAppWideHeading(screenHeading) ? undefined : screenHeading;
         rest = body.slice(id.index + id[0].length).replace(/^\s*:\s*/, "");
       } else if (legacy) {
         const m = /^(iOS|Android|Web)\b\s*[:—–-]?\s*(.*)$/i.exec(mark[2]!);
@@ -618,6 +707,7 @@ export function parseChecklist(md: string): ParsedChecklist {
         rest = sep >= 0 ? body.slice(sep + 2) : "";
       }
       const status = statusFor(mark[1]!);
+      const first = rest.trim() ? classifyIssueText(rest) : undefined;
       if (!status) result.warnings.push(`Line ${lineNo}: unknown mark "[${mark[1]}]" — use [x], [!], [-], or [ ].`);
       lastRow = {
         group,
@@ -626,9 +716,11 @@ export function parseChecklist(md: string): ParsedChecklist {
         itemId: lineItem!,
         target: target!,
         status: status ?? "open",
-        issues: rest.trim() ? [parseIssue(rest.trim())] : [],
+        issues: first && "issue" in first ? [first.issue] : [],
+        ...(first && "note" in first ? { notes: [first.note] } : {}),
         lines: [line],
         ...(hinted ? { reviewed: false } : {}),
+        ...(auto ? { auto: true as const } : {}),
       };
       result.rows.push(lastRow);
       return;
@@ -638,9 +730,12 @@ export function parseChecklist(md: string): ParsedChecklist {
       if (!line.trim().startsWith(VERIFY_NOTE)) lastRow.flagged = true;
       return;
     }
-    const extra = /^\s{2,}- (.+)$/.exec(line);
+    // "  - issue", or indented text testers wrote without the dash ("  High - Header doesn't work", "  Note: …").
+    const extra = /^\s{2,}(?:- (.+)|([^-⚑>|<\s].*))$/.exec(line);
     if (extra && lastRow) {
-      lastRow.issues.push(parseIssue(extra[1]!.trim()));
+      const c = classifyIssueText(extra[1] ?? extra[2]!);
+      if ("issue" in c) lastRow.issues.push(c.issue);
+      else (lastRow.notes ??= []).push(c.note);
       lastRow.lines.push(line);
     }
   });
@@ -650,9 +745,17 @@ export function parseChecklist(md: string): ParsedChecklist {
     if (row.reviewed === false && (row.status !== "fail" || row.issues.length > 0)) delete row.reviewed;
     if (row.issues.length > 0 && row.status === "open") row.status = "fail";
     if (row.issues.length > 0 && row.status !== "fail") {
-      result.warnings.push(`${TARGET_LABEL[row.target]} › ${row.screen ?? APP_WIDE_LABEL} › ${row.itemId}: has issue text but isn't marked [!] — ignoring the text.`);
+      result.warnings.push(`${TARGET_LABEL[row.target]} › ${row.screen ?? APP_WIDE_LABEL} › ${row.itemId}: has issue text but isn't marked [!] — kept as a note, not counted.`);
+      row.notes = [...row.issues.map(issueText), ...(row.notes ?? [])];
       row.issues = [];
     }
+  }
+  const untested = result.rows.filter((r) => r.status === "fail" && r.notes?.some((n) => CANT_TEST_RE.test(n)));
+  if (untested.length) {
+    const list = untested.slice(0, 8).map((r) => `${TARGET_LABEL[r.target]} › ${r.screen ?? APP_WIDE_LABEL} › ${r.itemId}`);
+    result.warnings.push(
+      `${untested.length} line(s) are marked [!] fail but say they couldn't be tested, so they count as failures: ${list.join("; ")}${untested.length > 8 ? "; …" : ""}. Leave them [ ] until they're tested, or mark the screen Blocked.`,
+    );
   }
   const contradictions = result.rows.filter((r) => r.status === "pass" && r.flagged);
   if (contradictions.length) {
@@ -662,7 +765,45 @@ export function parseChecklist(md: string): ParsedChecklist {
     );
   }
   result.otherRaw = otherLines.join("\n");
+  result.screenMarks = [...marks.values()];
   return result;
+}
+
+function isAppWideHeading(heading: string): boolean {
+  return heading === APP_WIDE || heading === APP_WIDE_LABEL;
+}
+
+const BLOCKED_RE = /\s*[-–—:]?\s*\bBLOCKED\b[\s:–—-]*(.*)$/i;
+const normName = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+/** "QRREGISTER - BLOCKED", "PAPQuestions (step 1)" → the screen, whether it's blocked, and the tester's extra text. */
+export function parseScreenHeading(heading: string, knownScreens: string[] = []): { screen: string; blocked?: { reason: string }; note?: string } {
+  let name = heading.trim();
+  let blocked: { reason: string } | undefined;
+  const b = BLOCKED_RE.exec(name);
+  if (b) {
+    blocked = { reason: b[1]!.trim() };
+    name = name.slice(0, b.index).trim();
+  }
+  const match = resolveScreenName(name, knownScreens);
+  const note = match?.rest.replace(/^[\s:–—-]+/, "").replace(/^\((.*)\)$/, "$1").trim();
+  return { screen: match?.screen ?? name, ...(blocked ? { blocked } : {}), ...(note ? { note } : {}) };
+}
+
+function resolveScreenName(heading: string, known: string[]): { screen: string; rest: string } | undefined {
+  if (!normName(heading)) return undefined;
+  const exact = known.find((k) => k === heading) ?? known.find((k) => normName(k) === normName(heading));
+  if (exact) return { screen: exact, rest: "" };
+  // A known name followed by the tester's own text: "CreateOrder: every resupply screen".
+  let best: string | undefined;
+  for (const k of known) {
+    if (heading.toLowerCase().startsWith(k.toLowerCase()) && !/[a-z0-9]/i.test(heading[k.length] ?? "") && k.length > (best?.length ?? 0)) best = k;
+  }
+  if (best) return { screen: best, rest: heading.slice(best.length) };
+  // A route-style first word: "VALIDATE_INFORMATION (Validation)" → ValidateInformation.
+  const m = /^([^\s:(]+)(.*)$/.exec(heading);
+  const k = m ? known.find((x) => normName(x) === normName(m[1]!)) : undefined;
+  return k ? { screen: k, rest: m![2]! } : undefined;
 }
 
 function statusFor(mark: string): CheckStatus | undefined {
@@ -672,6 +813,27 @@ function statusFor(mark: string): CheckStatus | undefined {
   if (mark === " ") return "open";
   return undefined;
 }
+
+const SEVERITY_PREFIX_RE = /^(critical|high|medium|low)\s*(?::|\s[-–—]|[-–—]\s)\s*/i;
+const NOTE_PREFIX_RE = /^(?:note|n\/?a)\s*(?::|\s[-–—]|[-–—]\s)\s*/i;
+const CANT_TEST_RE = /\b(?:can[’']?t|cannot|couldn[’']?t|unable to)\s+test\b/i;
+
+/**
+ * Text a tester wrote on or under a check: an issue ("High - Header doesn't work",
+ * "Close has no name (high)"), or a note ("Note: …", "na - …", "Can't test without zoom").
+ */
+export function classifyIssueText(raw: string): { issue: ChecklistIssue } | { note: string } {
+  const text = raw.trim();
+  const note = NOTE_PREFIX_RE.exec(text);
+  if (note) return { note: text.slice(note[0].length).trim() || text };
+  if (CANT_TEST_RE.test(text)) return { note: text };
+  const sev = SEVERITY_PREFIX_RE.exec(text);
+  if (!sev) return { issue: parseIssue(text) };
+  const issue = parseIssue(text.slice(sev[0].length).trim());
+  return { issue: { ...issue, severity: issue.severity ?? (sev[1]!.toLowerCase() as Severity) } };
+}
+
+const issueText = (i: ChecklistIssue) => `${i.text}${i.wcag?.length ? ` [${i.wcag.join(", ")}]` : ""}${i.severity ? ` (${i.severity})` : ""}`.trim();
 
 function parseIssue(text: string): ChecklistIssue {
   const issue: ChecklistIssue = { text };
