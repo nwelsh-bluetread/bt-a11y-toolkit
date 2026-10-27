@@ -216,7 +216,7 @@ export function renderChecklist({ projectName, targetLevel, groups, runs, previo
           if (here.length === 0) continue;
           out.push("");
           out.push(`### ${section.screen?.name ?? APP_WIDE}`);
-          const where = section.screen ? findIt(section.screen) : undefined;
+          const where = section.screen ? findIt(section.screen, allScreens) : undefined;
           if (where) {
             out.push("");
             out.push(where);
@@ -288,13 +288,55 @@ function answerKey(target: AuditTarget, itemId: string, screen: string | undefin
   return `${target}|${itemId}|${screen ?? ""}`;
 }
 
-/** How to get to a screen, shown under its heading in each pass. */
-function findIt(s: ScreenInfo): string | undefined {
+/**
+ * How to get to a screen, shown under its heading: "deep link `home/orders` ·
+ * path: Tab bar → OrderNowDashboard → AllOrders · also from: Side menu".
+ */
+function findIt(s: ScreenInfo, screens: ScreenInfo[]): string | undefined {
   const parts: string[] = [];
   if (s.deepLink) parts.push(`deep link \`${s.deepLink}\``);
-  if (s.reachedFrom?.length) parts.push(`reached from ${s.reachedFrom.slice(0, 3).join(", ")}${s.reachedFrom.length > 3 ? ", …" : ""}`);
+  const path = navPath(s, screens);
+  if (path) {
+    parts.push(`path: ${path.join(" → ")}`);
+    const via = path[path.length - 2]!;
+    const others = (s.reachedFrom ?? []).filter((r) => stripCondition(r) !== via && r !== via);
+    if (others.length) parts.push(`also from: ${others.slice(0, 3).join(", ")}${others.length > 3 ? ", …" : ""}`);
+  } else if (s.reachedFrom?.length) {
+    parts.push(`reached from ${s.reachedFrom.slice(0, 3).join(", ")}${s.reachedFrom.length > 3 ? ", …" : ""}`);
+  }
   if (s.url) parts.push(s.url);
   return parts.length ? `*${parts.join(" · ")}*` : undefined;
+}
+
+/** "Loading (LoginValidationStatus) (has patientKey)" → "Loading". */
+const stripCondition = (label: string) => label.replace(/(\s*\([^)]*\))+$/, "").trim();
+
+/**
+ * The shortest route to a screen from an entry point, following "reached from"
+ * links backwards. Entry points are labels that aren't screens ("App launch",
+ * "Tab bar", "Side menu"); among equally short routes, one from app launch wins.
+ */
+export function navPath(target: ScreenInfo, screens: ScreenInfo[]): string[] | undefined {
+  const byName = new Map(screens.map((x) => [normName(x.name), x]));
+  const seen = new Set([target.name]);
+  let level: Array<{ screen: ScreenInfo; path: string[] }> = [{ screen: target, path: [target.name] }];
+  while (level.length) {
+    const found: string[][] = [];
+    const next: typeof level = [];
+    for (const { screen, path } of level) {
+      for (const label of screen.reachedFrom ?? []) {
+        const from = byName.get(normName(stripCondition(label)));
+        if (!from) found.push([label, ...path]);
+        else if (!seen.has(from.name)) {
+          seen.add(from.name);
+          next.push({ screen: from, path: [from.name, ...path] });
+        }
+      }
+    }
+    if (found.length) return found.find((p) => /launch|start/i.test(p[0]!)) ?? found[0];
+    level = next;
+  }
+  return undefined;
 }
 
 /** The screens in scope, grouped, with where to find each one and what the scans found there. */

@@ -159,6 +159,14 @@
   .tab .badge { font-size: 11px; }
   [role="tabpanel"]:focus { outline: none; }
   [role="tabpanel"] > .meta { margin-top: 12px; }
+  .findit { margin-top: 12px; padding: 10px 14px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; }
+  .findit .eyebrow { margin: 0 0 4px; }
+  .findit dl { margin: 0; display: grid; gap: 3px; font-size: 14px; }
+  .findit dl > div { display: grid; grid-template-columns: 7.5em 1fr; gap: 10px; }
+  .findit dt { color: var(--muted); font-weight: 600; font-size: 13px; padding-top: 1px; }
+  .findit dd { margin: 0; }
+  .findit .hop { font-weight: 500; }
+  .findit .arrow { color: var(--muted); }
   .blocked-box { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; font-size: 14px; }
   .blocked-box input[type=text] { flex: 1 1 280px; border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; background: var(--bg); }
   .measured { margin: 6px 0 0; font-size: 13px; color: var(--pass-ink); }
@@ -169,7 +177,7 @@
 </head>
 <body>
 <header class="topbar">
-  <h1>A11y checklist <span class="file" id="docTitle"></span></h1>
+  <h1>Manual A11y Testing Helper <span class="file" id="docTitle"></span></h1>
   <div class="progress" id="progress" hidden></div>
   <div class="actions">
     <button type="button" class="btn" id="openBtn">Open checklist.md…</button>
@@ -547,8 +555,8 @@ function screenStatus(s, doc) {
 // </core>
 
 const MARKS = [
-  { mark: 'x', label: 'Pass', icon: '✓', key: 'p', cls: 'pass' },
-  { mark: '!', label: 'Fail', icon: '✗', key: 'f', cls: 'fail' },
+  { mark: 'x', label: 'Pass', icon: 'X', key: 'p', cls: 'pass' },
+  { mark: '!', label: 'Fail', icon: '!', key: 'f', cls: 'fail' },
   { mark: '-', label: 'N/A', icon: '–', key: 'n', cls: 'na' },
 ];
 const SESSION_PREFIX = 'bt-a11y-checklist-session:';
@@ -773,6 +781,23 @@ function finishHtml(s) {
     <button type="button" class="btn primary" id="passRest">Pass the rest of this screen (${open})</button>`;
 }
 
+/** The "*deep link `x` · path: A → B · also from: C*" line under a screen heading. */
+const isFindIt = l => /^\*[^*].*\*$/.test(l) && /(deep link|path:|reached from|also from:|https?:)/.test(l);
+
+function findItHtml(line) {
+  if (!line) return '';
+  const rows = line.slice(1, -1).split(' · ').map(part => {
+    let m;
+    if ((m = part.match(/^path: (.+)$/))) return ['Path', m[1].split(' → ').map(n => `<span class="hop">${esc(n)}</span>`).join('<span class="arrow"> → </span>')];
+    if ((m = part.match(/^deep link `(.+)`$/))) return ['Deep link', `<code>${esc(m[1])}</code>`];
+    if ((m = part.match(/^(?:also from|reached from):? (.+)$/))) return [part.startsWith('also') ? 'Also from' : 'Reached from', esc(m[1])];
+    return ['', renderInline(part)];
+  });
+  return `<section class="findit" aria-label="How to get to this screen"><p class="eyebrow">How to get there</p><dl>${rows
+    .map(([k, v]) => `<div>${k ? `<dt>${k}</dt>` : ''}<dd>${v}</dd></div>`)
+    .join('')}</dl></section>`;
+}
+
 function renderScreen() {
   const s = doc.screens[state.current];
   const page = s.page;
@@ -780,7 +805,10 @@ function renderScreen() {
   const prev = doc.pages[pos - 1] && screenOn(doc.pages[pos - 1]);
   const next = doc.pages[pos + 1] && screenOn(doc.pages[pos + 1]);
   const setup = doc.setups.get(s.platform);
-  const info = s.index?.info ? [s.index.info] : s.meta;
+  const findIt = s.meta.find(isFindIt);
+  // The screen list repeats the deep link and "reached from"; the How to get there box shows them.
+  const indexInfo = s.index?.info && findIt ? s.index.info.split(' · ').filter(p => !/^(deep link |reached from:)/.test(p)).join(' · ') : s.index?.info;
+  const info = s.index?.info ? [indexInfo].filter(Boolean) : s.meta;
   const platforms = doc.platforms.filter(p => page.screens[p]);
   const missing = doc.platforms.filter(p => !page.screens[p]);
   main.innerHTML = `<article>
@@ -791,7 +819,8 @@ function renderScreen() {
       .join('')}</div>` : ''}
     <div id="platformPanel" role="tabpanel" aria-labelledby="tab-${s.platform}" tabindex="-1">
     ${missing.length ? `<p class="muted">Not in the ${missing.map(p => PLATFORM_LABEL[p]).join(' or ')} checklist.</p>` : ''}
-    <div class="meta">${[...info, ...(s.index?.info ? s.meta.filter(l => l.startsWith('>')) : [])].map(l => `<p>${renderInline(l.replace(/^>\s*/, ''))}</p>`).join('')}</div>
+    ${findItHtml(findIt)}
+    <div class="meta">${[...info, ...(s.index?.info ? s.meta.filter(l => l.startsWith('>')) : [])].filter(l => !isFindIt(l)).map(l => `<p>${renderInline(l.replace(/^>\s*/, ''))}</p>`).join('')}</div>
     <div class="blocked-box">
       <label><input type="checkbox" id="blockedToggle"${s.blocked ? ' checked' : ''}> Blocked: can't reach or test this screen</label>
       <input type="text" id="blockedReason" value="${esc(s.blocked?.reason ?? '')}" placeholder="Why, e.g. needs a QR code from the clinic" aria-label="Why this screen is blocked"${s.blocked ? '' : ' hidden'}>

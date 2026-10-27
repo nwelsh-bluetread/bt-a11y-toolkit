@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ScreenInfo } from "../src/code-scan/screens.js";
-import { APP_WIDE, classifyIssueText, parseChecklist, parseScreenHeading, planChecklist, renderChecklist, renderScanDetails, type ChecklistRow } from "../src/wizard/checklist-md.js";
+import { APP_WIDE, classifyIssueText, navPath, parseChecklist, parseScreenHeading, planChecklist, renderChecklist, renderScanDetails, type ChecklistRow } from "../src/wizard/checklist-md.js";
 import { blockedScreens, checklistFindings, formatBlockedMarkdown, type AutomatedRun } from "../src/wizard/session.js";
 import { wcag } from "../src/wcag.js";
 
@@ -434,5 +434,34 @@ describe("blocked screens and edited headings", () => {
     ]);
     expect(blocked[0]!.open).toBe(reparsed.rows.filter((r) => r.target === "ios" && r.screen === "Login" && r.status === "open").length);
     expect(formatBlockedMarkdown(blocked)).toContain("| Inbox | iOS | No test account |");
+  });
+});
+
+describe("navPath", () => {
+  const scr = (name: string, reachedFrom: string[]): ScreenInfo => ({ name, kind: "mobile", file: `src/${name}.tsx`, features: [], reachedFrom });
+  const all = [
+    scr("Login", ["App launch", "Side menu (Logout)"]),
+    scr("Loading", ["Login"]),
+    scr("Home", ["Loading (has patientKey)", "Tab bar"]),
+    scr("Billing", ["Home (billing enabled)", "Tab bar"]),
+    scr("InvoiceDetail", ["InvoiceHistory"]),
+    scr("InvoiceHistory", ["Billing"]),
+    scr("Orphan", ["Orphan"]),
+  ];
+  const path = (name: string) => navPath(all.find((s) => s.name === name)!, all);
+
+  it("finds the shortest route from an entry point, preferring app launch on ties", () => {
+    expect(path("Login")).toEqual(["App launch", "Login"]);
+    expect(path("Loading")).toEqual(["App launch", "Login", "Loading"]);
+    expect(path("Home")).toEqual(["Tab bar", "Home"]);
+    expect(path("InvoiceDetail")).toEqual(["Tab bar", "Billing", "InvoiceHistory", "InvoiceDetail"]);
+    expect(path("Orphan")).toBeUndefined();
+  });
+
+  it("writes the route under the screen heading", () => {
+    const md = renderChecklist({ projectName: "Demo", targetLevel: "AA", groups: planChecklist(all, ["ios"], "AA"), runs: [] });
+    expect(md).toContain("### InvoiceDetail\n\n*path: Tab bar → Billing → InvoiceHistory → InvoiceDetail*\n");
+    expect(md).toContain("### Home\n\n*path: Tab bar → Home · also from: Loading (has patientKey)*\n");
+    expect(md).toContain("### Orphan\n\n*reached from Orphan*\n");
   });
 });
