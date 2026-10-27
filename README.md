@@ -126,8 +126,10 @@ npx bt-a11y checklist
 ```
 
 This opens `a11y-audit/checklist.html` in your browser. Click **Open
-checklist.md…** and pick `a11y-audit/checklist.md`. Then pick iOS or Android
-and a screen on the left, and mark each check **Pass**, **Fail**, or **N/A**.
+checklist.md…** and pick `a11y-audit/checklist.md`. Pick a screen on the left
+(each screen is listed once), choose its **iOS** or **Android** tab, and mark
+each check **Pass**, **Fail**, or **N/A**. The tab you choose stays selected as
+you move from screen to screen.
 On a fail, type what went wrong and pick a severity. Each check shows the scan's
 ⚑ findings and a **How to test** note, and the sidebar shows which screens are
 done, failed, or still to go. Keyboard shortcuts: `P` pass, `F` fail, `N` N/A,
