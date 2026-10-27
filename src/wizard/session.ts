@@ -178,7 +178,8 @@ export function checklistFindings(parsed: ParsedChecklist): Finding[] {
         // Check titles say what should be true; a failure needs the failure wording.
         title: issue.text ? truncate(issue.text, 90) : `${item.failTitle} — ${where}`,
         description: issue.text || `${item.failTitle}. Marked as failing in the manual checklist (check: ${item.title}).`,
-        severity: issue.severity ?? item.severity,
+        // A written issue with no severity is Low; a bare [!] with no description keeps the check's default.
+        severity: issue.severity ?? (issue.text ? "low" : item.severity),
         wcag: ids.map((id) => WCAG[id]!),
         nodeId: where,
         platforms: [row.target],
@@ -193,7 +194,7 @@ export function checklistFindings(parsed: ParsedChecklist): Finding[] {
       ruleId: "manual:other",
       title: truncate(other.text, 90),
       description: other.text,
-      severity: other.severity ?? "medium",
+      severity: other.severity ?? "low",
       wcag: (other.wcag ?? []).map((id) => WCAG[id]!),
       ...(other.screen ? { nodeId: other.screen, evidence: { screen: other.screen } } : {}),
       platforms: other.platforms,

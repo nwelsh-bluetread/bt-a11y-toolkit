@@ -23,7 +23,7 @@ export const SEVERITY_SOURCES: Array<{ key: string; source: string; how: string 
   { key: "axe", source: "axe (web)", how: "axe's own impact rating: critical → Critical, serious → High, moderate → Medium, minor → Low." },
   { key: "lighthouse", source: "Lighthouse (web)", how: "A fixed severity for each Lighthouse audit, set by the toolkit." },
   { key: "device", source: "On-device measurement", how: "Touch targets under 24×24 are Medium." },
-  { key: "manual", source: "Manual testing", how: "The severity the tester chose. If they didn't pick one, the check's default severity (Medium for Other findings)." },
+  { key: "manual", source: "Manual testing", how: "The severity the tester chose. An issue written without one is Low. A check marked failed with no description at all uses that check's default severity." },
 ];
 
 export const SEVERITY_NOTE =

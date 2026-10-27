@@ -114,6 +114,13 @@
   .issues { margin-top: 8px; display: grid; gap: 6px; }
   .issue { display: flex; gap: 6px; align-items: center; }
   .issue input, .issue select, textarea { border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; background: var(--bg); }
+  /* Own caret, so it sits inside the padding instead of against the border. */
+  .issue select {
+    appearance: none; -webkit-appearance: none; padding: 5px 30px 5px 10px; min-width: 7.5em; cursor: pointer;
+    background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+    background-position: calc(100% - 15px) 55%, calc(100% - 10px) 55%;
+    background-size: 5px 5px; background-repeat: no-repeat;
+  }
   .issue .itext { flex: 1; min-width: 0; }
   .issue .wcag { width: 6.5em; font-family: var(--mono); font-size: 13px; }
   .remove { border: none; background: none; cursor: pointer; color: var(--muted); padding: 4px 8px; border-radius: 6px; }
@@ -225,7 +232,7 @@
       <li>Pick a screen on the left, then the <strong>iOS</strong> or <strong>Android</strong> tab on the screen, and work down its checks. The tab you pick stays selected as you move between screens. <strong>Setup</strong> in each tab says which device settings to have ready.</li>
       <li>Mark each check <strong>Pass</strong>, <strong>Fail</strong>, or <strong>N/A</strong>. Click the active button again to clear it.</li>
       <li>Quicker: mark only the fails and N/As, then click <strong>Pass the rest of this screen</strong> at the bottom once you've tested everything. Checks the scan already failed aren't passed; confirm those yourself.</li>
-      <li>On a fail, describe each problem and pick a severity. The first issue goes on the check's line; the rest go on indented lines below it.</li>
+      <li>On a fail, describe each problem and pick a severity (it's Low unless you change it). The first issue goes on the check's line; the rest go on indented lines below it.</li>
       <li><strong>Scan found issues · not reviewed yet</strong>: the code scan already failed this check, and that finding is in the report. Test the screen anyway, then click <strong>Fail</strong> (adding anything else you found) to mark it reviewed, or change the mark if the scan is wrong.</li>
       <li><strong>Shared components</strong> (button at the top) lists components used on many screens that the scan found problems in. Log each problem once instead of on every screen.</li>
       <li><strong>⚑ High/Medium</strong>: what the code scan found in this screen's code. The severity is fixed for each scan rule (how much that kind of problem usually gets in the way), not judged for this screen; pick your own when you log an issue. <strong>⚑ Verify</strong>: the scan can't judge it, so check by hand. Full details are in <code>scan-details.md</code>.</li>
@@ -712,8 +719,7 @@ function issueRow(item, k, withWcag) {
     ${withWcag ? `<input class="wcag" data-field="wcag" value="${esc(item.wcag)}" placeholder="1.4.3" aria-label="WCAG criterion for issue ${k + 1}">` : ''}
     <input class="itext" data-field="text" value="${esc(item.text)}" placeholder="What's wrong, e.g. Pay button text overlaps the icon" aria-label="Issue ${k + 1} description">
     <select data-field="severity" aria-label="Issue ${k + 1} severity">
-      <option value="">Severity…</option>
-      ${SEVERITIES.map(s => `<option value="${s}"${item.severity === s ? ' selected' : ''}>${cap(s)}</option>`).join('')}
+      ${SEVERITIES.map(s => `<option value="${s}"${(item.severity || 'low') === s ? ' selected' : ''}>${cap(s)}</option>`).join('')}
     </select>
     <button type="button" class="remove" aria-label="Remove issue ${k + 1}">✕</button>
   </div>`;

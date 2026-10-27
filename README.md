@@ -213,7 +213,7 @@ For each screen in a pass:
 | You type | Meaning |
 | --- | --- |
 | `- [x] **3.3.2** Every input has a label… · `input-labels`` | Passed on this screen |
-| `- [!] **3.3.2** … · `input-labels`: what went wrong (high)` | Failed. Describe what happened after a colon; severity is optional |
+| `- [!] **3.3.2** … · `input-labels`: what went wrong (high)` | Failed. Describe what happened after a colon; severity is optional (Low if left out) |
 | `- [-] **3.3.2** …` | Not applicable (e.g. no videos on this screen) |
 | `- [ ] **3.3.2** …` | Not tested yet (leave as is) |
 
@@ -246,8 +246,8 @@ gets in the way:
 - **axe:** uses axe's own impact rating.
 - **Lighthouse:** a fixed severity for each audit, set by the toolkit.
 - **On-device measurement:** touch targets under 24×24 are Medium.
-- **Manual testing:** testers pick their own. If they don't, the check's
-  default is used (Medium for "Other findings").
+- **Manual testing:** testers pick their own. An issue written without one is
+  **Low**. A check marked `[!]` with no description uses the check's default.
 
 A criterion fails if it has any finding, whatever the severity. Severity only
 sets the fix order and how much each finding lowers the score. `report.md` and

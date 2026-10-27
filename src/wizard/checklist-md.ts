@@ -132,7 +132,7 @@ export function renderChecklist({ projectName, targetLevel, groups, runs, previo
   );
   out.push("");
   out.push("- `[x]` pass · `[!]` fail · `[-]` not applicable · `[ ]` not checked yet");
-  out.push('- For a failure, describe it after the check, with an optional severity: ``- [!] **1.6** Every input has a label… · `input-labels`: Email field is read as "text field" (high)``');
+  out.push('- For a failure, describe it after the check, with an optional severity (Low if you leave it out): ``- [!] **1.6** Every input has a label… · `input-labels`: Email field is read as "text field" (high)``');
   out.push("- Put more issues for the same check on indented lines below it: `  - Password field has no label either (medium)`");
   out.push("- For a note that isn't an issue, indent it and start with `Note:` (`  Note: only happens on the second visit`). Notes are kept but not counted.");
   out.push("- To narrow a failure to specific criteria, add them in brackets: `[2.5.1]`. Add a screenshot path anywhere in the text.");

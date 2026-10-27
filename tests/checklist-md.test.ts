@@ -227,6 +227,8 @@ Issues that don't fit a check above — one per line.
     // No description from the tester: titled as the failure, not the check's "should" wording.
     expect(findings[2]).toMatchObject({ ruleId: "manual:orientation", nodeId: "App-wide", severity: "medium", title: "Locked to one orientation (portrait or landscape) — App-wide" });
     expect(findings[3]).toMatchObject({ ruleId: "manual:other", platforms: ["ios", "android"], wcag: [{ id: "1.4.3" }] });
+    // An issue written without a severity is Low; a bare [!] keeps the check's default (orientation: medium, above).
+    expect(findings[1]).toMatchObject({ title: "Password field has no label either", severity: "low" });
   });
 
   it("carries answers from the earlier screen-first layout into the new one", () => {
