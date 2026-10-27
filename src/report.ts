@@ -1,3 +1,4 @@
+import { severityGuideMarkdown } from "./severity.js";
 import type { Assessment, Finding, Platform, Severity } from "./types.js";
 
 const SEVERITY_LABEL: Record<Severity, string> = {
@@ -90,6 +91,7 @@ export function formatMarkdown(assessment: Assessment): string {
     lines.push(`| ${SEVERITY_ICON[s]} ${SEVERITY_LABEL[s]} | ${counts[s]} |`),
   );
   lines.push("");
+  lines.push(...severityGuideMarkdown(assessment.findings));
   lines.push(`| WCAG Level | Passing |`);
   lines.push(`| --- | --- |`);
   lines.push(`| A | ${levelPct(wcag.A)} |`);

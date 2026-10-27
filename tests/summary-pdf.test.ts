@@ -1,8 +1,8 @@
 import { existsSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { findingsToAssessment } from "../src/audit.js";
-import { buildSummaryData, rendererPath, summaryPdfName } from "../src/pdf/summary.js";
-import type { Finding } from "../src/types.js";
+import { buildSummaryData, mergeManualIntoScan, rendererPath, summaryPdfName, type SummaryFinding } from "../src/pdf/summary.js";
+import type { Finding, Severity } from "../src/types.js";
 import { wcag } from "../src/wcag.js";
 import { parseChecklist } from "../src/wizard/checklist-md.js";
 import { newSession } from "../src/wizard/session.js";
@@ -113,5 +113,43 @@ describe("parseVeraPdf", () => {
       <rule specification="ISO 14289-1:2014" clause="7.1" testNumber="3" status="failed" failedChecks="151" tags="artifact">`;
     expect(parseVeraPdf(fail)).toEqual({ status: "fail", failedRules: 2, details: "7.1-5, 7.1-3" });
     expect(parseVeraPdf("zsh: command not found: verapdf")).toEqual({ status: "unavailable" });
+  });
+});
+
+describe("mergeManualIntoScan", () => {
+  const f = (rule: string, title: string, severity: Severity, wcag: string[]): SummaryFinding => ({
+    title,
+    group: rule.startsWith("manual:") ? `${rule}|${title}` : rule,
+    rule,
+    severity,
+    reportedBy: rule.startsWith("manual:") ? "manual" : "code scan",
+    wcag,
+    pages: ["Login"],
+    description: title,
+  });
+
+  it("folds undescribed check failures into the most severe scan rule for that check", () => {
+    const merged = mergeManualIntoScan([
+      f("manual:input-labels", "Inputs are missing a label or instructions", "high", ["3.3.2"]),
+      f("manual:sr-name-role-value", "Screen reader doesn't announce some controls' name, role, or state", "high", ["4.1.2"]),
+      f("rn-touchable-role", "Touchable has no accessibility role", "medium", ["4.1.2"]),
+      f("rn-touchable-role", "Touchable has no accessibility role", "medium", ["4.1.2"]),
+      f("rn-touchable-name", "Touchable has no accessible name", "high", ["4.1.2", "1.1.1"]),
+      f("rn-input-label", "Text input has no accessible label", "high", ["3.3.2", "4.1.2", "1.3.1"]),
+    ]);
+    const group = (rule: string) => merged.find((x) => x.rule === rule)!.group;
+    expect(group("manual:input-labels")).toBe("rn-input-label");
+    // Not the more widespread Medium rule: that would raise its severity.
+    expect(group("manual:sr-name-role-value")).toBe("rn-touchable-name");
+    // Scan findings lead, so each group keeps the scan's title.
+    expect(merged.findIndex((x) => x.rule.startsWith("manual:"))).toBe(4);
+  });
+
+  it("keeps findings testers described, and checks with no matching scan rule, separate", () => {
+    const described = f("manual:input-labels", "Email field reads as edit box", "high", ["3.3.2"]);
+    const keyboard = f("manual:keyboard-operable", "Not everything works with a keyboard, or focus gets trapped", "critical", ["2.1.1", "2.1.2"]);
+    const merged = mergeManualIntoScan([described, keyboard, f("rn-input-label", "Text input has no accessible label", "high", ["3.3.2"])]);
+    expect(merged.find((x) => x.title === described.title)!.group).toBe(described.group);
+    expect(merged.find((x) => x.rule === "manual:keyboard-operable")!.group).toBe(keyboard.group);
   });
 });

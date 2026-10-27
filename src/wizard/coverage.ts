@@ -197,6 +197,60 @@ export function levelResults(coverage: Coverage): LevelResult[] {
     });
 }
 
+export interface Conformance {
+  level: WcagLevel;
+  /** "A and AA" for AA. */
+  levels: string;
+  pass: number;
+  fail: number;
+  notVerified: number;
+  /** Criteria that apply to the app: everything except N/A and web only, which count as met. */
+  applicable: number;
+  conformant: boolean;
+}
+
+/** WCAG conformance is all or nothing: every applicable criterion at the target level and below must pass. */
+export function conformance(coverage: Coverage): Conformance {
+  const levels = levelResults(coverage);
+  const sum = (k: CriterionResult) => levels.reduce((n, l) => n + l.counts[k], 0);
+  const pass = sum("pass");
+  const fail = sum("fail");
+  const notVerified = sum("not-verified");
+  const names = levels.map((l) => l.level);
+  return {
+    level: coverage.targetLevel,
+    levels: names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : names.join(""),
+    pass,
+    fail,
+    notVerified,
+    applicable: pass + fail + notVerified,
+    conformant: fail === 0 && notVerified === 0,
+  };
+}
+
+export const SCORE_NOT_A_PASS_MARK =
+  "The accessibility score is not a pass mark. It measures how many issues remain, weighted by severity, so it can be 0 when a few shared fixes would clear most failures, or in the 90s while one failure still blocks conformance.";
+
+/** "WCAG conformance is all or nothing: …" with this audit's numbers. */
+export function conformanceText(c: Conformance): string {
+  const status = c.conformant
+    ? `All ${c.applicable} applicable criteria pass.`
+    : `So far ${c.pass} of ${c.applicable} applicable criteria pass${c.fail ? `; ${c.fail} fail` : ""}${c.notVerified ? `${c.fail ? " and" : ";"} ${c.notVerified} ${c.notVerified === 1 ? "isn't" : "aren't"} verified yet` : ""}.`;
+  return `WCAG conformance is all or nothing: to meet Level ${c.level}, every applicable Level ${c.levels} criterion must pass. There is no partial pass. Criteria that don't apply (N/A or web only) count as met. ${status}`;
+}
+
+export function formatConformanceMarkdown(coverage: Coverage): string {
+  const c = conformance(coverage);
+  return [
+    `## WCAG ${c.level} conformance: ${c.conformant ? "met" : "not yet met"}`,
+    "",
+    conformanceText(c),
+    "",
+    SCORE_NOT_A_PASS_MARK,
+    "",
+  ].join("\n");
+}
+
 /** One-line summary per platform, e.g. "iOS: 8 fail · 30 pass · 12 not tested". */
 export function coverageSummaryLines(coverage: Coverage): string[] {
   return coverage.targets.map((t) => {
@@ -239,6 +293,8 @@ export function formatCoverageMarkdown(coverage: Coverage): string {
   lines.push(`| Level | ${order.map((r) => RESULT_LABEL[r]).join(" | ")} | Criteria |`);
   lines.push(`| --- | ${order.map(() => "---:").join(" | ")} | ---: |`);
   for (const l of levelResults(coverage)) lines.push(`| ${l.level} | ${order.map((r) => l.counts[r]).join(" | ")} | ${l.total} |`);
+  lines.push("");
+  lines.push(conformanceText(conformance(coverage)));
   lines.push("");
   lines.push("### By platform");
   lines.push("");

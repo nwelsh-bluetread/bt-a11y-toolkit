@@ -16,7 +16,7 @@ import { formatJson, formatMarkdown } from "../report.js";
 import type { Assessment, Finding, WcagLevel } from "../types.js";
 import { WCAG } from "../wcag.js";
 import { emptyChecklist, parseChecklist, type ParsedChecklist } from "./checklist-md.js";
-import { buildCoverage, formatCoverageMarkdown, type Coverage } from "./coverage.js";
+import { buildCoverage, conformance, formatConformanceMarkdown, formatCoverageMarkdown, type Coverage } from "./coverage.js";
 import { buildQuickWins, checksClearedByFile, formatQuickWinsMarkdown, type QuickWins } from "./quick-wins.js";
 import { formatSharedComponentsMarkdown, sharedComponents } from "./shared-components.js";
 import { comparePlatforms, formatPlatformMarkdown } from "./platforms.js";
@@ -175,8 +175,9 @@ export function checklistFindings(parsed: ParsedChecklist): Finding[] {
       const ids = issue.wcag?.length ? issue.wcag : item.wcag;
       findings.push({
         ruleId: `manual:${item.id}`,
-        title: issue.text ? truncate(issue.text, 90) : `${item.title} — ${where}`,
-        description: issue.text || `Marked as failing in the manual checklist: ${item.title}.`,
+        // Check titles say what should be true; a failure needs the failure wording.
+        title: issue.text ? truncate(issue.text, 90) : `${item.failTitle} — ${where}`,
+        description: issue.text || `${item.failTitle}. Marked as failing in the manual checklist (check: ${item.title}).`,
         severity: issue.severity ?? item.severity,
         wcag: ids.map((id) => WCAG[id]!),
         nodeId: where,
@@ -275,9 +276,11 @@ export function writeReports(
   writeFileSync(
     markdown,
     insertBeforeFindings(
-      formatMarkdown(assessment).replace("# Accessibility Assessment", `# Accessibility Assessment — ${session.project.name}`),
+      formatMarkdown(assessment)
+        .replace("# Accessibility Assessment", `# Accessibility Assessment — ${session.project.name}`)
+        .replace(/^- \*\*Overall score:\*\* (\d+)%$/m, (line) => `${line} (issue load, not a pass mark)\n${conformanceLine(coverage)}`),
       // Overview sections go above the long findings list; the coverage matrix stays at the end.
-      [platformsMd, quickWinsMd, sharedMd, blocked.length ? formatBlockedMarkdown(blocked) : ""].filter(Boolean).join("\n\n"),
+      [formatConformanceMarkdown(coverage), platformsMd, quickWinsMd, sharedMd, blocked.length ? formatBlockedMarkdown(blocked) : ""].filter(Boolean).join("\n\n"),
     ) +
       "\n\n" +
       formatCoverageMarkdown(coverage) +
@@ -286,6 +289,11 @@ export function writeReports(
   );
   writeFileSync(json, formatJson({ ...assessment, coverage, blockedScreens: blocked, quickWins, sharedComponents: shared, platforms } as Assessment) + "\n", "utf8");
   return { assessment, coverage, checklist, blocked, quickWins, markdown, json };
+}
+
+function conformanceLine(coverage: Coverage): string {
+  const c = conformance(coverage);
+  return `- **WCAG ${c.level} conformance:** ${c.conformant ? "Met" : "Not yet met"}: ${c.pass} of ${c.applicable} applicable criteria pass (all of them must pass)`;
 }
 
 function insertBeforeFindings(markdown: string, sections: string): string {

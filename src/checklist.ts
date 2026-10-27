@@ -23,6 +23,8 @@ export type ScreenFeature =
 export interface ChecklistItem {
   id: string;
   title: string;
+  /** The same check phrased as a failure, for findings with no tester description ("Not everything works with a keyboard…"). */
+  failTitle: string;
   /** WCAG success criterion ids (see `WCAG` in wcag.ts). */
   wcag: string[];
   /** Lowest conformance level that requires this check. */
@@ -119,6 +121,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "sr-name-role-value",
     title: "Screen reader announces the name, role, and state of every control",
+    failTitle: "Screen reader doesn't announce some controls' name, role, or state",
     wcag: ["4.1.2"],
     level: "A",
     appliesTo: ALL,
@@ -133,6 +136,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "focus-order",
     title: "Reading and focus order is logical and matches the visual layout",
+    failTitle: "Reading or focus order is illogical or doesn't match the layout",
     wcag: ["1.3.2", "2.4.3"],
     level: "A",
     appliesTo: ALL,
@@ -146,6 +150,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "modal-focus",
     title: "Dialogs, sheets, and menus move focus in, keep it inside, and return it on close",
+    failTitle: "Dialogs, sheets, or menus don't move, keep, or return focus correctly",
     wcag: ["2.4.3"],
     level: "A",
     appliesTo: ALL,
@@ -159,6 +164,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "keyboard-operable",
     title: "Everything works with a keyboard, and there are no keyboard traps",
+    failTitle: "Not everything works with a keyboard, or focus gets trapped",
     wcag: ["2.1.1", "2.1.2"],
     level: "A",
     appliesTo: ALL,
@@ -173,6 +179,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "alt-text-meaningful",
     title: "Images and icons have meaningful text alternatives (or are hidden if decorative)",
+    failTitle: "Images or icons are missing meaningful text alternatives",
     wcag: ["1.1.1"],
     level: "A",
     appliesTo: ALL,
@@ -185,6 +192,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "color-alone",
     title: "Information is not conveyed by color alone",
+    failTitle: "Information is conveyed by color alone",
     wcag: ["1.4.1"],
     level: "A",
     appliesTo: ALL,
@@ -197,6 +205,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "errors-identified",
     title: "Form errors are identified and described in text, and announced",
+    failTitle: "Form errors aren't identified or described in text, or aren't announced",
     wcag: ["3.3.1"],
     level: "A",
     appliesTo: ALL,
@@ -209,6 +218,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "input-labels",
     title: "Every input has a label or instructions (not just placeholder text)",
+    failTitle: "Inputs are missing a label or instructions",
     wcag: ["3.3.2"],
     level: "A",
     appliesTo: ALL,
@@ -221,6 +231,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "captions",
     title: "Prerecorded video and audio have captions",
+    failTitle: "Prerecorded video or audio is missing captions",
     wcag: ["1.2.2"],
     level: "A",
     appliesTo: ALL,
@@ -233,6 +244,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "sensory-characteristics",
     title: "Instructions don't rely only on shape, position, or sound",
+    failTitle: "Instructions rely only on shape, position, or sound",
     wcag: ["1.3.3"],
     level: "A",
     appliesTo: ALL,
@@ -245,6 +257,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "link-purpose",
     title: "Link and button purpose is clear from its text or context",
+    failTitle: "Link or button purpose isn't clear from its text or context",
     wcag: ["2.4.4"],
     level: "A",
     appliesTo: ALL,
@@ -257,6 +270,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "pointer-gestures",
     title: "Swipe, pinch, and drag gestures have a single-tap alternative",
+    failTitle: "Swipe, pinch, or drag gestures have no single-tap alternative",
     wcag: ["2.5.1"],
     level: "A",
     appliesTo: ALL,
@@ -270,6 +284,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "pointer-cancellation",
     title: "Actions fire on release, and dragging off a control cancels",
+    failTitle: "Actions fire on press, or can't be cancelled by dragging off",
     wcag: ["2.5.2"],
     level: "A",
     appliesTo: ALL,
@@ -283,6 +298,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "media-alternatives",
     title: "Audio-only and video-only content has a text alternative; video has audio description or a transcript",
+    failTitle: "Audio-only or video-only content has no text alternative or description",
     wcag: ["1.2.1", "1.2.3"],
     level: "A",
     appliesTo: ALL,
@@ -295,6 +311,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "info-relationships",
     title: "Structure is exposed to assistive tech: headings, lists, groups, and label–field relationships",
+    failTitle: "Headings, lists, groups, or label–field relationships aren't exposed to assistive tech",
     wcag: ["1.3.1"],
     level: "A",
     appliesTo: ALL,
@@ -309,6 +326,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "audio-control",
     title: "Audio that plays automatically for more than 3 seconds can be paused or muted",
+    failTitle: "Auto-playing audio can't be paused or muted",
     wcag: ["1.4.2"],
     level: "A",
     appliesTo: ALL,
@@ -321,6 +339,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "character-shortcuts",
     title: "Single-key keyboard shortcuts can be turned off or remapped",
+    failTitle: "Single-key keyboard shortcuts can't be turned off or remapped",
     wcag: ["2.1.4"],
     level: "A",
     appliesTo: ALL,
@@ -334,6 +353,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "timing-adjustable",
     title: "Time limits can be turned off, adjusted, or extended",
+    failTitle: "Time limits can't be turned off, adjusted, or extended",
     wcag: ["2.2.1"],
     level: "A",
     appliesTo: ALL,
@@ -346,6 +366,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "pause-stop-hide",
     title: "Moving, blinking, scrolling, or auto-updating content can be paused, stopped, or hidden",
+    failTitle: "Moving, blinking, or auto-updating content can't be paused, stopped, or hidden",
     wcag: ["2.2.2"],
     level: "A",
     appliesTo: ALL,
@@ -358,6 +379,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "flashing",
     title: "Nothing flashes more than three times per second",
+    failTitle: "Content flashes more than three times per second",
     wcag: ["2.3.1"],
     level: "A",
     appliesTo: ALL,
@@ -370,6 +392,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "bypass-blocks",
     title: "A skip link or landmarks let users bypass repeated content",
+    failTitle: "No skip link or landmarks to bypass repeated content",
     wcag: ["2.4.1"],
     level: "A",
     appliesTo: ["web"],
@@ -382,6 +405,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "page-titled",
     title: "Every page or screen has a descriptive title",
+    failTitle: "Pages or screens are missing a descriptive title",
     wcag: ["2.4.2"],
     level: "A",
     appliesTo: ALL,
@@ -395,6 +419,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "label-in-name",
     title: "The accessible name includes the visible label text",
+    failTitle: "Accessible names don't include the visible label text",
     wcag: ["2.5.3"],
     level: "A",
     appliesTo: ALL,
@@ -409,6 +434,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "motion-actuation",
     title: "Shake or tilt actions have an on-screen alternative and can be turned off",
+    failTitle: "Shake or tilt actions have no on-screen alternative or can't be turned off",
     wcag: ["2.5.4"],
     level: "A",
     appliesTo: ALL,
@@ -421,6 +447,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "language",
     title: "The language of the page or app is set correctly",
+    failTitle: "The language of the page or app isn't set correctly",
     wcag: ["3.1.1"],
     level: "A",
     appliesTo: ALL,
@@ -434,6 +461,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "on-focus-input",
     title: "Focusing or changing a control doesn't cause unexpected changes of context",
+    failTitle: "Focusing or changing a control causes an unexpected change of context",
     wcag: ["3.2.1", "3.2.2"],
     level: "A",
     appliesTo: ALL,
@@ -446,6 +474,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "consistent-help",
     title: "Help options (contact, chat, FAQ) appear in the same place on every screen",
+    failTitle: "Help options aren't in the same place on every screen",
     wcag: ["3.2.6"],
     level: "A",
     appliesTo: ALL,
@@ -458,6 +487,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "redundant-entry",
     title: "Users aren't asked to re-enter information they've already given in the same flow",
+    failTitle: "Users have to re-enter information they already gave in the same flow",
     wcag: ["3.3.7"],
     level: "A",
     appliesTo: ALL,
@@ -472,6 +502,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "focus-visible",
     title: "A visible focus indicator appears on every focusable control",
+    failTitle: "Some focusable controls have no visible focus indicator",
     wcag: ["2.4.7"],
     level: "AA",
     appliesTo: ALL,
@@ -485,6 +516,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "contrast",
     title: "Text contrast is 4.5:1 (3:1 large text); icons and UI borders 3:1",
+    failTitle: "Text, icons, or UI borders don't meet the contrast ratio",
     wcag: ["1.4.3", "1.4.11"],
     level: "AA",
     appliesTo: ALL,
@@ -499,6 +531,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "resize-text",
     title: "Text scales to 200% without clipping, overlap, or lost content",
+    failTitle: "Text clips, overlaps, or loses content when scaled to 200%",
     wcag: ["1.4.4"],
     level: "AA",
     appliesTo: ALL,
@@ -513,6 +546,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "reflow",
     title: "Content reflows without two-way scrolling (320px wide / largest text)",
+    failTitle: "Content needs two-way scrolling at 320px wide or the largest text size",
     wcag: ["1.4.10"],
     level: "AA",
     appliesTo: ALL,
@@ -526,6 +560,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "text-spacing",
     title: "Increased text spacing doesn't break the layout",
+    failTitle: "Increased text spacing breaks the layout",
     wcag: ["1.4.12"],
     level: "AA",
     appliesTo: ["web"],
@@ -538,6 +573,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "status-messages",
     title: "Status messages are announced without moving focus",
+    failTitle: "Status messages aren't announced, or move focus",
     wcag: ["4.1.3"],
     level: "AA",
     appliesTo: ALL,
@@ -550,6 +586,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "headings-labels",
     title: "Headings and labels are descriptive, and headings are exposed as headings",
+    failTitle: "Headings or labels aren't descriptive, or headings aren't exposed as headings",
     wcag: ["2.4.6"],
     level: "AA",
     appliesTo: ALL,
@@ -564,6 +601,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "orientation",
     title: "Works in both portrait and landscape (not locked unless essential)",
+    failTitle: "Locked to one orientation (portrait or landscape)",
     wcag: ["1.3.4"],
     level: "AA",
     appliesTo: ALL,
@@ -577,6 +615,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "target-size",
     title: "Touch/click targets are at least 24×24 or adequately spaced",
+    failTitle: "Touch/click targets are smaller than 24×24 and too close together",
     wcag: ["2.5.8"],
     level: "AA",
     appliesTo: ALL,
@@ -591,6 +630,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "consistent-navigation",
     title: "Navigation and repeated components are consistent across screens",
+    failTitle: "Navigation or repeated components are inconsistent across screens",
     wcag: ["3.2.3", "3.2.4"],
     level: "AA",
     appliesTo: ALL,
@@ -603,6 +643,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "error-suggestion",
     title: "Error messages suggest how to fix the problem",
+    failTitle: "Error messages don't suggest how to fix the problem",
     wcag: ["3.3.3"],
     level: "AA",
     appliesTo: ALL,
@@ -616,6 +657,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "live-media-description",
     title: "Live audio/video has captions; prerecorded video has audio description",
+    failTitle: "Live audio/video is missing captions, or prerecorded video has no audio description",
     wcag: ["1.2.4", "1.2.5"],
     level: "AA",
     appliesTo: ALL,
@@ -628,6 +670,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "input-purpose",
     title: "Personal-data fields identify their purpose so autofill works",
+    failTitle: "Personal-data fields don't identify their purpose, so autofill doesn't work",
     wcag: ["1.3.5"],
     level: "AA",
     appliesTo: ALL,
@@ -642,6 +685,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "images-of-text",
     title: "Text is real text, not images of text",
+    failTitle: "Images of text are used instead of real text",
     wcag: ["1.4.5"],
     level: "AA",
     appliesTo: ALL,
@@ -654,6 +698,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "hover-focus-content",
     title: "Tooltips and popovers are dismissible, hoverable, and stay visible",
+    failTitle: "Tooltips or popovers can't be dismissed, hovered, or don't stay visible",
     wcag: ["1.4.13"],
     level: "AA",
     appliesTo: ALL,
@@ -667,6 +712,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "multiple-ways",
     title: "There's more than one way to find a page (navigation, search, sitemap)",
+    failTitle: "There's only one way to find a page",
     wcag: ["2.4.5"],
     level: "AA",
     appliesTo: ["web"],
@@ -679,6 +725,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "focus-not-obscured",
     title: "Focused elements aren't hidden behind sticky headers, footers, or overlays",
+    failTitle: "Focused elements are hidden behind sticky headers, footers, or overlays",
     wcag: ["2.4.11"],
     level: "AA",
     appliesTo: ALL,
@@ -692,6 +739,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "dragging",
     title: "Dragging actions have a single-tap/click alternative",
+    failTitle: "Dragging actions have no single-tap/click alternative",
     wcag: ["2.5.7"],
     level: "AA",
     appliesTo: ALL,
@@ -704,6 +752,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "language-parts",
     title: "Passages in a different language are marked with that language",
+    failTitle: "Passages in a different language aren't marked with that language",
     wcag: ["3.1.2"],
     level: "AA",
     appliesTo: ALL,
@@ -716,6 +765,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "error-prevention",
     title: "Legal, financial, or data-changing submissions can be reviewed, corrected, or reversed",
+    failTitle: "Legal, financial, or data-changing submissions can't be reviewed, corrected, or reversed",
     wcag: ["3.3.4"],
     level: "AA",
     appliesTo: ALL,
@@ -728,6 +778,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "accessible-auth",
     title: "Sign-in doesn't require a memory or puzzle test; password managers and paste work",
+    failTitle: "Sign-in requires a memory or puzzle test, or blocks password managers and paste",
     wcag: ["3.3.8"],
     level: "AA",
     appliesTo: ALL,
@@ -743,6 +794,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "contrast-enhanced",
     title: "Text contrast is 7:1 (4.5:1 for large text)",
+    failTitle: "Text doesn't meet the 7:1 enhanced contrast ratio",
     wcag: ["1.4.6"],
     level: "AAA",
     appliesTo: ALL,
@@ -753,6 +805,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "target-size-enhanced",
     title: "Touch targets are at least 44×44",
+    failTitle: "Touch targets are smaller than 44×44",
     wcag: ["2.5.5"],
     level: "AAA",
     appliesTo: ALL,
@@ -763,6 +816,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "motion",
     title: "Motion triggered by interaction can be turned off",
+    failTitle: "Motion triggered by interaction can't be turned off",
     wcag: ["2.3.3"],
     level: "AAA",
     appliesTo: ALL,
@@ -777,6 +831,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "sign-language",
     title: "Prerecorded audio content has sign language interpretation",
+    failTitle: "Prerecorded audio has no sign language interpretation",
     wcag: ["1.2.6"],
     level: "AAA",
     appliesTo: ALL,
@@ -787,6 +842,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "timing",
     title: "No time limits, and re-authenticating doesn't lose data",
+    failTitle: "There are time limits, or re-authenticating loses data",
     wcag: ["2.2.3", "2.2.5"],
     level: "AAA",
     appliesTo: ALL,
@@ -799,6 +855,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "help",
     title: "Context-sensitive help is available where input is required",
+    failTitle: "No context-sensitive help where input is required",
     wcag: ["3.3.5"],
     level: "AAA",
     appliesTo: ALL,
@@ -809,6 +866,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "media-enhanced",
     title: "Extended audio description, full media alternatives, and live audio alternatives",
+    failTitle: "Missing extended audio description, full media alternatives, or live audio alternatives",
     wcag: ["1.2.7", "1.2.8", "1.2.9"],
     level: "AAA",
     appliesTo: ALL,
@@ -821,6 +879,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "identify-purpose",
     title: "The purpose of icons, regions, and components can be programmatically determined",
+    failTitle: "The purpose of icons, regions, or components can't be programmatically determined",
     wcag: ["1.3.6"],
     level: "AAA",
     appliesTo: ALL,
@@ -833,6 +892,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "background-audio",
     title: "Speech recordings have little or no background audio",
+    failTitle: "Speech recordings have distracting background audio",
     wcag: ["1.4.7"],
     level: "AAA",
     appliesTo: ALL,
@@ -845,6 +905,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "visual-presentation",
     title: "Blocks of text can be customized and are easy to read",
+    failTitle: "Blocks of text can't be customized or are hard to read",
     wcag: ["1.4.8"],
     level: "AAA",
     appliesTo: ALL,
@@ -857,6 +918,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "images-of-text-strict",
     title: "No images of text at all (except logos and essential cases)",
+    failTitle: "Images of text are used (beyond logos and essential cases)",
     wcag: ["1.4.9"],
     level: "AAA",
     appliesTo: ALL,
@@ -869,6 +931,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "keyboard-no-exception",
     title: "Everything works with a keyboard, with no exceptions",
+    failTitle: "Some functions don't work with a keyboard",
     wcag: ["2.1.3"],
     level: "AAA",
     appliesTo: ALL,
@@ -881,6 +944,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "interruptions-timeouts",
     title: "Interruptions can be postponed, and users are warned about data-loss timeouts",
+    failTitle: "Interruptions can't be postponed, or there's no warning about data-loss timeouts",
     wcag: ["2.2.4", "2.2.6"],
     level: "AAA",
     appliesTo: ALL,
@@ -893,6 +957,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "three-flashes",
     title: "Nothing flashes more than three times per second, regardless of size or color",
+    failTitle: "Content flashes more than three times per second",
     wcag: ["2.3.2"],
     level: "AAA",
     appliesTo: ALL,
@@ -905,6 +970,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "navigation-enhanced",
     title: "Location is shown, link text alone is clear, and content uses section headings",
+    failTitle: "Location isn't shown, link text alone is unclear, or content lacks section headings",
     wcag: ["2.4.8", "2.4.9", "2.4.10"],
     level: "AAA",
     appliesTo: ALL,
@@ -917,6 +983,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "focus-enhanced",
     title: "Focus is never partially obscured and the focus indicator is large and high-contrast",
+    failTitle: "Focus is partially obscured, or the focus indicator is too small or low-contrast",
     wcag: ["2.4.12", "2.4.13"],
     level: "AAA",
     appliesTo: ALL,
@@ -929,6 +996,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "concurrent-input",
     title: "Users can switch between touch, keyboard, voice, and switch input at any time",
+    failTitle: "Users can't switch between touch, keyboard, voice, and switch input",
     wcag: ["2.5.6"],
     level: "AAA",
     appliesTo: ALL,
@@ -941,6 +1009,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "language-enhanced",
     title: "Unusual words, abbreviations, reading level, and pronunciation are supported",
+    failTitle: "Unusual words, abbreviations, reading level, or pronunciation aren't supported",
     wcag: ["3.1.3", "3.1.4", "3.1.5", "3.1.6"],
     level: "AAA",
     appliesTo: ALL,
@@ -953,6 +1022,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "change-on-request",
     title: "Changes of context only happen when the user asks for them",
+    failTitle: "Changes of context happen without the user asking",
     wcag: ["3.2.5"],
     level: "AAA",
     appliesTo: ALL,
@@ -965,6 +1035,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "error-prevention-all",
     title: "All submissions can be reviewed, corrected, or reversed",
+    failTitle: "Submissions can't be reviewed, corrected, or reversed",
     wcag: ["3.3.6"],
     level: "AAA",
     appliesTo: ALL,
@@ -977,6 +1048,7 @@ const ITEMS: Array<Omit<ChecklistItem, "scope" | "when" | "mode">> = [
   {
     id: "accessible-auth-enhanced",
     title: "Sign-in requires no cognitive test at all — not even object recognition",
+    failTitle: "Sign-in requires a cognitive test, including object recognition",
     wcag: ["3.3.9"],
     level: "AAA",
     appliesTo: ALL,

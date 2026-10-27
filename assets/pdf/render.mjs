@@ -127,6 +127,7 @@ function groupFindings(findings) {
     g.count++;
     for (const p of f.pages) if (!g.pages.includes(p)) g.pages.push(p);
     if (f.location && !g.locations.includes(f.location)) g.locations.push(f.location);
+    if (f.reportedBy && g.reportedBy && !g.reportedBy.split(' + ').includes(f.reportedBy)) g.reportedBy += ` + ${f.reportedBy}`;
     if (SEV_RANK[f.severity] < SEV_RANK[g.severity]) g.severity = f.severity;
   }
   return [...map.values()].sort((a, b) => SEV_RANK[a.severity] - SEV_RANK[b.severity] || b.count - a.count);
@@ -220,13 +221,17 @@ function render(data) {
     const why = r.result === 'platform-na' ? "Doesn't apply to native apps" : r.result === 'na' ? (r.reason ?? '').replace(/ in the app$/, '') : r.note;
     return `<span class="result result-${r.result}">${RESULT_TEXT[r.result]}</span>${why ? `<span class="ref-n">${esc(why)}</span>` : ''}`;
   };
+  const conf = data.conformance;
+  // With criteria results, conformance means every applicable criterion passed, not just "no findings".
+  const confLabel = conf ? (conf.conformant ? `Meets Level ${esc(conf.level)}` : 'Not yet conformant') : total ? 'Not yet conformant' : 'Conformant (automated)';
   const LEVEL_COLS = [['pass', 'Pass'], ['fail', 'Fail'], ['na', 'N/A'], ['platform-na', 'Web only'], ['not-verified', 'Not yet verified']];
   const levelTable = data.levelResults?.length ? `
     <section class="card wide">
       <h3>Results by WCAG level</h3>
+      ${conf ? `<p class="conf-callout">${esc(conf.text)}</p>` : ''}
       <table><thead><tr><th scope="col">Level</th>${LEVEL_COLS.map(([, l]) => `<th scope="col" class="num">${l}</th>`).join('')}<th scope="col" class="num">Criteria</th></tr></thead>
       <tbody>${data.levelResults.map((l) => `<tr><td>Level ${esc(l.level)}</td>${LEVEL_COLS.map(([k]) => `<td class="num">${l.counts[k]}</td>`).join('')}<td class="num">${l.total}</td></tr>`).join('')}</tbody></table>
-      <p class="fine"><strong>N/A</strong>: the app has none of the content the criterion covers (for example, no audio or video). <strong>Web only</strong>: the criterion applies to websites, not native apps (for example, Bypass Blocks). Neither counts for or against the score. <strong>Not yet verified</strong>: testing isn't finished for this criterion on every platform.</p>
+      <p class="fine"><strong>N/A</strong>: the app has none of the content the criterion covers (for example, no audio or video). <strong>Web only</strong>: the criterion applies to websites, not native apps (for example, Bypass Blocks). Neither counts for or against the score, and both count as met for conformance. <strong>Not yet verified</strong>: testing isn't finished for this criterion on every platform.</p>
     </section>` : '';
 
   const reference = () => PRINCIPLES.map((p, pi) => {
@@ -261,7 +266,20 @@ function render(data) {
       <table><thead><tr><th scope="col">Severity</th><th scope="col" class="num">Findings</th><th scope="col" class="num">Weight</th><th scope="col" class="num">Deduction</th></tr></thead>
       <tbody>${deduction.map((s) => `<tr><td>${badge(s.key)}</td><td class="num">${s.n}</td><td class="num">${s.weight}</td><td class="num">−${s.d}</td></tr>`).join('')}
       <tr class="total"><td>Raw total</td><td class="num">${total}</td><td class="num muted">—</td><td class="num">−${deduction.reduce((a, s) => a + s.d, 0)}</td></tr></tbody></table>
-      <p class="fine">The score starts at 100. The raw deduction is normalized against the number of elements evaluated, so small pages aren't over-penalized, then subtracted from 100 and clamped to 0–100.</p>
+      <p class="fine">This score starts at 100. The raw deduction is normalized against the number of elements evaluated, so small pages aren't over-penalized.</p>
+    </div>` : '';
+
+  const sg = data.severityGuide;
+  const severityCard = sg ? `
+    <div class="card wide keep">
+      <h3>How severity is decided</h3>
+      <p class="fine">${esc(sg.note)}</p>
+      <div class="grid sev-guide">
+        <table><thead><tr><th scope="col">Severity</th><th scope="col">Means</th></tr></thead>
+        <tbody>${SEVERITIES.filter((s) => sg.levels?.[s.key]).map((s) => `<tr><td>${badge(s.key)}</td><td>${esc(sg.levels[s.key])}</td></tr>`).join('')}</tbody></table>
+        <table><thead><tr><th scope="col">Finding from</th><th scope="col">How its severity is set</th></tr></thead>
+        <tbody>${(sg.sources ?? []).map((x) => `<tr><th scope="row">${esc(x.source)}</th><td>${esc(x.how)}</td></tr>`).join('')}</tbody></table>
+      </div>
     </div>` : '';
 
   const criteria = new Map();
@@ -388,11 +406,13 @@ function render(data) {
     <div class="tile status-tile">
       ${data.overallScore != null ? `
       <p class="eyebrow">Accessibility score</p>
-      <p class="score-big"><strong>${esc(data.overallScore)}</strong><span>/ 100</span><span class="conf-pill">${total ? 'Not yet conformant' : 'Conformant (automated)'}</span></p>
+      <p class="score-big"><strong>${esc(data.overallScore)}</strong><span>/ 100</span><span class="conf-pill">${confLabel}</span></p>
       <span class="score-track" aria-hidden="true"><span style="width:${Math.max(0, Math.min(100, Number(data.overallScore)))}%"></span></span>
-      <p class="score-note">${esc(data.scoreNote ?? 'Starts at 100; every issue lowers it, weighted by severity.')} ${failing.length} of 4 principles need remediation for Level ${level}.</p>` : `
+      <p class="score-note">${conf
+        ? `Not a pass mark: it counts remaining issues, weighted by severity. Level ${esc(conf.level)} is all or nothing: every applicable criterion must pass. <strong>${conf.pass} of ${conf.applicable}</strong> pass today.`
+        : `${esc(data.scoreNote ?? 'Starts at 100; every issue lowers it, weighted by severity.')} ${failing.length} of 4 principles need remediation for Level ${level}.`}</p>` : `
       <p class="eyebrow">Overall status</p>
-      <p class="status-big">${total ? 'Not yet conformant' : 'Conformant (automated)'}</p>
+      <p class="status-big">${confLabel}</p>
       <p>${failing.length} of 4 principles need remediation before the app meets Level ${level}.</p>`}
     </div>
     ${tiles.map((t) => `<div class="tile"><p class="big">${t.n}</p><p>${t.sev ? `<span class="dot sev-${t.sev}" aria-hidden="true"></span>` : ''}${t.label}</p></div>`).join('')}
@@ -439,6 +459,7 @@ function render(data) {
 
   <h2>Detailed results</h2>
   <div class="grid">${levelPassing}${scoreTable}</div>
+  ${severityCard}
   ${levelTable}
   ${criteriaTable}
   ${scorecard}
@@ -592,6 +613,11 @@ td.pages { font-family: var(--mono); font-size: 7.5pt; color: var(--muted); }
 .mini-track span { display: block; height: 100%; background: var(--pass-ink); }
 
 .detail-h { margin: 18px 0 8px; font-size: 14pt; break-after: avoid; }
+.conf-callout { margin: 8px 0 10px; padding: 8px 12px; border-left: 4px solid var(--critical); background: var(--fail-bg); border-radius: 0 6px 6px 0; font-size: 8.5pt; }
+.conf-callout + table { margin-top: 0; }
+.sev-guide { margin-top: 8px; align-items: start; }
+.sev-guide td, .sev-guide th[scope="row"] { font-size: 8pt; }
+.sev-guide th[scope="row"] { text-transform: none; letter-spacing: 0; color: var(--ink); font-weight: 600; white-space: nowrap; padding: 6px 10px 6px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
 .finding { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 8px; break-inside: avoid; }
 .finding header { display: flex; gap: 10px; align-items: baseline; margin-bottom: 8px; }
 .finding h4 { margin: 0; font-size: 10pt; font-weight: 600; }

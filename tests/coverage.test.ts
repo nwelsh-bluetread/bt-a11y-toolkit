@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { emptyChecklist, parseChecklist, type ParsedChecklist } from "../src/wizard/checklist-md.js";
-import { buildCoverage, coverageSummaryLines, criterionResult, formatCoverageMarkdown, levelResults } from "../src/wizard/coverage.js";
+import { buildCoverage, conformance, conformanceText, coverageSummaryLines, criterionResult, formatConformanceMarkdown, formatCoverageMarkdown, levelResults } from "../src/wizard/coverage.js";
 import { newSession, type AuditSession } from "../src/wizard/session.js";
 import { wcag } from "../src/wcag.js";
 
@@ -118,6 +118,20 @@ describe("criterion results by level", () => {
     expect(md).toContain("| Level | Pass | Fail | N/A | Web only | Not yet verified | Criteria |");
     expect(md).toContain("➖ N/A: no such content (No audio/video)");
     expect(md).toContain("| 2.4.1 Bypass Blocks | A | 🌐 Web only |");
+  });
+
+  it("treats conformance as all or nothing, with N/A and web only counted as met", () => {
+    const coverage = buildCoverage(mobile(), checklist([["captions", "-"], ["sr-name-role-value", "x"], ["color-alone", "!"]]));
+    const [a, aa] = levelResults(coverage);
+    const c = conformance(coverage);
+    expect(c).toMatchObject({ level: "AA", levels: "A and AA", fail: 1, conformant: false });
+    // Everything except N/A and web only has to pass.
+    expect(c.applicable).toBe(a!.total + aa!.total - a!.counts.na - a!.counts["platform-na"] - aa!.counts.na - aa!.counts["platform-na"]);
+    expect(c.pass + c.fail + c.notVerified).toBe(c.applicable);
+    expect(conformanceText(c)).toMatch(/^WCAG conformance is all or nothing: to meet Level AA, every applicable Level A and AA criterion must pass\./);
+    expect(conformanceText({ ...c, pass: c.applicable, fail: 0, notVerified: 0, conformant: true })).toContain(`All ${c.applicable} applicable criteria pass.`);
+    expect(formatConformanceMarkdown(coverage)).toContain("## WCAG AA conformance: not yet met");
+    expect(formatConformanceMarkdown(coverage)).toContain("is not a pass mark");
   });
 });
 

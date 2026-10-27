@@ -14,11 +14,12 @@ import { execFile } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { AuditTarget } from "../checklist.js";
+import { MANUAL_CHECKLIST, type AuditTarget } from "../checklist.js";
 import type { ScreenInfo } from "../code-scan/screens.js";
+import { SEVERITY_MEANING, SEVERITY_NOTE, severitySourcesFor } from "../severity.js";
 import type { Assessment, Finding, Severity } from "../types.js";
 import type { ParsedChecklist } from "../wizard/checklist-md.js";
-import { buildCoverage, criterionResult, levelResults, type CriterionResult } from "../wizard/coverage.js";
+import { buildCoverage, conformance, conformanceText, criterionResult, levelResults, SCORE_NOT_A_PASS_MARK, type CriterionResult } from "../wizard/coverage.js";
 import { buildQuickWins, effortText, impactText, quickWinTitle, topQuickWins } from "../wizard/quick-wins.js";
 import { blockedScreens, type AuditSession } from "../wizard/session.js";
 import { issueText, sharedComponents } from "../wizard/shared-components.js";
@@ -54,6 +55,8 @@ export interface SummaryData {
   scoreNote?: string;
   levelPassing?: Partial<Record<string, number>>;
   levelNote?: string;
+  /** What each severity means and where automated severities come from. */
+  severityGuide?: { note: string; levels: Record<string, string>; sources: Array<{ source: string; how: string }> };
   keyTakeaway: string;
   principleSummaries: Record<string, string>;
   scorecard: Array<{ category: string; score: number; priority: string; findings: number }>;
@@ -62,6 +65,8 @@ export interface SummaryData {
   criteriaResults?: Record<string, { result: CriterionResult; reason?: string; note?: string }>;
   /** Criteria at each level by result. */
   levelResults?: Array<{ level: string; total: number; counts: Record<CriterionResult, number> }>;
+  /** All-or-nothing conformance at the target level: every applicable criterion must pass. */
+  conformance?: { level: string; pass: number; applicable: number; conformant: boolean; text: string; scoreNote: string };
   /** The fixes worth the most for the least code, for the "Fix these first" section. */
   quickWins?: Array<{ title: string; issues: string; effort: string; impact: string; screens: number; quick: boolean }>;
   /** iOS vs Android side by side, when the audit covers both. */
@@ -99,7 +104,7 @@ export function buildSummaryData(
   now = new Date(),
 ): SummaryData {
   const { project, screens } = session;
-  const findings = assessment.findings.map((f) => toSummaryFinding(f, screens, project.targets));
+  const findings = mergeManualIntoScan(assessment.findings.map((f) => toSummaryFinding(f, screens, project.targets)));
   const counts = assessment.counts;
 
   const mobile = screens.filter((s) => s.kind === "mobile").length;
@@ -129,6 +134,7 @@ export function buildSummaryData(
           levelNote: `Of the WCAG criteria verified so far at each level (code scan and manual checklist), the share with no failures. Criteria not yet verified aren't counted${project.targetLevel === "AAA" ? "" : `; levels above ${project.targetLevel} weren't assessed`}.`,
         }
       : {}),
+    severityGuide: { note: SEVERITY_NOTE, levels: SEVERITY_MEANING, sources: severitySourcesFor(assessment.findings) },
     keyTakeaway: keyTakeaway(findings, counts, platforms),
     principleSummaries: principleSummaries(findings),
     scorecard: assessment.categories.map((c) => ({
@@ -150,6 +156,10 @@ export function buildSummaryData(
     ...platformSummary(session, assessment, checklist, coverage, blocked),
     criteriaResults: Object.fromEntries(coverage.rows.map((r) => [r.id, criterionResult(r)])),
     levelResults: levelResults(coverage),
+    conformance: (() => {
+      const c = conformance(coverage);
+      return { level: c.level, pass: c.pass, applicable: c.applicable, conformant: c.conformant, text: conformanceText(c), scoreNote: SCORE_NOT_A_PASS_MARK };
+    })(),
     ...(blocked.length
       ? { blockedScreens: blocked.map((b) => ({ screen: b.screen, platforms: b.platforms.map((t) => TARGET_LABEL[t]), reason: b.reasons.join("; "), open: b.open })) }
       : {}),
@@ -253,6 +263,37 @@ function toSummaryFinding(f: Finding, screens: ScreenInfo[], targets: AuditTarge
     description: f.description || title,
     ...(f.remediation ? { remediation: f.remediation } : {}),
   };
+}
+
+const CHECKS = new Map(MANUAL_CHECKLIST.map((i) => [i.id, i]));
+
+/**
+ * A check a tester failed without describing the problem ("Inputs are missing a label")
+ * is the same problem as the scan rule for that check ("Text input has no accessible
+ * label"), so it joins that rule's group instead of being listed twice. A scan rule
+ * belongs to a check when its main criterion is one of the check's. Findings testers
+ * described stay separate, so their wording isn't lost.
+ */
+export function mergeManualIntoScan(findings: SummaryFinding[]): SummaryFinding[] {
+  const rules = new Map<string, { primary: string; n: number; rank: number }>();
+  for (const f of findings) {
+    if (f.rule.startsWith("manual:") || !f.wcag[0]) continue;
+    const r = rules.get(f.group) ?? { primary: f.wcag[0], n: 0, rank: SEVERITY_RANK[f.severity] };
+    r.n++;
+    r.rank = Math.min(r.rank, SEVERITY_RANK[f.severity]);
+    rules.set(f.group, r);
+  }
+  // The most severe matching rule, then the most widespread, so merging never raises a minor rule's severity.
+  const better = (a: { n: number; rank: number }, b?: { n: number; rank: number }) => !b || a.rank < b.rank || (a.rank === b.rank && a.n > b.n);
+  const merged = findings.map((f) => {
+    const check = CHECKS.get(f.rule.replace(/^manual:/, ""));
+    if (!f.rule.startsWith("manual:") || !check || f.title !== check.failTitle) return f;
+    let best: string | undefined;
+    for (const [group, r] of rules) if (check.wcag.includes(r.primary) && better(r, best ? rules.get(best) : undefined)) best = group;
+    return best ? { ...f, group: best } : f;
+  });
+  // The scan finding leads its group, so the group keeps the scan's title, description, and fix.
+  return [...merged.filter((f) => !f.rule.startsWith("manual:")), ...merged.filter((f) => f.rule.startsWith("manual:"))];
 }
 
 function keyTakeaway(findings: SummaryFinding[], counts: Record<Severity, number>, platforms: string): string {

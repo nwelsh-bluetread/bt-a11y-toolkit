@@ -139,7 +139,7 @@ export function renderChecklist({ projectName, targetLevel, groups, runs, previo
   out.push("- Can't reach a screen? Add `> **Blocked:** why` under its heading. It's listed under Blocked screens in the report. For other notes about a screen, add `> **Note:** …` (don't rename the heading: answers are matched to screens by it).");
   out.push("");
   out.push(
-    `⚑ lines are what the automated scans found or flagged. Where a scan found an issue, the line starts as \`[!] … ${UNREVIEWED_HINT}\` — the scan's finding is already in the report, but **the screen still needs testing**: the scan only sees what's literally in the code. Test the rest of the screen, add anything else you find after a colon, then **delete "${UNREVIEWED_HINT}"**. \`⚑ Verify\` lines are things to check by hand. Full details of every scan finding (all files, why it matters, how to fix) are in [scan-details.md](scan-details.md). When you're done, run **\`npx bt-a11y report\`**.`,
+    `⚑ lines are what the automated scans found or flagged. Their severity (High, Medium, …) is fixed per scan rule, not judged for this screen; see "How severity is decided" in report.md. Where a scan found an issue, the line starts as \`[!] … ${UNREVIEWED_HINT}\` — the scan's finding is already in the report, but **the screen still needs testing**: the scan only sees what's literally in the code. Test the rest of the screen, add anything else you find after a colon, then **delete "${UNREVIEWED_HINT}"**. \`⚑ Verify\` lines are things to check by hand. Full details of every scan finding (all files, why it matters, how to fix) are in [scan-details.md](scan-details.md). When you're done, run **\`npx bt-a11y report\`**.`,
   );
   if (contextFiles?.length) {
     out.push("");

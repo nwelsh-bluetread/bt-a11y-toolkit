@@ -497,7 +497,7 @@ async function runPdfSetupCommand(): Promise<void> {
 
 async function runReportCommand(args: ParsedArgs): Promise<void> {
   const { loadSession, writeReports } = await import("./wizard/session.js");
-  const { coverageSummaryLines } = await import("./wizard/coverage.js");
+  const { conformance, coverageSummaryLines } = await import("./wizard/coverage.js");
   const session = loadSession(process.cwd());
   if (!session) {
     process.stderr.write("No guided audit found in ./a11y-audit. Run 'bt-a11y start' first.\n");
@@ -527,6 +527,8 @@ async function runReportCommand(args: ParsedArgs): Promise<void> {
     for (const b of blocked) process.stdout.write(`  ⊘ ${b.screen} (${b.platforms.map((p) => label[p]).join(", ")})${b.reasons.length ? ` — ${b.reasons.join("; ")}` : ""}\n`);
   }
   process.stdout.write(`WCAG 2.2 criteria coverage:\n${coverageSummaryLines(coverage).map((l) => `  ${l}`).join("\n")}\n`);
+  const c = conformance(coverage);
+  process.stdout.write(`WCAG ${c.level} conformance: ${c.conformant ? "met" : "not yet met"}: ${c.pass} of ${c.applicable} applicable criteria pass. It's all or nothing: every one must pass.\n`);
   process.stdout.write(`\nReport written:\n  ${markdown}\n  ${json}\n`);
 
   if (args.pdf) {

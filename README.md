@@ -231,6 +231,23 @@ For each screen in a pass:
 - **medium:** annoying, but there's a workaround
 - **low:** minor
 
+**Where the scan's severities come from.** The ⚑ High / Medium / Low on scan
+findings isn't judged screen by screen. WCAG has no severity scale; it only
+says pass or fail. Severity is the toolkit's estimate of how much a problem
+gets in the way:
+
+- **Code scan:** each rule has one fixed severity (e.g. "Touchable has no
+  accessible name" is always High).
+- **axe:** uses axe's own impact rating.
+- **Lighthouse:** a fixed severity for each audit, set by the toolkit.
+- **On-device measurement:** touch targets under 24×24 are Medium.
+- **Manual testing:** testers pick their own. If they don't, the check's
+  default is used (Medium for "Other findings").
+
+A criterion fails if it has any finding, whatever the severity. Severity only
+sets the fix order and how much each finding lowers the score. `report.md` and
+the PDF both include this as "How severity is decided".
+
 **Issues and notes under a check.** Indented lines under a check are read
 like this:
 
@@ -367,6 +384,16 @@ reference table, with its level, plus a "Results by WCAG level" table):
 | **N/A** | Testers marked it `[-]` because the app has none of that content, e.g. "No audio/video". The reason comes from the check (captions → audio/video, error messages → form inputs) |
 | **Web only** | Doesn't apply to native apps (Bypass Blocks, Multiple Ways, Text Spacing), so it isn't tested on iOS/Android |
 | **Not yet verified** | Testing isn't finished on every platform |
+
+**Conformance is all or nothing.** To meet Level AA, every applicable Level A
+and AA criterion has to pass. There's no partial pass, and N/A and Web only
+count as met. `report.md`, the terminal and the PDF all show this as "WCAG AA
+conformance: 8 of 45 applicable criteria pass" (for example).
+
+The 0–100 accessibility score is **not** a pass mark. It counts remaining
+issues, weighted by severity, so it can be 0 when a few shared fixes would clear
+most failures, or in the 90s while one failure still blocks conformance. Use
+the conformance count to judge how close the app is to passing.
 
 N/A and Web only don't count for or against the score. Mark a check `[-]`
 only when the content doesn't exist; if it exists but you couldn't test it,

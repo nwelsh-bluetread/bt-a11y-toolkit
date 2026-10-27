@@ -224,7 +224,8 @@ Issues that don't fit a check above — one per line.
       nodeId: "Login",
       evidence: { screen: "Login" },
     });
-    expect(findings[2]).toMatchObject({ ruleId: "manual:orientation", nodeId: "App-wide", severity: "medium" });
+    // No description from the tester: titled as the failure, not the check's "should" wording.
+    expect(findings[2]).toMatchObject({ ruleId: "manual:orientation", nodeId: "App-wide", severity: "medium", title: "Locked to one orientation (portrait or landscape) — App-wide" });
     expect(findings[3]).toMatchObject({ ruleId: "manual:other", platforms: ["ios", "android"], wcag: [{ id: "1.4.3" }] });
   });
 
