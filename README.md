@@ -486,6 +486,7 @@ locked-down networks), axe uses your installed Google Chrome instead.
 | --- | --- |
 | Start an audit or re-run the scans | `npx bt-a11y` |
 | Quick automated scan of one page + PDF | `npx bt-a11y quick <url>` |
+| See which tool checks which WCAG criterion | [`docs/tool-coverage.pdf`](docs/tool-coverage.pdf) (rebuild in this repo: `npm run docs:tool-coverage`) |
 | Build or refresh the report | `npx bt-a11y report` |
 | Check the PDF tools are set up | `npx bt-a11y pdf-setup` |
 | Get the latest version of the toolkit | `npx bt-a11y update` |

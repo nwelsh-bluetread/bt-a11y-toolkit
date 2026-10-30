@@ -50,7 +50,8 @@
     "scan:axe": "tsx scripts/axe.ts",
     "prepare": "npm run build",
     "prepublishOnly": "npm run clean && npm run build",
-    "quick": "tsx src/cli.ts quick"
+    "quick": "tsx src/cli.ts quick",
+    "docs:tool-coverage": "tsx scripts/tool-coverage.ts"
   },
   "engines": {
     "node": ">=18"
