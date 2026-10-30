@@ -8,6 +8,7 @@
  *
  * Usage:
  *   bt-a11y start                    (guided audit: a few questions, then scans + per-screen checklist)
+ *   bt-a11y quick <url>              (automated-only scan of one web page + summary PDF)
  *   bt-a11y checklist                (open the checklist GUI in the browser)
  *   bt-a11y target-size              (measure touch targets on an Android device)
  *   bt-a11y report                   (build the audit from scans + the filled-in checklist)
@@ -38,6 +39,8 @@ interface ParsedArgs {
   axeFile?: string;
   platform: Platform;
   level: WcagLevel;
+  /** Whether --level was given (the quick scan asks otherwise). */
+  levelSet?: boolean;
   format: "console" | "json" | "markdown";
   out?: string;
   minTarget?: number;
@@ -78,6 +81,7 @@ function parseArgs(argv: string[]): ParsedArgs {
         break;
       case "--level":
         args.level = rest[++i] as WcagLevel;
+        args.levelSet = true;
         break;
       case "--format":
         args.format = rest[++i] as ParsedArgs["format"];
@@ -113,6 +117,7 @@ const HELP = `bt-a11y — BlueTread Accessibility Toolkit
 Usage:
   bt-a11y                       Same as 'bt-a11y start'
   bt-a11y start                 Guided audit: a few questions → scans → per-screen checklist
+  bt-a11y quick [<url>] [options]  Quick scan: automated checks on one web page + summary PDF
   bt-a11y checklist             Open the checklist GUI (a11y-audit/checklist.html) in the browser
   bt-a11y target-size [--wait <ms>]  Measure touch targets (WCAG 2.5.8) on an Android device
   bt-a11y report [options]      Build the audit from the scans + filled-in a11y-audit/checklist.md
@@ -134,6 +139,10 @@ Commands:
                 the screens (found in the code) or pages to audit. Then runs the
                 automated checks on its own and writes a per-screen manual
                 checklist to a11y-audit/checklist.md for testers to fill in.
+  quick         Runs axe-core and Lighthouse on one page (asks for the URL if you
+                leave it out) and writes a11y-quick-scan/a11y-quick-scan-<page>-<date>
+                .md, .json, and .pdf. No manual testing. Leaves a11y-audit/ alone.
+                Honors --level (asked if left out without a URL; default AA) and --no-pdf.
   checklist     Refreshes a11y-audit/checklist.html and opens it. It edits
                 a11y-audit/checklist.md in place: pass / fail / N/A buttons,
                 issue fields with severity, progress per screen. Chrome or Edge
@@ -168,7 +177,7 @@ Options:
   --format <console|json|markdown>             Report format (default: console)
   --out <file>                                 Write report to a file
   --min-target <px>                            Minimum touch target size (audit; default: 24 AA / 44 AAA)
-  --no-pdf                                     Skip the summary PDF (report)
+  --no-pdf                                     Skip the summary PDF (report, quick)
   --jira                                       Create Jira tickets from findings
   --min-severity <critical|high|medium|low>    Only ticket findings at/above this severity
   -h, --help                                   Show this help
@@ -362,6 +371,70 @@ async function runUpdateCommand(): Promise<void> {
   process.stdout.write(`\n✓ Updated${before && after ? ` (${before.slice(0, 7)} → ${after.slice(0, 7)})` : ""}. Run npx bt-a11y as usual.\n`);
 }
 
+type ScanProgress = NonNullable<NonNullable<Parameters<typeof scanUrls>[1]>["onProgress"]>;
+
+/** The live web scanners, the optional-package check and installer, and the PDF builder (guided audit + quick scan). */
+function webScanDeps(cwd: string) {
+  return {
+    scanAxe: async (urls: string[], level: WcagLevel, onProgress: ScanProgress) => {
+      const { scanUrlsWithAxe } = await import("./integrations/axe-runner.js");
+      return (await scanUrlsWithAxe(urls, { targetLevel: level, onProgress })).assessment;
+    },
+    scanLighthouse: async (urls: string[], level: WcagLevel, onProgress: ScanProgress) =>
+      (await scanUrls(urls, { targetLevel: level, onProgress })).assessment,
+    hasModule: async (name: string) => {
+      try {
+        await import(name);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    runCommand: (cmd: string, cmdArgs: string[]) =>
+      new Promise<number>((resolve) => {
+        const child = spawn(cmd, cmdArgs, { cwd, stdio: "inherit", shell: process.platform === "win32" });
+        child.on("close", (code) => resolve(code ?? 1));
+        child.on("error", () => resolve(1));
+      }),
+    buildPdf,
+  };
+}
+
+async function runQuickCommand(args: ParsedArgs): Promise<void> {
+  const [{ runQuickScan }, { inquirerPrompter, isPromptExit }] = await Promise.all([import("./quick-scan.js"), import("./wizard/prompts.js")]);
+  const url = args.urls[0] ?? (args.file && /^[\w-]+(\.[\w-]+)+/.test(args.file) ? `https://${args.file}` : undefined);
+  if (!url && !process.stdin.isTTY) {
+    process.stderr.write("Error: missing <url>. Usage: bt-a11y quick <url> [--level A|AA|AAA] [--no-pdf]\n");
+    process.exitCode = 1;
+    return;
+  }
+  const cwd = process.cwd();
+  try {
+    const result = await runQuickScan(
+      {
+        cwd,
+        prompter: await inquirerPrompter(),
+        out: (text) => process.stdout.write(text + "\n"),
+        ...webScanDeps(cwd),
+        ...(args.pdf ? {} : { buildPdf: undefined }),
+      },
+      // Flags given on the command line aren't asked for again.
+      { url, level: args.levelSet || url ? args.level : undefined },
+    );
+    if (!result) {
+      process.exitCode = 1;
+      return;
+    }
+    // Per-level pass rates would read 0%: nothing passes without manual testing.
+    process.stdout.write(`\n${formatConsole({ ...result.assessment, wcag: {} })}\n\nReport written:\n  ${result.markdown}\n  ${result.json}\n${result.pdf ? `  ${result.pdf}\n` : ""}`);
+    process.stdout.write("\nAutomated checks only. Run 'npx bt-a11y' → Full audit to add manual testing.\n");
+  } catch (err) {
+    if (isPromptExit(err)) return;
+    process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
+    process.exitCode = 1;
+  }
+}
+
 async function runStartCommand(): Promise<void> {
   await notifyIfOutdated();
   const [{ runWizard }, { inquirerPrompter, isPromptExit }, lighthouseRunner] = await Promise.all([
@@ -376,12 +449,7 @@ async function runStartCommand(): Promise<void> {
       cwd,
       out: (text) => process.stdout.write(text + "\n"),
       resolveUrls: lighthouseRunner.resolveUrls,
-      scanAxe: async (urls, level, onProgress) => {
-        const { scanUrlsWithAxe } = await import("./integrations/axe-runner.js");
-        return (await scanUrlsWithAxe(urls, { targetLevel: level, onProgress })).assessment;
-      },
-      scanLighthouse: async (urls, level, onProgress) =>
-        (await lighthouseRunner.scanUrls(urls, { targetLevel: level, onProgress })).assessment,
+      ...webScanDeps(cwd),
       scanCode: async (root, level, platforms) => {
         const { scanReactNative } = await import("./code-scan/react-native.js");
         return scanReactNative(root, { targetLevel: level, platforms });
@@ -390,20 +458,6 @@ async function runStartCommand(): Promise<void> {
         const { discoverScreens } = await import("./code-scan/screens.js");
         return discoverScreens(root);
       },
-      hasModule: async (name) => {
-        try {
-          await import(name);
-          return true;
-        } catch {
-          return false;
-        }
-      },
-      runCommand: (cmd, cmdArgs) =>
-        new Promise((resolve) => {
-          const child = spawn(cmd, cmdArgs, { cwd, stdio: "inherit", shell: process.platform === "win32" });
-          child.on("close", (code) => resolve(code ?? 1));
-          child.on("error", () => resolve(1));
-        }),
     });
   } catch (err) {
     if (!isPromptExit(err)) throw err;
@@ -532,33 +586,41 @@ async function runReportCommand(args: ParsedArgs): Promise<void> {
   process.stdout.write(`\nReport written:\n  ${markdown}\n  ${json}\n`);
 
   if (args.pdf) {
-    const { buildSummaryData, loadSummaryOverrides, renderSummaryPdf, summaryPdfName } = await import("./pdf/summary.js");
+    const { buildSummaryData, loadSummaryOverrides, summaryPdfName } = await import("./pdf/summary.js");
     const dir = join(process.cwd(), "a11y-audit");
     const dataPath = join(dir, "a11y-audit-summary.json");
     const pdfPath = join(dir, summaryPdfName());
     writeFileSync(dataPath, JSON.stringify(buildSummaryData(session, assessment, checklist, loadSummaryOverrides(dir)), null, 2) + "\n");
-    process.stdout.write("\nBuilding the summary PDF…\n");
-    const { ensurePdfUaPython, verifyPdfUa } = await import("./pdf/pdfua.js");
-    let python: string | undefined;
-    try {
-      python = await ensurePdfUaPython((line) => process.stdout.write(`  ${line}\n`));
-    } catch (err) {
-      process.stderr.write(`  ⚠ ${err instanceof Error ? err.message : String(err)}\n  The PDF will be tagged but won't pass PDF/UA-1.\n`);
-    }
-    try {
-      await renderSummaryPdf(dataPath, pdfPath, python);
-      process.stdout.write(`  ${pdfPath}\n`);
-      const check = await verifyPdfUa(pdfPath);
-      if (check.status === "pass") process.stdout.write("  ✓ PDF/UA-1: PASS (veraPDF)\n");
-      else if (check.status === "fail") {
-        process.stderr.write(`  ✗ PDF/UA-1: FAIL — ${check.failedRules} rule(s) failed (${check.details}). Run: verapdf --flavour ua1 "${pdfPath}"\n`);
-        process.exitCode = 1;
-      } else if (python) process.stdout.write("  PDF/UA-1 fix-up applied. Install veraPDF to verify it automatically: brew install verapdf\n");
-    } catch (err) {
-      process.stderr.write(`  Couldn't build the PDF: ${err instanceof Error ? err.message : String(err)}\n`);
-    }
+    await buildPdf(dataPath, pdfPath);
   }
   if (args.jira) await fileJiraTickets(assessment, args);
+}
+
+/** Render a summary JSON to a PDF/UA-1 PDF, reporting progress. Resolves to whether the PDF was written. */
+async function buildPdf(dataPath: string, pdfPath: string): Promise<boolean> {
+  const { renderSummaryPdf } = await import("./pdf/summary.js");
+  const { ensurePdfUaPython, verifyPdfUa } = await import("./pdf/pdfua.js");
+  process.stdout.write("\nBuilding the summary PDF…\n");
+  let python: string | undefined;
+  try {
+    python = await ensurePdfUaPython((line) => process.stdout.write(`  ${line}\n`));
+  } catch (err) {
+    process.stderr.write(`  ⚠ ${err instanceof Error ? err.message : String(err)}\n  The PDF will be tagged but won't pass PDF/UA-1.\n`);
+  }
+  try {
+    await renderSummaryPdf(dataPath, pdfPath, python);
+  } catch (err) {
+    process.stderr.write(`  Couldn't build the PDF: ${err instanceof Error ? err.message : String(err)}\n`);
+    return false;
+  }
+  process.stdout.write(`  ${pdfPath}\n`);
+  const check = await verifyPdfUa(pdfPath);
+  if (check.status === "pass") process.stdout.write("  ✓ PDF/UA-1: PASS (veraPDF)\n");
+  else if (check.status === "fail") {
+    process.stderr.write(`  ✗ PDF/UA-1: FAIL — ${check.failedRules} rule(s) failed (${check.details}). Run: verapdf --flavour ua1 "${pdfPath}"\n`);
+    process.exitCode = 1;
+  } else if (python) process.stdout.write("  PDF/UA-1 fix-up applied. Install veraPDF to verify it automatically: brew install verapdf\n");
+  return true;
 }
 
 /** Load ./.env (e.g. JIRA_* credentials) when present. Needs Node 20.12+; existing env vars win. */
@@ -587,6 +649,9 @@ async function main(): Promise<void> {
   switch (args.command) {
     case "start":
       await runStartCommand();
+      break;
+    case "quick":
+      await runQuickCommand(args);
       break;
     case "checklist":
       await runChecklistCommand();

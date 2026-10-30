@@ -17,10 +17,11 @@ import { applyContext, mergeContexts, parseNavigationMap, UNLISTED_GROUP, type N
 import { MANUAL_CHECKLIST, TEST_MODES, TEST_PASSES, type AuditTarget, type ChecklistItem } from "../checklist.js";
 import { isReactNativeProject, RN_RULES, type CodeScanResult } from "../code-scan/react-native.js";
 import { FEATURE_LABEL, isFile, screensFromUrls, type ScreenDiscovery, type ScreenInfo } from "../code-scan/screens.js";
-import { LIGHTHOUSE_AUDIT_MAP } from "../integrations/lighthouse.js";
+import { runQuickScan } from "../quick-scan.js";
 import type { Assessment, Finding, Severity, WcagLevel } from "../types.js";
 import { findingOnSection, planChecklist, renderChecklist, renderScanDetails, type ParsedChecklist, type PlannedGroup } from "./checklist-md.js";
 import type { Prompter } from "./prompts.js";
+import { SCANNERS, WEB_CHECKED, webScannersToRun, type ScannerId } from "./web-scanners.js";
 import {
   checklistPath,
   installChecklistUi,
@@ -57,34 +58,12 @@ export interface WizardDeps {
   hasModule: (name: string) => Promise<boolean>;
   /** Run a command in `cwd` with inherited stdio; resolves to the exit code. */
   runCommand: (cmd: string, args: string[]) => Promise<number>;
+  /** Render a summary JSON to a PDF (quick scan); resolves to whether a PDF was written. */
+  buildPdf?: (dataPath: string, pdfPath: string) => Promise<boolean>;
 }
 
 const TARGET_LABEL: Record<AuditTarget, string> = { web: "Website", ios: "iOS", android: "Android" };
 const MAX_PAGES = 25;
-
-const SCANNERS = {
-  axe: {
-    label: "axe-core",
-    packages: ["playwright", "@axe-core/playwright"],
-    postInstall: ["npx", ["playwright", "install", "chromium"]] as const,
-  },
-  lighthouse: {
-    label: "Lighthouse",
-    packages: ["lighthouse", "chrome-launcher"],
-    postInstall: undefined,
-  },
-} as const;
-
-type ScannerId = keyof typeof SCANNERS;
-
-/** Criteria each web scanner has rules for (axe-core 4.x; Lighthouse runs a subset of axe). */
-const WEB_CHECKED: Record<ScannerId, string[]> = {
-  axe: [
-    "1.1.1", "1.2.2", "1.3.1", "1.3.4", "1.3.5", "1.4.1", "1.4.2", "1.4.3", "1.4.4", "1.4.12",
-    "2.1.1", "2.2.1", "2.2.2", "2.4.1", "2.4.2", "2.4.4", "2.5.3", "2.5.8", "3.1.1", "3.1.2", "3.3.2", "4.1.2",
-  ],
-  lighthouse: [...new Set(Object.values(LIGHTHOUSE_AUDIT_MAP).flatMap((m) => m.wcag))],
-};
 
 export async function runWizard(deps: WizardDeps): Promise<void> {
   const { prompter: p, cwd, out } = deps;
@@ -92,14 +71,21 @@ export async function runWizard(deps: WizardDeps): Promise<void> {
 
   let session = loadSession(cwd);
   let fresh = false;
-  if (session) {
-    out(`Found an audit for ${bold(session.project.name)} (${describeProject(session)}, ${session.screens.length} screens).`);
-    const action = await p.select("What would you like to do?", [
-      { name: "Re-run the scans and refresh the checklist", value: "rerun", description: "Keeps answers already filled in to checklist.md" },
-      { name: "Start a new audit", value: "new", description: "Replaces the saved setup and screen list" },
-    ]);
-    if (action === "new") session = undefined;
+  if (session) out(`Found an audit for ${bold(session.project.name)} (${describeProject(session)}, ${session.screens.length} screens).`);
+  const action = await p.select("What would you like to do?", [
+    ...(session
+      ? [
+          { name: "Re-run the scans and refresh the checklist", value: "rerun", description: "Keeps answers already filled in to checklist.md" },
+          { name: "Start a new audit", value: "new", description: "Replaces the saved setup and screen list" },
+        ]
+      : [{ name: "Full audit", value: "new", description: "Automated scans, then a per-screen manual checklist and report" }]),
+    { name: "Quick scan of one web page", value: "quick", description: "Automated checks only (axe + Lighthouse) and a summary PDF. Doesn't touch the full audit" },
+  ]);
+  if (action === "quick") {
+    await quickScan(deps);
+    return;
   }
+  if (action === "new") session = undefined;
 
   if (!session) {
     const context = await contextStep(deps);
@@ -130,6 +116,16 @@ export async function runWizard(deps: WizardDeps): Promise<void> {
   out(green(`✓ Checklist app: ${checklistUi}`) + dim(" (open it in Chrome or Edge to fill in checklist.md: npx bt-a11y checklist)"));
   out(green(`✓ Report so far (automated results): ${markdown}`));
   out(`\nNext: test each screen and mark the checklist, then run ${bold("npx bt-a11y report")} to build the report and summary PDF.\n`);
+}
+
+async function quickScan(deps: WizardDeps): Promise<void> {
+  const { out } = deps;
+  const result = await runQuickScan(deps);
+  if (!result) return;
+  out("");
+  out(green(`✓ Report: ${result.markdown}`));
+  if (result.pdf) out(green(`✓ Summary PDF: ${result.pdf}`));
+  out(`\nScore ${result.assessment.overallScore}/100 · ${count(result.assessment.findings)}. Automated checks only: a full audit (${bold("npx bt-a11y")} → Full audit) adds manual testing.\n`);
 }
 
 /** Rewrite checklist.md (keeping testers' answers) and scan-details.md from the session's screens and runs. */
@@ -374,37 +370,6 @@ async function webPages(deps: WizardDeps): Promise<string[]> {
     out(dim(`${urls.length} page(s).`));
     return urls;
   }
-}
-
-/** Check scanner packages up front so the automated run needs no prompts. */
-async function webScannersToRun(deps: WizardDeps): Promise<ScannerId[]> {
-  const { prompter: p, out } = deps;
-  const ready: ScannerId[] = [];
-  const missing: ScannerId[] = [];
-  for (const id of Object.keys(SCANNERS) as ScannerId[]) {
-    const present = await Promise.all(SCANNERS[id].packages.map((pkg) => deps.hasModule(pkg)));
-    (present.every(Boolean) ? ready : missing).push(id);
-  }
-  if (missing.length === 0) return ready;
-
-  const pkgs = missing.flatMap((id) => [...SCANNERS[id].packages]);
-  if (!(await p.confirm(`The website scanners need ${pkgs.join(", ")}. Install them as dev dependencies now?`, { default: true }))) {
-    out(dim(`Skipping ${missing.map((id) => SCANNERS[id].label).join(" and ")}. Install later with: npm install -D ${pkgs.join(" ")}`));
-    return ready;
-  }
-  if ((await deps.runCommand("npm", ["install", "-D", ...pkgs])) !== 0) {
-    out(red(`Install failed. Try manually: npm install -D ${pkgs.join(" ")}`));
-    return ready;
-  }
-  for (const id of missing) {
-    const post = SCANNERS[id].postInstall;
-    if (post && (await deps.runCommand(post[0], [...post[1]])) !== 0) {
-      out(red(`Setup failed. Try manually: ${post[0]} ${post[1].join(" ")}`));
-      continue;
-    }
-    ready.push(id);
-  }
-  return ready;
 }
 
 async function offerGitignore(deps: WizardDeps): Promise<void> {

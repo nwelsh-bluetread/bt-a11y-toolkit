@@ -836,7 +836,7 @@ function renderScreen() {
     ${s.groups.map(groupHtml).join('')}
     ${doc.other ? `<section class="group other" aria-labelledby="otherTitle">
       <h3 id="otherTitle">Other issues on this screen</h3>
-      <p class="muted">Problems no check covers. Add the WCAG criterion if you know it. Saved under “Other findings” in checklist.md.</p>
+      <p class="muted">Additional problems that no specific check covers. Add the WCAG criterion if you know it. Saved under “Other findings” in checklist.md.</p>
       <div class="issues other-items">${otherItemsHtml()}</div>
     </section>` : ''}
     <section class="group finish" id="finish" tabindex="-1" aria-label="Finish this screen">${finishHtml(s)}</section>

@@ -449,11 +449,43 @@ checklist."** The automated checks run again on the updated code, and
 **everything you already marked is kept**. Re-test the items that failed,
 update their marks, and run `npx bt-a11y report` for the updated report.
 
+### Quick scan of one page (automated only)
+
+Need a fast read on a single web page, for example for a prospect, before a
+full audit? Run:
+
+```bash
+npx bt-a11y quick https://example.com/pricing
+```
+
+Or run `npx bt-a11y` and choose **Quick scan of one web page**. It asks for the
+URL and WCAG level. Or, from this toolkit's own repo, run `npm run quick -- <url>`.
+
+It runs **axe-core and Lighthouse** on that page (and offers to install them if
+they're missing), then writes three files to `a11y-quick-scan/`, named after the
+page and date:
+
+- **`.pdf`**: the same executive-summary design as the full audit, labeled as a
+  quick automated scan with no manual testing
+- **`.md`**: the findings, with fixes
+- **`.json`**: the data the PDF is built from
+
+There's no checklist and no manual testing, so no WCAG criterion can *pass*.
+Criteria the scanners checked and found clean show as *Not yet verified ·
+needs a manual check*. Automated scanners catch roughly 30–40% of WCAG, so treat
+the result as a starting point, not a conformance verdict. A quick scan never
+touches `a11y-audit/`, so it's safe to run in a folder that has a full audit.
+Add `--level A|AA|AAA` (default AA) or `--no-pdf` if needed.
+
+If `npx playwright install chromium` can't download its browser (common on
+locked-down networks), axe uses your installed Google Chrome instead.
+
 ### Quick reference
 
 | I want to… | Run |
 | --- | --- |
 | Start an audit or re-run the scans | `npx bt-a11y` |
+| Quick automated scan of one page + PDF | `npx bt-a11y quick <url>` |
 | Build or refresh the report | `npx bt-a11y report` |
 | Check the PDF tools are set up | `npx bt-a11y pdf-setup` |
 | Get the latest version of the toolkit | `npx bt-a11y update` |

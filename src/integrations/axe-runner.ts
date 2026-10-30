@@ -25,7 +25,7 @@ export { resolveUrls, readUrlsFile, readSitemap } from "./lighthouse-runner.js";
 export async function runAxe(url: string): Promise<AxeResults> {
   let chromium: {
     launch(opts?: Record<string, unknown>): Promise<{
-      newPage(): Promise<unknown>;
+      newContext(): Promise<{ newPage(): Promise<unknown> }>;
       close(): Promise<void>;
     }>;
   };
@@ -42,9 +42,17 @@ export async function runAxe(url: string): Promise<AxeResults> {
     );
   }
 
-  const browser = await chromium.launch();
+  // Fall back to the installed Google Chrome when Playwright's own Chromium wasn't downloaded
+  // (`npx playwright install chromium` is often blocked on locked-down networks).
+  const browser = await chromium.launch().catch((err: unknown) => {
+    if (!/Executable doesn't exist|playwright install/i.test(String(err))) throw err;
+    return chromium.launch({ channel: "chrome" }).catch(() => {
+      throw err;
+    });
+  });
   try {
-    const page = (await browser.newPage()) as {
+    // @axe-core/playwright rejects pages from browser.newPage(); they must come from a context.
+    const page = (await (await browser.newContext()).newPage()) as {
       goto(url: string, opts?: Record<string, unknown>): Promise<unknown>;
     };
     await page.goto(url, { waitUntil: "networkidle" });
