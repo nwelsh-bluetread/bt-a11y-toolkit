@@ -80,6 +80,10 @@ You'll be asked:
      link).
 6. **Whether to add the audit folder to `.gitignore`.** Say Yes so client
    findings never get committed to their code.
+7. **BrowserStack CSV (optional, mobile apps).** If you've run a BrowserStack
+   App Accessibility scan, give the path to its CSV export. Press Enter to
+   skip; you can add it later. See
+   [Optional: add a BrowserStack App Accessibility scan](#optional-add-a-browserstack-app-accessibility-scan).
 
 That's all the questions.
 
@@ -246,6 +250,8 @@ gets in the way:
 - **axe:** uses axe's own impact rating.
 - **Lighthouse:** a fixed severity for each audit, set by the toolkit.
 - **On-device measurement:** touch targets under 24×24 are Medium.
+- **BrowserStack:** uses BrowserStack's own rating (Critical → Critical,
+  Serious → High, Moderate → Medium, Minor → Low).
 - **Manual testing:** testers pick their own. An issue written without one is
   **Low**. A check marked `[!]` with no description uses the check's default.
 
@@ -323,6 +329,47 @@ A few things it can't see: `hitSlop` (an extra tap area outside the view)
 doesn't show in the measurement, so re-check flagged controls that use it.
 If a deep link doesn't change the screen, that screen is skipped. Use
 `--wait 4000` if screens load slowly.
+
+### Optional: add a BrowserStack App Accessibility scan
+
+If you scanned the app with
+[BrowserStack App Accessibility](https://app-accessibility.browserstack.com),
+you can add its results to the audit. In the BrowserStack report, export it as
+CSV, then run:
+
+```bash
+npx bt-a11y browserstack path/to/AppA11y_export.csv
+```
+
+(Or answer the BrowserStack question when you start a new audit. If you
+re-run `npx bt-a11y` with a new export in the project folder, it asks then
+too.)
+
+BrowserStack numbers its scans but doesn't name the screens, so for each scan
+you're asked **which screen it was**. To help, the question lists a few of the
+elements it found there, such as *Current balance, Home*. Pick **App-wide / not
+sure** if you can't tell. After that:
+
+- **The checklist is pre-filled.** On that screen and platform, every check
+  BrowserStack found a problem for starts as `[!] … — scan found issues · not
+  reviewed yet`, with a ⚑ line for each issue (for example
+  `⚑ High · Text Element Color Contrast (Minimum) — Current balance`). Confirm
+  each one on the device, like any other scan finding.
+- **It goes into `report.md` and the PDF**, marked as *BrowserStack*. Each
+  finding includes what was measured (e.g. *#657483 on #EFF0F2 is 4.21:1*,
+  or *measures 16×16*), BrowserStack's fix advice, and a link to its rule.
+- **Duplicates are skipped.** When BrowserStack marks an issue as a duplicate
+  (the same issue already reported in an earlier scan), it's left out, so your
+  totals match BrowserStack's issue summary.
+- **Flagged for review:** issues BrowserStack marks *Needs Review* are
+  included, with a note to check them on the device.
+- **Platform:** the toolkit works out iOS or Android from the device name. An
+  iOS scan only fills in the iOS part of the checklist.
+
+The CSV is copied into `a11y-audit/browserstack/`. You can import several
+exports, for example one per user flow, or one for iOS and one for Android.
+Re-importing the same report replaces its earlier results and offers your
+earlier screen choices as the defaults.
 
 ### Step 5: Build the report
 
@@ -492,6 +539,7 @@ locked-down networks), axe uses your installed Google Chrome instead.
 | Get the latest version of the toolkit | `npx bt-a11y update` |
 | Fill in the checklist in the browser | `npx bt-a11y checklist` |
 | Measure touch targets on Android | `npx bt-a11y target-size` |
+| Add a BrowserStack App Accessibility CSV | `npx bt-a11y browserstack <file.csv>` |
 | Find the checklist to fill in | `a11y-audit/checklist.md` |
 | See every scan finding for a screen | `a11y-audit/scan-details.md` |
 | Find the client PDF | `a11y-audit/a11y-audit-summary-<date>.pdf` |

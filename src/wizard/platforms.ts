@@ -119,7 +119,11 @@ export function comparePlatforms(
     // Real differences (passes or N/A on one platform, fails on another) before ones still waiting on testing.
     .sort((a, b) => Number(settledDiff(b)) - Number(settledDiff(a)));
 
-  const TOOL_NAME: Record<string, string> = { "device-target-size": "On-device touch target measurement" };
+  const TOOL_NAME: Record<string, string> = {
+    "device-target-size": "On-device touch target measurement",
+    "browserstack-ios": "BrowserStack App Accessibility",
+    "browserstack-android": "BrowserStack App Accessibility",
+  };
   const measuredOnly = runs
     .filter((r) => r.findings.length && r.targets.length < targets.length && r.targets.every((t) => targets.includes(t)))
     .map((r) => ({ tool: TOOL_NAME[r.tool] ?? r.tool, targets: r.targets }));

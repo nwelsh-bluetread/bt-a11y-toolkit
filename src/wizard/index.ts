@@ -20,6 +20,7 @@ import { FEATURE_LABEL, isFile, screensFromUrls, type ScreenDiscovery, type Scre
 import { runQuickScan } from "../quick-scan.js";
 import type { Assessment, Finding, Severity, WcagLevel } from "../types.js";
 import { findingOnSection, planChecklist, renderChecklist, renderScanDetails, type ParsedChecklist, type PlannedGroup } from "./checklist-md.js";
+import { browserStackStep, findBrowserStackCsvs } from "./browserstack.js";
 import type { Prompter } from "./prompts.js";
 import { SCANNERS, WEB_CHECKED, webScannersToRun, type ScannerId } from "./web-scanners.js";
 import {
@@ -99,6 +100,8 @@ export async function runWizard(deps: WizardDeps): Promise<void> {
 
   const scanners = session.project.targets.includes("web") ? await webScannersToRun(deps) : [];
   if (fresh) await offerGitignore(deps);
+  // New audits are asked; re-runs only when there's a BrowserStack export here that hasn't been imported.
+  if (session.project.targets.some((t) => t !== "web") && (fresh || findBrowserStackCsvs(cwd).length) && (await browserStackStep(deps, session))) saveSession(cwd, session);
 
   // ── Everything below runs without prompts ──
   await runAutomated(deps, session, scanners);

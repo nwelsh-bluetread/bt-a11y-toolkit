@@ -11,6 +11,7 @@
  *   bt-a11y quick <url>              (automated-only scan of one web page + summary PDF)
  *   bt-a11y checklist                (open the checklist GUI in the browser)
  *   bt-a11y target-size              (measure touch targets on an Android device)
+ *   bt-a11y browserstack [file.csv]  (import a BrowserStack App Accessibility CSV export)
  *   bt-a11y report                   (build the audit from scans + the filled-in checklist)
  *   bt-a11y code [dir]               (scan React Native source code)
  *   bt-a11y audit <tree.json> [--platform web|ios|android|react-native]
@@ -120,6 +121,7 @@ Usage:
   bt-a11y quick [<url>] [options]  Quick scan: automated checks on one web page + summary PDF
   bt-a11y checklist             Open the checklist GUI (a11y-audit/checklist.html) in the browser
   bt-a11y target-size [--wait <ms>]  Measure touch targets (WCAG 2.5.8) on an Android device
+  bt-a11y browserstack [<file.csv>]  Add a BrowserStack App Accessibility CSV export to the audit
   bt-a11y report [options]      Build the audit from the scans + filled-in a11y-audit/checklist.md
   bt-a11y code [dir] [options]  Scan React Native source code (default: current folder)
   bt-a11y pdf-setup             Check/install what the summary PDF needs (Chrome, pikepdf, veraPDF)
@@ -153,6 +155,11 @@ Commands:
                 unless they're spaced apart (the WCAG exception). Fills in the
                 target-size line on checklist.md for each measured screen.
                 --wait sets the pause after each deep link (default 2500).
+  browserstack  Imports the CSV exported from a BrowserStack App Accessibility
+                report (asks for it if left out). You pick which screen each
+                BrowserStack scan was; its issues pre-fill those screens'
+                checklist lines and go into report.md and the summary PDF.
+                Re-importing the same report replaces its earlier issues.
   report        Reads the scans + a11y-audit/checklist.md and writes
                 a11y-audit/report.md + report.json (with the WCAG 2.2 coverage
                 matrix) and the executive-summary PDF
@@ -504,6 +511,36 @@ async function runTargetSizeCommand(args: ParsedArgs): Promise<void> {
   }
 }
 
+async function runBrowserStackCommand(args: ParsedArgs): Promise<void> {
+  const [{ browserStackStep, importBrowserStackCsv }, { inquirerPrompter, isPromptExit }, { writeChecklistFiles }, { loadSession, saveSession }, { resolve }] = await Promise.all([
+    import("./wizard/browserstack.js"),
+    import("./wizard/prompts.js"),
+    import("./wizard/index.js"),
+    import("./wizard/session.js"),
+    import("node:path"),
+  ]);
+  const cwd = process.cwd();
+  const session = loadSession(cwd);
+  if (!session) {
+    process.stderr.write("No guided audit found in ./a11y-audit. Run 'bt-a11y start' first.\n");
+    process.exitCode = 1;
+    return;
+  }
+  const deps = { cwd, prompter: await inquirerPrompter(), out: (text: string) => process.stdout.write(text + "\n") };
+  try {
+    if (args.file) await importBrowserStackCsv(deps, session, resolve(cwd, args.file));
+    else if (!(await browserStackStep(deps, session))) return;
+  } catch (err) {
+    if (isPromptExit(err)) return;
+    process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
+    process.exitCode = 1;
+    return;
+  }
+  saveSession(cwd, session);
+  writeChecklistFiles(cwd, session);
+  process.stdout.write("\nThe matching checklist lines are pre-filled as \"scan found issues · not reviewed yet\". Run npx bt-a11y report to update the report and PDF.\n");
+}
+
 async function runCodeCommand(args: ParsedArgs): Promise<void> {
   const { scanReactNative } = await import("./code-scan/react-native.js");
   const { findingsToAssessment } = await import("./audit.js");
@@ -658,6 +695,9 @@ async function main(): Promise<void> {
       break;
     case "target-size":
       await runTargetSizeCommand(args);
+      break;
+    case "browserstack":
+      await runBrowserStackCommand(args);
       break;
     case "report":
       await runReportCommand(args);

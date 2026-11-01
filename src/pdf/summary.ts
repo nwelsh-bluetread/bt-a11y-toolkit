@@ -227,7 +227,11 @@ const TOOL_LABEL: Record<string, string> = {
   axe: "axe-core",
   lighthouse: "Lighthouse",
   "device-target-size": "touch target measurement on Android",
+  "browserstack-ios": "BrowserStack App Accessibility (iOS)",
+  "browserstack-android": "BrowserStack App Accessibility (Android)",
 };
+
+const REPORTED_BY: Record<string, string> = { "rn-code-scan": "code scan", device: "measured on device", browserstack: "BrowserStack" };
 
 function toSummaryFinding(f: Finding, screens: ScreenInfo[], targets: AuditTarget[]): SummaryFinding {
   const file = typeof f.evidence?.file === "string" ? f.evidence.file : undefined;
@@ -255,11 +259,11 @@ function toSummaryFinding(f: Finding, screens: ScreenInfo[], targets: AuditTarge
     group: f.source === "manual" ? `${f.ruleId}|${title}` : f.ruleId,
     rule: f.ruleId,
     severity: f.severity,
-    reportedBy: f.source === "rn-code-scan" ? "code scan" : f.source === "device" ? "measured on device" : (f.source ?? "manual"),
+    reportedBy: REPORTED_BY[f.source ?? ""] ?? f.source ?? "manual",
     wcag: f.wcag.map((c) => c.id),
     pages: where,
     ...(file ? { location: `${file}${lines.length ? `:${lines.slice(0, 10).join(", ")}${lines.length > 10 ? ", …" : ""}` : ""}` } : {}),
-    ...(page && f.nodeId && f.nodeId !== page ? { element: f.nodeId } : {}),
+    ...((page || f.source === "browserstack") && f.nodeId && f.nodeId !== page ? { element: f.nodeId } : {}),
     description: f.description || title,
     ...(f.remediation ? { remediation: f.remediation } : {}),
   };

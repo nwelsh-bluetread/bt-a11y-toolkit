@@ -18,6 +18,8 @@ function scripted(rules: Array<{ match: RegExp; answer: unknown; once?: boolean 
   const respond = (message: string, choices?: Choice<unknown>[]) => {
     log.push(message);
     const i = rules.findIndex((r) => r.match.test(message));
+    // The optional BrowserStack import is skipped unless a test scripts it.
+    if (i === -1 && /BrowserStack App Accessibility CSV/.test(message)) return "";
     if (i === -1) throw new Error(`Unscripted prompt: ${message}`);
     const rule = rules[i]!;
     if (rule.once) rules.splice(i, 1);
@@ -103,7 +105,7 @@ describe("runWizard — React Native app", () => {
     const d = deps(cwd, p);
     await runWizard(d);
 
-    expect(p.log).toHaveLength(7);
+    expect(p.log).toHaveLength(8);
     const session = loadSession(cwd)!;
     expect(session.project).toMatchObject({ name: "acme-rn", type: "mobile", targets: ["ios", "android"], stack: "react-native", targetLevel: "AA" });
     expect(session.screens.map((s) => s.name)).toEqual(["Login", "Inbox"]);
