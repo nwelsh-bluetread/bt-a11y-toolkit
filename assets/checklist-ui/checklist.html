@@ -94,6 +94,13 @@
   .check[data-mark="!"] { border-left-color: var(--critical); background: linear-gradient(90deg, var(--fail-bg), transparent 65%); }
   .check[data-mark="-"] { border-left: 4px dashed var(--muted); }
   .check[data-mark="-"] .ctext { color: var(--muted); }
+  /* Not answered yet: dotted edge and a "To do" tag, so open checks stand out from answered ones. */
+  .check:not([data-mark="x"]):not([data-mark="!"]):not([data-mark="-"]) { border-left: 4px dotted var(--ink); }
+  .todo-tag { display: none; width: fit-content; margin-top: 4px; font: 600 11px var(--sans); color: var(--ink); border: 1px dashed var(--ink); border-radius: 999px; padding: 1px 7px; white-space: nowrap; }
+  .check:not([data-mark="x"]):not([data-mark="!"]):not([data-mark="-"]) .todo-tag { display: block; }
+  .check.jumped { animation: jumped 1.2s ease-out; }
+  @keyframes jumped { from { background: var(--fail-bg); } to { background: transparent; } }
+  @media (prefers-reduced-motion: reduce) { .check.jumped { animation: none; } }
   .check-main { display: grid; grid-template-columns: 5.6em 1fr auto; gap: 10px; align-items: start; }
   .cid { font: 500 12.5px var(--mono); color: var(--pass-ink); padding-top: 5px; }
   .ctext { padding-top: 4px; }
@@ -247,6 +254,7 @@
       <li><kbd>F</kbd> Fail and jump to the issue field. <kbd>Enter</kbd> goes to the next check, <kbd>Esc</kbd> back to the buttons</li>
       <li><kbd>U</kbd> clear the mark</li>
       <li><kbd>J</kbd> / <kbd>K</kbd> next / previous check</li>
+      <li><kbd>G</kbd> go to the next check that still needs an answer (marked <em>To do</em>)</li>
       <li><kbd>]</kbd> / <kbd>[</kbd> next / previous screen</li>
       <li><kbd>←</kbd> / <kbd>→</kbd> on the platform tabs switch between iOS and Android</li>
     </ul>
@@ -737,7 +745,7 @@ function checkHtml(c) {
   const ref = doc.refs.get(`${c.screen.platform}|${c.text}`);
   return `<li class="check" data-ci="${c.index}" data-mark="${esc(c.mark)}">
     <div class="check-main">
-      <span class="cid">${esc(c.ids)}</span>
+      <span class="cid">${esc(c.ids)}<span class="todo-tag">To do</span></span>
       <div class="ctext"><span id="ct${c.index}">${esc(c.text)}</span> <code class="slug">${esc(c.slug)}</code></div>
       <div class="marks" role="group" aria-label="Result for check ${esc(c.ids)}">
         ${MARKS.map(m => `<button type="button" class="mark m-${m.cls}" data-mark="${m.mark}" aria-pressed="${c.mark === m.mark}" aria-describedby="ct${c.index}" title="${m.label} (${m.key.toUpperCase()})">${m.icon} ${m.label}</button>`).join('')}
@@ -777,14 +785,21 @@ function otherItemsHtml() {
 
 /** Checks on a screen with no answer yet. Scan pre-fills ([!] not reviewed) aren't included: they're failures until a tester says otherwise. */
 const unanswered = s => s.groups.flatMap(g => g.checks).filter(c => !['x', '!', '-'].includes(c.mark));
+/** Rows still counted as left: unanswered, or a scan pre-fill nobody has reviewed. */
+const openRows = () => rows().filter(li => {
+  const c = doc.checks[li.dataset.ci];
+  return c.unreviewed || !['x', '!', '-'].includes(c.mark);
+});
+const nextOpenBtn = '<button type="button" class="btn" id="nextOpen">Go to next to-do</button>';
 
 function finishHtml(s) {
   if (s.blocked) return '<p class="muted">This screen is marked Blocked.</p>';
   const open = unanswered(s).length;
   const scan = status(s).unreviewed;
   const scanNote = scan ? ` ${scan} check${scan === 1 ? '' : 's'} the scan failed still need${scan === 1 ? 's' : ''} you to confirm.` : '';
-  if (!open) return `<p>${scan ? `Every other check is answered.${scanNote}` : 'Every check on this screen is answered.'}</p>`;
-  return `<p><strong>${open} check${open === 1 ? '' : 's'} not answered yet.</strong> Tested everything and found no other problems? Pass the rest in one go.${scanNote}</p>
+  if (!open) return scan ? `<p>Every other check is answered.${scanNote}</p>${nextOpenBtn}` : '<p>Every check on this screen is answered.</p>';
+  return `<p><strong>${open} check${open === 1 ? '' : 's'} not answered yet</strong> (marked <span class="todo-tag" style="display:inline-block">To do</span>). Tested everything and found no other problems? Pass the rest in one go.${scanNote}</p>
+    ${nextOpenBtn}
     <button type="button" class="btn primary" id="passRest">Pass the rest of this screen (${open})</button>`;
 }
 
@@ -893,11 +908,31 @@ function focusRow(li) {
   li.scrollIntoView({ block: 'nearest' });
 }
 
+/** Focus the next open check after the one last focused, wrapping to the top. */
+function goToNextOpen() {
+  const open = openRows();
+  if (!open.length) return;
+  const all = rows();
+  const from = all.indexOf(state.lastRow);
+  const li = open.find(r => all.indexOf(r) > from) ?? open[0];
+  focusRow(li);
+  li.scrollIntoView({ block: 'center' });
+  li.classList.remove('jumped');
+  void li.offsetWidth;
+  li.classList.add('jumped');
+}
+
 function nextRow(li, step = 1) {
   const all = rows();
   const i = li ? all.indexOf(li) : -1;
   return all[i + step];
 }
+
+// Remembered so "Go to next to-do" continues from where you were, even after clicking the button.
+main.addEventListener('focusin', e => {
+  const li = e.target.closest('.check');
+  if (li) state.lastRow = li;
+});
 
 function rerenderOther() {
   main.querySelector('.other-items').innerHTML = otherItemsHtml();
@@ -942,6 +977,10 @@ main.addEventListener('click', e => {
     setMark(c, mark, li);
     if (mark === '!') li.querySelector('.itext')?.focus();
     else li.querySelector(`.mark[data-mark="${markBtn.dataset.mark}"]`).focus();
+    return;
+  }
+  if (t.closest('#nextOpen')) {
+    goToNextOpen();
     return;
   }
   if (t.closest('#passRest')) {
@@ -1061,6 +1100,11 @@ document.addEventListener('keydown', e => {
   if (key === ']' || key === '[') {
     const page = doc.pages[doc.pages.indexOf(doc.screens[state.current].page) + (key === ']' ? 1 : -1)];
     if (page) location.hash = screenOn(page).anchor;
+    return;
+  }
+  if (key === 'g') {
+    e.preventDefault();
+    goToNextOpen();
     return;
   }
   if (key === 'j' || key === 'k') {
