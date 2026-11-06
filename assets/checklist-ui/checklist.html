@@ -130,7 +130,8 @@
   textarea { width: 100%; min-height: 6em; resize: vertical; margin-top: 6px; }
   .finish { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; background: var(--bg); border-color: var(--ink); }
   .finish p { margin: 0; flex: 1 1 260px; }
-  .pager { display: flex; justify-content: space-between; margin-top: 24px; }
+  .pager { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; margin-top: 24px; }
+  .pager .switch { display: flex; gap: 8px; }
   .pager a { padding: 8px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); text-decoration: none; font-weight: 500; }
   .pager a:hover { border-color: var(--muted); }
 
@@ -843,7 +844,11 @@ function renderScreen() {
     </div>
     <nav class="pager" aria-label="Previous and next screen">
       ${prev ? `<a href="#${prev.anchor}">← ${esc(prev.page.name)}</a>` : '<span></span>'}
-      ${next ? `<a href="#${next.anchor}" id="nextScreen">${esc(next.page.name)} →</a>` : ''}
+      ${platforms.length > 1 ? `<span class="switch">${platforms
+        .filter(p => p !== s.platform)
+        .map(p => `<button type="button" class="btn" data-switch="${p}">Same screen on ${PLATFORM_LABEL[p]}</button>`)
+        .join('')}</span>` : ''}
+      ${next ? `<a href="#${next.anchor}" id="nextScreen">${esc(next.page.name)} →</a>` : '<span></span>'}
     </nav>
   </article>`;
 }
@@ -910,6 +915,9 @@ function selectTab(platform) {
 main.addEventListener('click', e => {
   const tab = e.target.closest('.tab');
   if (tab && tab.getAttribute('aria-selected') !== 'true') selectTab(tab.dataset.platform);
+  // The bottom-of-page shortcut lands at the top of the other platform's tab.
+  const sw = e.target.closest('[data-switch]');
+  if (sw) selectTab(sw.dataset.switch);
 });
 
 main.addEventListener('keydown', e => {
