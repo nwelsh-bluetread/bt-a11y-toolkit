@@ -1222,6 +1222,7 @@ function goToHash() {
   localStorage.setItem(LAST_SCREEN_PREFIX + state.fileName, anchor);
   renderScreen();
   renderSidebar();
+  revealCurrentInSidebar();
   main.scrollTop = 0;
   if (restoreView(anchor)) {
     state.focusTab = false;
@@ -1233,6 +1234,17 @@ function goToHash() {
   state.focusTab = false;
 }
 window.addEventListener('hashchange', goToHash);
+
+/** Scroll the sidebar (only the sidebar, not the page) so the current screen is in view. */
+function revealCurrentInSidebar() {
+  const bar = $('#sidebar');
+  const link = bar.querySelector('[aria-current="page"]');
+  if (!link) return;
+  const box = bar.getBoundingClientRect();
+  const r = link.getBoundingClientRect();
+  if (r.top >= box.top && r.bottom <= box.bottom) return;
+  bar.scrollTop += r.top + r.height / 2 - (box.top + box.bottom) / 2;
+}
 
 // Scroll position and focus survive a page reload (e.g. Live Server reacting to the file write).
 const VIEW_KEY = 'bt-a11y-checklist:view';
