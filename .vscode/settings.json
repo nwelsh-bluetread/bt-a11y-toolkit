@@ -1,3 +1,12 @@
 {
-    "liveServer.settings.port": 5501
+    "liveServer.settings.port": 5501,
+    // The checklist GUI saves straight to checklist.md; reloading on that write would reset the page.
+    "liveServer.settings.ignoreFiles": [
+        ".vscode/**",
+        "**/*.scss",
+        "**/*.sass",
+        "**/*.ts",
+        "**/*.md",
+        "**/*.csv"
+    ]
 }

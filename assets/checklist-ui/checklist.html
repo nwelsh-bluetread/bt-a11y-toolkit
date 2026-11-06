@@ -1091,12 +1091,49 @@ function goToHash() {
   renderScreen();
   renderSidebar();
   main.scrollTop = 0;
+  if (restoreView(anchor)) {
+    state.focusTab = false;
+    return;
+  }
   // Switching tabs keeps focus on the tab; going to a screen moves it to the title.
   if (state.focusTab) $(`#tab-${state.platform}`)?.focus();
   else $('#screenTitle').focus({ preventScroll: true });
   state.focusTab = false;
 }
 window.addEventListener('hashchange', goToHash);
+
+// Scroll position and focus survive a page reload (e.g. Live Server reacting to the file write).
+const VIEW_KEY = 'bt-a11y-checklist:view';
+const focusables = () => [...main.querySelectorAll('input, select, textarea, button, [tabindex]')];
+
+window.addEventListener('pagehide', () => {
+  if (!doc) return;
+  const el = document.activeElement;
+  const view = {
+    file: state.fileName,
+    anchor: doc.screens[state.current].anchor,
+    top: main.scrollTop,
+    focus: main.contains(el) ? focusables().indexOf(el) : -1,
+    caret: typeof el?.selectionStart === 'number' ? el.selectionStart : null,
+  };
+  sessionStorage.setItem(VIEW_KEY, JSON.stringify(view));
+});
+
+function restoreView(anchor) {
+  let view;
+  try {
+    view = JSON.parse(sessionStorage.getItem(VIEW_KEY));
+  } catch {}
+  sessionStorage.removeItem(VIEW_KEY);
+  if (!view || view.file !== state.fileName || view.anchor !== anchor) return false;
+  main.scrollTop = view.top;
+  const el = view.focus >= 0 && focusables()[view.focus];
+  if (el) {
+    el.focus({ preventScroll: true });
+    if (view.caret !== null && el.setSelectionRange) el.setSelectionRange(view.caret, view.caret);
+  } else $('#screenTitle').focus({ preventScroll: true });
+  return true;
+}
 
 $('#filter').addEventListener('input', renderSidebar);
 $('#hideDone').addEventListener('change', renderSidebar);
