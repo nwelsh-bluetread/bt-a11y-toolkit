@@ -130,6 +130,9 @@
   }
   .issue .itext { flex: 1; min-width: 0; }
   .issue .wcag { width: 6.5em; font-family: var(--mono); font-size: 13px; }
+  .issue .comp { width: 12em; font-family: var(--mono); font-size: 13px; }
+  .ccount { min-width: 5.5em; font-size: 12px; font-weight: 600; color: var(--pass-ink); white-space: nowrap; }
+  @media (max-width: 820px) { .issue { flex-wrap: wrap; } .issue .itext { flex-basis: 100%; } }
   .remove { border: none; background: none; cursor: pointer; color: var(--muted); padding: 4px 8px; border-radius: 6px; }
   .remove:hover { background: var(--fail-bg); color: var(--fail-ink); }
   .link { border: none; background: none; color: var(--pass-ink); cursor: pointer; padding: 2px 0; justify-self: start; font-size: 13px; font-weight: 500; }
@@ -198,7 +201,7 @@
     <button type="button" class="btn" id="openBtn">Open checklist.md…</button>
     <button type="button" class="btn primary" id="enableWriteBtn" hidden>Allow saving to file</button>
     <button type="button" class="btn" id="downloadBtn" hidden>Download .md</button>
-    <button type="button" class="btn" id="sharedBtn" hidden>Shared components</button>
+    <button type="button" class="btn" id="sharedBtn" hidden>Components</button>
     <button type="button" class="btn" id="helpBtn">Help <kbd>?</kbd></button>
     <span class="save-status" id="saveStatus" role="status" aria-live="polite"></span>
   </div>
@@ -226,12 +229,19 @@
 </div>
 
 <dialog id="sharedDialog" aria-labelledby="sharedTitle">
-  <div class="dlg-head"><h2 id="sharedTitle">Shared components with issues</h2><button type="button" class="btn" data-close>Close</button></div>
+  <div class="dlg-head"><h2 id="sharedTitle">Components</h2><button type="button" class="btn" data-close>Close</button></div>
   <div class="dlg-body">
-    <p><strong>These are used on several screens, so the scan flags them on every one.</strong> Log a problem with one of them once, naming the component (e.g. <em>close button has no name (StyledModal)</em>). Only fail another screen for it if you actually see or hear it there.</p>
-    <div id="sharedTable"></div>
+    <h3>Issues you've logged, by component</h3>
+    <p class="muted">Counts every failed check and Other finding with the <em>Component</em> field filled in.</p>
+    <div id="componentTally"></div>
+    <div id="sharedSection">
+      <h3>Shared components the scan flagged</h3>
+      <p><strong>These are used on several screens, so the scan flags them on every one.</strong> Log a problem with one of them once, with its name in the <em>Component</em> field. Only fail another screen for it if you actually see or hear it there.</p>
+      <div id="sharedTable"></div>
+    </div>
   </div>
 </dialog>
+<datalist id="componentList"></datalist>
 
 <dialog id="helpDialog" aria-labelledby="helpTitle">
   <div class="dlg-head"><h2 id="helpTitle">How it works</h2><button type="button" class="btn" data-close>Close</button></div>
@@ -307,11 +317,18 @@ const CRITERIA_RE = /^\d+\.\d+\.\d+(\s*,\s*\d+\.\d+\.\d+)*$/;
 const normalizeMark = m => (m === '' || m === undefined ? ' ' : m.toLowerCase());
 const slugify = s => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'screen';
 
+// An issue can name the component it's in: "`TabItemLong` — Label is cut off (high)".
+const COMPONENT_RE = /^`([^`]+)`\s*(?:[—–:-]\s*)?/;
+
 function splitSeverity(s) {
   const m = s.match(SEV_RE);
-  return m
-    ? { text: s.slice(0, m.index).trim(), severity: m[1].toLowerCase() }
-    : { text: s.trim(), severity: '' };
+  const text = m ? s.slice(0, m.index).trim() : s.trim();
+  const c = text.match(COMPONENT_RE);
+  return {
+    text: c ? text.slice(c[0].length).trim() : text,
+    severity: m ? m[1].toLowerCase() : '',
+    ...(c ? { component: c[1].trim() } : {}),
+  };
 }
 
 function classifyIssueText(raw) {
@@ -331,8 +348,9 @@ function addIssueText(check, raw) {
   else check.notes.push(c.note);
 }
 
-function joinSeverity({ text, severity }) {
-  const t = text.replace(/\s+/g, ' ').trim();
+function joinSeverity({ text, severity, component = '' }) {
+  const comp = component.replace(/`/g, '').trim();
+  const t = [comp && `\`${comp}\``, text.replace(/\s+/g, ' ').trim()].filter(Boolean).join(' — ');
   if (!severity) return t;
   return t ? `${t} (${severity})` : `(${severity})`;
 }
@@ -354,7 +372,7 @@ function parseOtherLine(line) {
 }
 
 function formatOther(item) {
-  if (!item.text.trim()) return '';
+  if (!item.text.trim() && !item.component?.trim()) return '';
   return [item.platforms.map(p => PLATFORM_LABEL[p]).join(', '), item.screen.trim(), item.wcag.trim(), joinSeverity(item)]
     .filter(Boolean)
     .join(' · ');
@@ -721,12 +739,73 @@ function refreshStatus() {
   }
   const f = $('#finish');
   if (f) f.innerHTML = finishHtml(doc.screens[state.current]);
+  refreshComponents();
+}
+
+// ---------- components ----------
+// Issues that name a component are tallied across the whole checklist, so a repeat offender shows up.
+
+const compKey = name => (name ?? '').replace(/`/g, '').trim().toLowerCase();
+
+/** Every logged issue that names a component: failed checks plus Other findings. */
+function componentIssues() {
+  const out = [];
+  for (const c of doc.checks) {
+    if (c.mark !== '!') continue;
+    for (const it of c.issues) if (compKey(it.component)) out.push({ ...it, screen: c.screen });
+  }
+  for (const e of doc.other?.entries ?? []) {
+    if (!e.item || !compKey(e.item.component)) continue;
+    const screen = doc.screens.find(s => e.item.platforms.includes(s.platform) && otherOnScreen(e.item, s));
+    out.push({ ...e.item, screen });
+  }
+  return out;
+}
+
+function componentTally() {
+  const tally = new Map();
+  for (const it of componentIssues()) {
+    const key = compKey(it.component);
+    const t = tally.get(key) ?? { name: it.component.replace(/`/g, '').trim(), count: 0, screens: new Set(), worst: '' };
+    t.count++;
+    if (it.screen) t.screens.add(`${it.screen.page?.name ?? it.screen.name} (${PLATFORM_LABEL[it.screen.platform]})`);
+    const sev = it.severity || 'low';
+    if (!t.worst || SEVERITIES.indexOf(sev) < SEVERITIES.indexOf(t.worst)) t.worst = sev;
+    tally.set(key, t);
+  }
+  return tally;
+}
+
+function countHtml(component, tally = state.tally) {
+  const n = tally?.get(compKey(component))?.count ?? 0;
+  return `<span class="ccount" title="Issues logged for this component across the checklist">${n ? `${n}× logged` : ''}</span>`;
+}
+
+/** Refresh the counts beside component fields, the suggestions, and the Components dialog. */
+function refreshComponents() {
+  state.tally = componentTally();
+  main.querySelectorAll('.issue').forEach(row => {
+    const input = row.querySelector('.comp');
+    const span = row.querySelector('.ccount');
+    if (input && span) span.outerHTML = countHtml(input.value);
+  });
+  const shared = doc.sharedRows.map(r => r[0].replace(/`/g, '').trim());
+  const names = [...new Map([...shared, ...[...state.tally.values()].map(t => t.name)].map(n => [compKey(n), n])).values()].filter(Boolean);
+  $('#componentList').innerHTML = names.sort((a, b) => a.localeCompare(b)).map(n => `<option value="${esc(n)}"></option>`).join('');
+  const rows = [...state.tally.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+  $('#componentTally').innerHTML = rows.length
+    ? `<table><thead><tr><th>Component</th><th>Issues</th><th>Worst</th><th>Screens</th></tr></thead><tbody>${rows
+        .map(t => `<tr><td><code>${esc(t.name)}</code></td><td>${t.count}</td><td>${cap(t.worst)}</td><td>${[...t.screens].map(esc).join('<br>')}</td></tr>`)
+        .join('')}</tbody></table>`
+    : '<p class="muted">None yet. When you fail a check, type the component in the issue’s <em>Component</em> field and it’s counted here.</p>';
 }
 
 function issueRow(item, k, withWcag) {
   return `<div class="issue" data-ii="${k}">
     ${withWcag ? `<input class="wcag" data-field="wcag" value="${esc(item.wcag)}" placeholder="1.4.3" aria-label="WCAG criterion for issue ${k + 1}">` : ''}
     <input class="itext" data-field="text" value="${esc(item.text)}" placeholder="What's wrong, e.g. Pay button text overlaps the icon" aria-label="Issue ${k + 1} description">
+    <input class="comp" data-field="component" value="${esc(item.component ?? '')}" list="componentList" placeholder="Component (optional)" aria-label="Issue ${k + 1} component, optional">
+    ${countHtml(item.component)}
     <select data-field="severity" aria-label="Issue ${k + 1} severity">
       ${SEVERITIES.map(s => `<option value="${s}"${(item.severity || 'low') === s ? ' selected' : ''}>${cap(s)}</option>`).join('')}
     </select>
@@ -1076,6 +1155,7 @@ main.addEventListener('input', e => {
     markDirty(doc.other);
     refreshStatus();
   }
+  if (field === 'component') refreshComponents();
 });
 
 document.addEventListener('keydown', e => {
@@ -1298,7 +1378,8 @@ function loadText(text, name, { source = 'open' } = {}) {
   document.title = `${doc.title || name} · checklist`;
   $('#docTitle').textContent = `· ${name}`;
   ['#sidebar', '#progress', '#downloadBtn'].forEach(s => ($(s).hidden = false));
-  $('#sharedBtn').hidden = !doc.sharedRows.length;
+  $('#sharedBtn').hidden = false;
+  $('#sharedSection').hidden = !doc.sharedRows.length;
   $('#sharedTable').innerHTML = doc.sharedRows.length
     ? `<table><thead><tr><th>Component</th><th>Used on</th><th>Scan found</th><th>WCAG</th></tr></thead><tbody>${doc.sharedRows
         .map(r => `<tr>${r.map(c => `<td>${renderInline(c).replace(/&lt;br&gt;/g, '<br>')}</td>`).join('')}</tr>`)
@@ -1310,6 +1391,7 @@ function loadText(text, name, { source = 'open' } = {}) {
   state.current = start;
   state.platform = doc.screens[start].platform;
   doc.pages = buildPages(doc);
+  state.tally = componentTally();
   renderProgress();
   if (location.hash === `#${doc.screens[start].anchor}`) goToHash();
   else location.hash = doc.screens[start].anchor;

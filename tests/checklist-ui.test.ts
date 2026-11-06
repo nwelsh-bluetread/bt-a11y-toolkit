@@ -8,13 +8,13 @@ import { wcag } from "../src/wcag.js";
 // The GUI's parser/serializer is the "// <core>" block of the HTML: plain JS, no DOM.
 const html = readFileSync(new URL("../assets/checklist-ui/checklist.html", import.meta.url), "utf8");
 const core = html.slice(html.indexOf("// <core>"), html.indexOf("// </core>"));
-interface Issue { text: string; severity: string }
+interface Issue { text: string; severity: string; component?: string }
 interface Check { type: "check"; mark: string; slug: string; unreviewed: boolean; issues: Issue[]; notes: string[]; dirty: boolean; screen: { name: string; platform: string } }
 interface Doc {
   screens: Array<{ name: string; platform: string; section: string }>;
   checks: Check[];
   platforms: string[];
-  other: { dirty: boolean; entries: Array<{ item?: { platforms: string[]; screen: string; wcag: string; text: string; severity: string } }> };
+  other: { dirty: boolean; entries: Array<{ item?: { platforms: string[]; screen: string; wcag: string; text: string; severity: string; component?: string } }> };
 }
 const ui = new Function(`${core}; return { parseDoc, serialize, screenStatus };`)() as {
   parseDoc(text: string): Doc;
@@ -120,6 +120,36 @@ describe("checklist GUI", () => {
       notes: ["header is an image"],
     });
     expect(row("Login", "contrast").notes).toEqual(["update header (low)"]);
+  });
+
+  it("writes an issue's component as a backticked prefix and reads it back", () => {
+    const doc = ui.parseDoc(md);
+    const c = find(doc, "ios", "Login", "sr-name-role-value");
+    Object.assign(c, {
+      mark: "!",
+      dirty: true,
+      issues: [
+        { text: "Label is cut off", severity: "high", component: "TabItemLong" },
+        { text: "", severity: "", component: "TabItemLong" },
+        { text: "No name", severity: "medium" },
+      ],
+    });
+    doc.other.entries.push({ item: { platforms: ["ios"], screen: "Inbox", wcag: "", text: "Grey subtitle", severity: "low", component: "Subtitle" } });
+    doc.other.dirty = true;
+
+    const out = ui.serialize(doc);
+    expect(out).toContain("`sr-name-role-value`: `TabItemLong` — Label is cut off (high)\n  - `TabItemLong`\n  - No name (medium)");
+    expect(out).toContain("- [!] iOS · Inbox · `Subtitle` — Grey subtitle (low)");
+
+    const again = ui.parseDoc(out);
+    expect(find(again, "ios", "Login", "sr-name-role-value").issues).toEqual([
+      { text: "Label is cut off", severity: "high", component: "TabItemLong" },
+      { text: "", severity: "", component: "TabItemLong" },
+      { text: "No name", severity: "medium" },
+    ]);
+    expect(again.other.entries.find((e) => e.item?.component)?.item).toMatchObject({ text: "Grey subtitle", component: "Subtitle" });
+    // The report keeps the component in the issue text.
+    expect(parseChecklist(out).warnings).toEqual([]);
   });
 
   it("counts unreviewed scan pre-fills and other issues in screen status", () => {
