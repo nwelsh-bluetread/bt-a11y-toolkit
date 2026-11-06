@@ -16,7 +16,8 @@ interface Doc {
   platforms: string[];
   other: { dirty: boolean; entries: Array<{ item?: { platforms: string[]; screen: string; wcag: string; text: string; severity: string; component?: string } }> };
 }
-const ui = new Function(`${core}; return { parseDoc, serialize, screenStatus };`)() as {
+const ui = new Function(`${core}; return { parseDoc, serialize, screenStatus, answerDiff };`)() as {
+  answerDiff(a: Doc, b: Doc): { changed: number; answeredA: number; answeredB: number; sameTitle: boolean };
   parseDoc(text: string): Doc;
   serialize(doc: Doc): string;
   screenStatus(screen: Doc["screens"][number], doc: Doc): { left: number; failed: boolean; unreviewed: number };
@@ -150,6 +151,20 @@ describe("checklist GUI", () => {
     expect(again.other.entries.find((e) => e.item?.component)?.item).toMatchObject({ text: "Grey subtitle", component: "Subtitle" });
     // The report keeps the component in the issue text.
     expect(parseChecklist(out).warnings).toEqual([]);
+  });
+
+  it("compares a browser copy with the file by answers, not text", () => {
+    const file = ui.parseDoc(md);
+    // Same answers, different text (e.g. the CLI rewrote the intro): nothing to ask about.
+    expect(ui.answerDiff(ui.parseDoc(md.replace(/^# .*$/m, "$&\n\nExtra intro line.")), file)).toMatchObject({ changed: 0, sameTitle: true });
+
+    const edited = ui.parseDoc(md);
+    Object.assign(find(edited, "ios", "Login", "sr-name-role-value"), { mark: "x", dirty: true });
+    Object.assign(find(edited, "ios", "Inbox", "sr-name-role-value"), { mark: "!", dirty: true, issues: [{ text: "No name", severity: "" }] });
+    const diff = ui.answerDiff(ui.parseDoc(ui.serialize(edited)), file);
+    expect(diff).toMatchObject({ changed: 2, answeredA: diff.answeredB + 2 });
+
+    expect(ui.answerDiff(ui.parseDoc(md.replace(/^# .*$/m, "# Another project")), file).sameTitle).toBe(false);
   });
 
   it("counts unreviewed scan pre-fills and other issues in screen status", () => {

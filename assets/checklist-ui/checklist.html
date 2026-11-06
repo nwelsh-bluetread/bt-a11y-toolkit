@@ -586,6 +586,27 @@ function screenStatus(s, doc) {
   const left = checks.length - pass - fail - na + unreviewed;
   return { total: checks.length, pass, fail, na, unreviewed, left, others, blocked: Boolean(s.blocked), failed: fail > 0 || others > 0, done: left === 0 };
 }
+/**
+ * How many answers differ between two parsed checklists: marks, issues, notes, Blocked, and
+ * Other findings. Formatting-only differences (e.g. after the CLI regenerates the file) count as none.
+ */
+function answerDiff(a, b) {
+  const answers = d => {
+    const m = new Map();
+    for (const c of d.checks) {
+      m.set(`check|${c.screen.platform}|${c.screen.name}|${c.slug}`, [c.mark, c.unreviewed, ...c.issues.map(joinSeverity), ...c.notes].join('\n'));
+    }
+    for (const s of d.screens) if (s.blocked) m.set(`blocked|${s.platform}|${s.name}`, s.blocked.reason.trim());
+    for (const e of d.other?.entries ?? []) if (e.item && formatOther(e.item)) m.set(`other|${formatOther(e.item)}`, '');
+    return m;
+  };
+  const x = answers(a);
+  const y = answers(b);
+  let changed = 0;
+  for (const k of new Set([...x.keys(), ...y.keys()])) if (x.get(k) !== y.get(k)) changed++;
+  const answered = d => d.checks.filter(c => ['x', '!', '-'].includes(c.mark) && !c.unreviewed).length;
+  return { changed, answeredA: answered(a), answeredB: answered(b), sameTitle: a.title === b.title };
+}
 // </core>
 
 const MARKS = [
@@ -1382,9 +1403,22 @@ function loadText(text, name, { source = 'open' } = {}) {
   const session = source === 'open' ? readSession(name) : null;
   let restored = false;
   if (session && !session.onDisk && session.text !== text) {
-    const when = new Date(session.savedAt).toLocaleString();
-    restored = confirm(`This browser has unsaved work on ${name} from ${when}. Use it instead of what's in the file?`);
-    if (restored) parsed = parseDoc(session.text);
+    const saved = parseDoc(session.text);
+    const diff = answerDiff(saved, parsed);
+    // Ask only when the browser copy is for this same checklist and actually has different answers.
+    // A copy left "unsaved" by a reload mid-save, or from another project's checklist.md, is dropped.
+    if (diff.changed && diff.sameTitle && saved.screens.length) {
+      const when = new Date(session.savedAt).toLocaleString();
+      const fileNewer = state.lastModified > session.savedAt;
+      restored = confirm(
+        `This browser has a copy of ${name} from ${when} that wasn't saved to the file.\n\n` +
+          `It differs from the file on ${diff.changed} answer${diff.changed === 1 ? '' : 's'} ` +
+          `(browser copy: ${diff.answeredA} checks answered · file: ${diff.answeredB}).` +
+          (fileNewer ? `\nThe file was changed after that, on ${new Date(state.lastModified).toLocaleString()}.` : '') +
+          `\n\nOK: use the browser copy (it's then saved to the file).\nCancel: use the file and discard the browser copy.`
+      );
+      if (restored) parsed = saved;
+    }
   }
   doc = parsed;
   document.title = `${doc.title || name} · checklist`;
@@ -1509,6 +1543,7 @@ $('#fileInput').addEventListener('change', async e => {
   const file = e.target.files[0];
   if (!file) return;
   state.handle = state.pendingHandle = null;
+  state.lastModified = file.lastModified;
   $('#enableWriteBtn').hidden = true;
   loadText(await file.text(), file.name);
   e.target.value = '';
@@ -1544,6 +1579,7 @@ document.addEventListener('drop', async e => {
   }
   const file = item.getAsFile();
   state.handle = state.pendingHandle = null;
+  state.lastModified = file.lastModified;
   loadText(await file.text(), file.name);
 });
 
