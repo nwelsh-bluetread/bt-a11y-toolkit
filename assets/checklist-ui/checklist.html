@@ -609,6 +609,36 @@ function answerDiff(a, b) {
 }
 // </core>
 
+// VS Code Live Server reloads the page whenever a file in the folder changes, including this
+// page's own writes to checklist.md: clicking Fail would reload and close the issue field.
+// Live Server's injected script (which runs after this one) listens on a WebSocket ending in
+// "/ws" and reloads on a "reload" message; drop those that come right after a save of ours.
+// Other reloads (e.g. editing this HTML file) still go through.
+let lastWriteAt = 0;
+const OWN_WRITE_MS = 3000;
+if (location.protocol.startsWith('http') && window.WebSocket) {
+  const NativeWS = window.WebSocket;
+  const onmessage = Object.getOwnPropertyDescriptor(NativeWS.prototype, 'onmessage');
+  window.WebSocket = class extends NativeWS {
+    constructor(url, protocols) {
+      super(url, protocols);
+      if (!onmessage || !/\/ws\/?$/.test(String(url))) return;
+      let handler = null;
+      Object.defineProperty(this, 'onmessage', {
+        configurable: true,
+        get: () => handler,
+        set: fn => {
+          handler = fn;
+          onmessage.set.call(this, typeof fn !== 'function' ? fn : e => {
+            if (e.data === 'reload' && Date.now() - lastWriteAt < OWN_WRITE_MS) return;
+            fn.call(this, e);
+          });
+        },
+      });
+    }
+  };
+}
+
 const MARKS = [
   { mark: 'x', label: 'Pass', icon: 'X', key: 'p', cls: 'pass' },
   { mark: '!', label: 'Fail', icon: '!', key: 'f', cls: 'fail' },
@@ -1370,9 +1400,11 @@ async function writeToFile({ force = false } = {}) {
       $('#conflictDialog').showModal();
       return;
     }
+    lastWriteAt = Date.now();
     const w = await state.handle.createWritable();
     await w.write(serialize(doc));
     await w.close();
+    lastWriteAt = Date.now();
     state.lastModified = (await state.handle.getFile()).lastModified;
     state.conflict = false;
     writeSession(true);
