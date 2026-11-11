@@ -26,8 +26,13 @@ export function readUrlsFile(path: string): string[] {
     .filter((l) => l && !l.startsWith("#"));
 }
 
+/** Whether a file's text is a sitemap (`<urlset>` or `<sitemapindex>`) rather than a list of URLs. */
+export function isSitemapXml(text: string): boolean {
+  return /<(urlset|sitemapindex)[\s>]/i.test(text);
+}
+
 /**
- * Fetch a sitemap and return its URLs.
+ * Fetch (or read from disk) a sitemap and return its URLs.
  *
  * Handles both a normal `<urlset>` sitemap and a `<sitemapindex>` (a "sitemap of
  * sitemaps"), recursively following child sitemaps. This is the usual reason a
@@ -41,9 +46,15 @@ export async function readSitemap(
   if (seen.has(sitemapUrl)) return [];
   seen.add(sitemapUrl);
 
-  const res = await fetch(sitemapUrl);
-  if (!res.ok) throw new Error(`Failed to fetch sitemap (${res.status}): ${sitemapUrl}`);
-  const xml = await res.text();
+  // A sitemap can also be a file on disk (e.g. one written for the audit, not deployed).
+  let xml: string;
+  if (/^https?:\/\//i.test(sitemapUrl)) {
+    const res = await fetch(sitemapUrl);
+    if (!res.ok) throw new Error(`Failed to fetch sitemap (${res.status}): ${sitemapUrl}`);
+    xml = await res.text();
+  } else {
+    xml = readFileSync(sitemapUrl, "utf8");
+  }
 
   const locs = [...xml.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/gi)].map((m) => m[1]!);
 
@@ -74,7 +85,9 @@ export async function resolveUrls(opts: {
   sitemap?: string;
 }): Promise<string[]> {
   const urls = [...(opts.urls ?? [])];
-  if (opts.urlsFile) urls.push(...readUrlsFile(opts.urlsFile));
+  // A sitemap passed as a list file: read its <loc>s, not its lines.
+  if (opts.urlsFile && isSitemapXml(readFileSync(opts.urlsFile, "utf8"))) urls.push(...(await readSitemap(opts.urlsFile)));
+  else if (opts.urlsFile) urls.push(...readUrlsFile(opts.urlsFile));
   if (opts.sitemap) urls.push(...(await readSitemap(opts.sitemap)));
   return [...new Set(urls)];
 }

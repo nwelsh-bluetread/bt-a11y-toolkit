@@ -628,6 +628,8 @@ const main = $('#main');
 const esc = s =>
   String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const cap = s => s[0].toUpperCase() + s.slice(1);
+// A website-only audit lists pages (URLs), not app screens.
+const webOnly = () => !!doc && doc.platforms.length === 1 && doc.platforms[0] === 'web';
 
 let doc = null;
 const state = { fileName: '', handle: null, pendingHandle: null, lastModified: 0, current: 0, platform: '', saveTimer: null, saving: false, conflict: false };
@@ -715,7 +717,7 @@ function renderSidebar() {
     if (hideDone && (st.done || st.blocked) && !isCurrent) continue;
     if (page.section !== lastSection) {
       if (lastSection !== null) html += '</ul>';
-      html += `<h2>${esc(page.section || 'Screens')}</h2><ul>`;
+      html += `<h2>${esc(page.section || (webOnly() ? 'Pages' : 'Screens'))}</h2><ul>`;
       lastSection = page.section;
     }
     html += `<li><a href="#${screenOn(page).anchor}"${isCurrent ? ' aria-current="page"' : ''}><span>${esc(page.name)}</span>${badge(st)}</a></li>`;
@@ -1429,6 +1431,9 @@ function loadText(text, name, { source = 'open' } = {}) {
   document.title = `${doc.title || name} · checklist`;
   $('#docTitle').textContent = `· ${name}`;
   ['#sidebar', '#progress', '#downloadBtn'].forEach(s => ($(s).hidden = false));
+  const noun = webOnly() ? 'pages' : 'screens';
+  $('#filter').placeholder = $('#filter').ariaLabel = `Filter ${noun}`;
+  $('#hideDone').nextSibling.textContent = ` Hide finished ${noun}`;
   $('#sharedBtn').hidden = false;
   $('#sharedSection').hidden = !doc.sharedRows.length;
   $('#sharedTable').innerHTML = doc.sharedRows.length
