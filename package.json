@@ -51,7 +51,8 @@
     "prepare": "npm run build",
     "prepublishOnly": "npm run clean && npm run build",
     "quick": "tsx src/cli.ts quick",
-    "docs:tool-coverage": "tsx scripts/tool-coverage.ts"
+    "docs:tool-coverage": "tsx scripts/tool-coverage.ts",
+    "sr:test": "playwright test -c screen-reader/playwright.config.ts"
   },
   "engines": {
     "node": ">=18"
@@ -59,6 +60,9 @@
   "devDependencies": {
     "@axe-core/playwright": "^4.14.0",
     "@eslint/js": "^9.39.5",
+    "@guidepup/guidepup": "^0.40.0",
+    "@guidepup/playwright": "^0.21.0",
+    "@playwright/test": "^1.64.1",
     "@types/node": "^22.7.0",
     "@typescript-eslint/eslint-plugin": "^8.8.0",
     "@typescript-eslint/parser": "^8.8.0",

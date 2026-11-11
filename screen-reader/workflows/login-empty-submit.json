@@ -1,0 +1,8 @@
+{
+  "name": "Login: read the form, submit it empty",
+  "url": "../fixtures/login.html",
+  "steps": [
+    { "read": "page", "expect": "Password" },
+    { "activate": "button[type=submit]", "expect": "Enter your email address" }
+  ]
+}

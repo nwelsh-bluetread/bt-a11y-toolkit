@@ -1,0 +1,13 @@
+{
+  "name": "Login: fill in the form and sign in",
+  "url": "../fixtures/login.html",
+  "steps": [
+    { "find": "heading", "expect": "Sign in" },
+    { "type": "test@example.com", "into": "#email" },
+    { "press": "Tab", "expect": "Password" },
+    { "type": "hunter2" },
+    { "press": "Tab", "expect": "Remember me" },
+    { "press": "Space", "expect": "checked" },
+    { "activate": "button[type=submit]" }
+  ]
+}
