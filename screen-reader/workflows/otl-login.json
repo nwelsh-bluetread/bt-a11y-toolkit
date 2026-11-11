@@ -1,0 +1,10 @@
+{
+  "name": "OTL login: read the page and Tab through it",
+  "url": "http://localhost:5173/login",
+  "steps": [
+    { "wait": 12000 },
+    { "find": "heading", "expect": "OTL Portal" },
+    { "read": "page", "expect": "Log In with Microsoft" },
+    { "tab": "all", "expect": "button" }
+  ]
+}

@@ -214,3 +214,17 @@ describe("checklist GUI — blocked screens", () => {
     expect(out).not.toContain("### Inbox - BLOCKED\n\n> **Blocked:** Feature flag off");
   });
 });
+
+describe("checklist GUI — per-project storage", () => {
+  it("stamps the installed copy with its audit folder so it doesn't reopen another project's checklist.md", async () => {
+    const { mkdtempSync, readFileSync: read } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { installChecklistUi } = await import("../src/wizard/session.js");
+    const a = mkdtempSync(join(tmpdir(), "bt-a11y-a-"));
+    const b = mkdtempSync(join(tmpdir(), "bt-a11y-b-"));
+    const idOf = (dir: string) => read(installChecklistUi(dir), "utf8").match(/const AUDIT_ID = (.+);/)?.[1];
+    expect(JSON.parse(idOf(a)!)).toBe(join(a, "a11y-audit"));
+    expect(idOf(a)).not.toBe(idOf(b));
+  });
+});

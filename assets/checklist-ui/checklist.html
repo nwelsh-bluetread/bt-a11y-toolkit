@@ -247,7 +247,7 @@
   <div class="dlg-head"><h2 id="helpTitle">How it works</h2><button type="button" class="btn" data-close>Close</button></div>
   <div class="dlg-body">
     <ul>
-      <li>Pick a screen on the left, then the <strong>iOS</strong> or <strong>Android</strong> tab on the screen, and work down its checks. The tab you pick stays selected as you move between screens. <strong>Setup</strong> in each tab says which device settings to have ready.</li>
+      <li>Pick a screen on the left and work down its checks. If the audit covers more than one platform (for example iOS and Android), each screen has a tab per platform; the tab you pick stays selected as you move between screens. <strong>Setup</strong> says which device or browser settings to have ready.</li>
       <li>Mark each check <strong>Pass</strong>, <strong>Fail</strong>, or <strong>N/A</strong>. Click the active button again to clear it.</li>
       <li>Quicker: mark only the fails and N/As, then click <strong>Pass the rest of this screen</strong> at the bottom once you've tested everything. Checks the scan already failed aren't passed; confirm those yourself.</li>
       <li>On a fail, describe each problem and pick a severity (it's Low unless you change it). The first issue goes on the check's line; the rest go on indented lines below it.</li>
@@ -266,7 +266,7 @@
       <li><kbd>J</kbd> / <kbd>K</kbd> next / previous check</li>
       <li><kbd>G</kbd> go to the next check that still needs an answer (marked <em>To do</em>)</li>
       <li><kbd>]</kbd> / <kbd>[</kbd> next / previous screen</li>
-      <li><kbd>←</kbd> / <kbd>→</kbd> on the platform tabs switch between iOS and Android</li>
+      <li><kbd>←</kbd> / <kbd>→</kbd> on the platform tabs switch platforms (when there's more than one)</li>
     </ul>
     <h3>Saving</h3>
     <p>Chrome and Edge write to the .md file as you go. If the file changes on disk while it's open here (for example, you re-run <code>npx bt-a11y</code> or edit it in VS Code), saving stops and asks what to do. In other browsers, your work stays in this browser until you download it.</p>
@@ -614,8 +614,13 @@ const MARKS = [
   { mark: '!', label: 'Fail', icon: '!', key: 'f', cls: 'fail' },
   { mark: '-', label: 'N/A', icon: '–', key: 'n', cls: 'na' },
 ];
+// The audit folder this copy belongs to, filled in by installChecklistUi() in src/wizard/session.ts.
+// Every project's file is named checklist.md, and Chrome gives all file:// pages the same storage,
+// so browser copies, the last-opened file, and file handles are kept per audit folder.
+const AUDIT_ID = '';
+const scoped = name => (AUDIT_ID ? `${AUDIT_ID}|${name}` : name);
 const SESSION_PREFIX = 'bt-a11y-checklist-session:';
-const LAST_FILE_KEY = 'bt-a11y-checklist-last-file';
+const LAST_FILE_KEY = AUDIT_ID ? `bt-a11y-checklist-last-file:${AUDIT_ID}` : 'bt-a11y-checklist-last-file';
 const LAST_SCREEN_PREFIX = 'bt-a11y-checklist-screen:';
 
 const $ = s => document.querySelector(s);
@@ -1240,7 +1245,7 @@ function goToHash() {
   }
   state.current = i;
   state.platform = doc.screens[i].platform;
-  localStorage.setItem(LAST_SCREEN_PREFIX + state.fileName, anchor);
+  localStorage.setItem(LAST_SCREEN_PREFIX + scoped(state.fileName), anchor);
   renderScreen();
   renderSidebar();
   revealCurrentInSidebar();
@@ -1315,7 +1320,7 @@ function setStatus(text, warn = false) {
 // reacting to the file write) restores the work without reopening the file.
 function readSession(name) {
   try {
-    return JSON.parse(localStorage.getItem(SESSION_PREFIX + name));
+    return JSON.parse(localStorage.getItem(SESSION_PREFIX + scoped(name)));
   } catch {
     return null;
   }
@@ -1324,7 +1329,7 @@ function readSession(name) {
 function writeSession(onDisk) {
   try {
     localStorage.setItem(
-      SESSION_PREFIX + state.fileName,
+      SESSION_PREFIX + scoped(state.fileName),
       JSON.stringify({ text: serialize(doc), savedAt: Date.now(), lastModified: state.lastModified, onDisk })
     );
     localStorage.setItem(LAST_FILE_KEY, state.fileName);
@@ -1431,7 +1436,7 @@ function loadText(text, name, { source = 'open' } = {}) {
         .map(r => `<tr>${r.map(c => `<td>${renderInline(c).replace(/&lt;br&gt;/g, '<br>')}</td>`).join('')}</tr>`)
         .join('')}</tbody></table>`
     : '';
-  const last = localStorage.getItem(LAST_SCREEN_PREFIX + name);
+  const last = localStorage.getItem(LAST_SCREEN_PREFIX + scoped(name));
   const fromHash = decodeURIComponent(location.hash.slice(1));
   const start = [fromHash, last].map(a => doc.screens.findIndex(s => s.anchor === a)).find(i => i >= 0) ?? 0;
   state.current = start;
@@ -1481,7 +1486,7 @@ async function idbSet(key, value) {
 async function rememberHandle(handle) {
   try {
     const handles = (await idbGet('handles')) ?? {};
-    handles[handle.name] = handle;
+    handles[scoped(handle.name)] = handle;
     await idbSet('handles', handles);
   } catch {}
 }
@@ -1592,8 +1597,13 @@ document.addEventListener('drop', async e => {
   if (doc) return;
 
   const recent = $('#recent');
-  recent.innerHTML = Object.keys(handles)
-    .map(name => `<button type="button" class="btn" data-reopen="${esc(name)}">Reopen ${esc(name)}</button>`)
+  // Only this audit folder's files: another project's checklist.md has the same name.
+  const mine = Object.keys(handles).filter(key => !AUDIT_ID || key.startsWith(`${AUDIT_ID}|`));
+  recent.innerHTML = mine
+    .map(key => {
+      const label = AUDIT_ID ? key.slice(AUDIT_ID.length + 1) : key;
+      return `<button type="button" class="btn" data-reopen="${esc(key)}">Reopen ${esc(label)}</button>`;
+    })
     .join('');
   recent.addEventListener('click', e => {
     const b = e.target.closest('[data-reopen]');
@@ -1602,7 +1612,7 @@ document.addEventListener('drop', async e => {
 
   const name = localStorage.getItem(LAST_FILE_KEY);
   if (!name) return;
-  const handle = handles[name];
+  const handle = handles[scoped(name)];
   const perm = handle ? await handle.queryPermission({ mode: 'readwrite' }).catch(() => 'prompt') : null;
   if (perm === 'granted') {
     try {

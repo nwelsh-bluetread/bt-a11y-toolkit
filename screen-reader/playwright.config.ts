@@ -7,7 +7,9 @@ export default defineConfig({
   ...screenReaderConfig,
   testDir: ".",
   testMatch: "**/*.sr.ts",
-  timeout: 3 * 60 * 1000,
+  // VoiceOver is slow: each announcement is captured in full (~5-10s per item),
+  // so reading or Tabbing through a real app page easily takes several minutes.
+  timeout: 15 * 60 * 1000,
   retries: 0,
   reporter: [["list"]],
   outputDir: "../reports/screen-reader/test-results",

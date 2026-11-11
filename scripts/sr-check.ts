@@ -9,6 +9,7 @@
  *   npm run sr:check -- --selectors
  */
 import { join } from "node:path";
+import { applySession } from "../screen-reader/session.js";
 import { describeStep, loadWorkflows, stepAction } from "../screen-reader/workflow.js";
 
 async function main() {
@@ -21,7 +22,9 @@ async function main() {
   let problems = 0;
   try {
     for (const wf of workflows) {
-      const page = await browser.newPage();
+      const context = await browser.newContext();
+      if (wf.session) await applySession(context, wf.session);
+      const page = await context.newPage();
       await page.goto(wf.url, { waitUntil: "load" });
       for (const [i, step] of wf.steps.entries()) {
         const s = step as Record<string, unknown>;
@@ -35,7 +38,7 @@ async function main() {
           console.log(`✗ ${wf.id}, step ${i + 1} (${describeStep(step)}): selector matches ${count < 0 ? "nothing (invalid)" : `${count} elements`}`);
         }
       }
-      await page.close();
+      await context.close();
     }
   } finally {
     await browser.close();

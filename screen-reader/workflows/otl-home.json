@@ -1,0 +1,15 @@
+{
+  "name": "OTL home: signed-in dashboard",
+  "url": "http://localhost:5173/",
+  "session": "otl",
+  "steps": [
+    { "wait": 3000 },
+    { "read": "page", "expect": "Available" },
+    { "focus": "role=textbox[name=\"Select date\"]", "expect": "Select date" },
+    { "focus": "role=combobox[name=\"Select branch\"]", "expect": "Select branch" },
+    { "focus": "role=button[name=\"Schedule New Appointment\"]", "expect": "Schedule New Appointment" },
+    { "goto": "/" },
+    { "wait": 3000 },
+    { "tab": "all", "expect": "Logout" }
+  ]
+}

@@ -5,7 +5,7 @@
  * automated scan results. Manual results live in `a11y-audit/checklist.md`,
  * which testers edit by hand; `bt-a11y report` reads both and writes the report.
  */
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { findingsToAssessment } from "../audit.js";
@@ -79,12 +79,21 @@ export function checklistUiPath(cwd: string): string {
   return join(cwd, SESSION_DIR, "checklist.html");
 }
 
-/** Copy the checklist GUI into the audit folder (refreshed every run, so toolkit updates reach it). */
+const AUDIT_ID_LINE = "const AUDIT_ID = '';";
+
+/**
+ * Copy the checklist GUI into the audit folder (refreshed every run, so toolkit updates reach it).
+ * The copy is stamped with the audit folder's path: every project's file is named checklist.md and
+ * Chrome shares storage across file:// pages, so without it the GUI reopens another project's checklist.
+ */
 export function installChecklistUi(cwd: string): string {
   const dest = checklistUiPath(cwd);
   mkdirSync(dirname(dest), { recursive: true });
   // Works from src/ under tsx and from dist/.
-  copyFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "assets", "checklist-ui", "checklist.html"), dest);
+  const html = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "assets", "checklist-ui", "checklist.html"), "utf8");
+  if (!html.includes(AUDIT_ID_LINE)) throw new Error(`checklist.html is missing the line ${AUDIT_ID_LINE}`);
+  const id = JSON.stringify(dirname(dest)).replace(/</g, "\\u003c");
+  writeFileSync(dest, html.replace(AUDIT_ID_LINE, () => `const AUDIT_ID = ${id};`), "utf8");
   return dest;
 }
 

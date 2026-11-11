@@ -56,6 +56,7 @@
     "sr:baseline": "tsx scripts/sr-baseline.ts",
     "sr:inspect": "tsx scripts/sr-inspect.ts",
     "sr:check": "tsx scripts/sr-check.ts",
+    "sr:login": "tsx scripts/sr-login.ts",
     "sr:findings": "tsx src/cli.ts screen-reader"
   },
   "engines": {

@@ -40,6 +40,8 @@ export interface Workflow {
   /** Full URL, or a path to a local HTML file relative to the workflow file. */
   url: string;
   steps: WorkflowStep[];
+  /** Saved sign-in session to restore before loading `url` (see `npm run sr:login`). */
+  session?: string;
   /** Slug used for the transcript file name. */
   id: string;
 }
@@ -75,6 +77,9 @@ function validate(raw: unknown, file: string): Omit<Workflow, "id"> {
   const where = basename(file);
   if (!wf || typeof wf.name !== "string" || typeof wf.url !== "string" || !Array.isArray(wf.steps) || wf.steps.length === 0) {
     throw new Error(`${where}: a workflow needs "name", "url" and a non-empty "steps" list.`);
+  }
+  if (wf.session !== undefined && (typeof wf.session !== "string" || !/^[\w-]+$/.test(wf.session))) {
+    throw new Error(`${where}: "session" must be a saved session name (letters, digits, - or _).`);
   }
   wf.steps.forEach((step, i) => {
     try {

@@ -12,6 +12,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { chromium, type Page } from "playwright";
+import { applySession } from "../screen-reader/session.js";
 
 interface Control {
   tag: string;
@@ -63,19 +64,26 @@ function collectControls(page: Page): Promise<Control[]> {
 }
 
 async function main() {
-  const target = process.argv[2];
+  const args = process.argv.slice(2);
+  const sessionIdx = args.indexOf("--session");
+  const session = sessionIdx >= 0 ? args.splice(sessionIdx, 2)[1] : undefined;
+  const target = args[0];
   if (!target) {
-    console.error("Usage: npm run sr:inspect -- <url or local html file>");
+    console.error("Usage: npm run sr:inspect -- <url or local html file> [--session <name>]");
     process.exit(1);
   }
   const url = /^[a-z]+:\/\//i.test(target) ? target : existsSync(target) ? pathToFileURL(resolve(target)).href : `https://${target}`;
 
   const browser = await chromium.launch();
   try {
-    const page = await browser.newPage();
+    const context = await browser.newContext();
+    if (session) await applySession(context, session);
+    const page = await context.newPage();
     // tsx wraps named functions in `__name(...)`; define it in the page so evaluate() works.
     await page.addInitScript("window.__name = (fn) => fn");
     await page.goto(url, { waitUntil: "load" });
+    // Single-page apps render after "load"; give them a moment.
+    await page.waitForLoadState("networkidle").catch(() => {});
 
     console.log(`# ${await page.title()}\n${page.url()}\n`);
     console.log("## Accessibility tree (roughly what VoiceOver reads, in order)\n");

@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { voiceOverTest as test, type VoiceOverPlaywright } from "@guidepup/playwright";
 import { expect, type Page } from "@playwright/test";
 import type { FocusedControl, Spoken, TabSummary, Transcript, TranscriptStep } from "../src/screen-reader/transcript.ts";
+import { applySession } from "./session.ts";
 import { describeStep, FIND_COMMANDS, loadWorkflows, stepAction, stripHints, type WorkflowStep } from "./workflow.ts";
 
 const workflows = loadWorkflows(join(import.meta.dirname, "workflows"));
@@ -86,12 +87,24 @@ async function unreached(page: Page): Promise<FocusedControl[]> {
   return out;
 }
 
-async function runStep(step: WorkflowStep, page: Page, voiceOver: VoiceOverPlaywright): Promise<StepResult> {
+/**
+ * Focus an element from code and bring the VoiceOver cursor along. VoiceOver
+ * doesn't follow focus set by script, and Guidepup only records speech that
+ * follows its own commands, so without VO+Shift+F4 the step hears nothing and
+ * VO+Space would act on whatever the VoiceOver cursor was on before.
+ */
+async function focusWithCursor(page: Page, voiceOver: VoiceOverPlaywright, selector: string): Promise<void> {
+  await page.locator(selector).first().focus();
+  await page.waitForTimeout(300);
+  await voiceOver.perform(voiceOver.keyboardCommands.moveCursorToKeyboardFocus);
+}
+
+/** `output` is filled as the step goes, so a step that fails partway still keeps what VoiceOver said. */
+async function runStep(step: WorkflowStep, page: Page, voiceOver: VoiceOverPlaywright, output: Spoken[]): Promise<StepResult> {
   const s = step as Record<string, unknown>;
   switch (stepAction(step)) {
     case "read": {
       // Move until VoiceOver stops advancing (the end of the page).
-      const output: Spoken[] = [];
       let repeats = 0;
       for (let i = 0; i < MAX_ITEMS && repeats < 2; i++) {
         const before = await voiceOver.itemText();
@@ -103,7 +116,6 @@ async function runStep(step: WorkflowStep, page: Page, voiceOver: VoiceOverPlayw
       return { output };
     }
     case "next": {
-      const output: Spoken[] = [];
       for (let i = 0; i < (s.next as number); i++) {
         await voiceOver.next();
         output.push(await heard(voiceOver));
@@ -114,7 +126,6 @@ async function runStep(step: WorkflowStep, page: Page, voiceOver: VoiceOverPlayw
       // `all` stops when focus leaves the page or comes back to a control already visited.
       const all = s.tab === "all";
       const limit = all ? MAX_ITEMS : (s.tab as number);
-      const output: Spoken[] = [];
       const seen = new Set<string>();
       let stopped: TabSummary["stopped"] = all ? "limit" : "count";
       for (let i = 0; i < limit; i++) {
@@ -135,18 +146,17 @@ async function runStep(step: WorkflowStep, page: Page, voiceOver: VoiceOverPlayw
       await voiceOver.perform(voiceOver.keyboardCommands[FIND_COMMANDS[s.find as keyof typeof FIND_COMMANDS]]);
       return { output: [await heard(voiceOver)] };
     case "focus":
-      await page.locator(s.focus as string).first().focus();
-      await page.waitForTimeout(500);
+      await focusWithCursor(page, voiceOver, s.focus as string);
       return { output: [await heard(voiceOver, page)] };
     case "type":
-      if (s.into) await page.locator(s.into as string).first().focus();
+      if (s.into) await focusWithCursor(page, voiceOver, s.into as string);
       await voiceOver.type(s.type as string);
       return { output: [await heard(voiceOver, page)] };
     case "press":
       await voiceOver.press(s.press as string);
       return { output: [await heard(voiceOver, page)] };
     case "activate":
-      if (s.activate !== true) await page.locator(s.activate as string).first().focus();
+      if (s.activate !== true) await focusWithCursor(page, voiceOver, s.activate as string);
       await voiceOver.act();
       await page.waitForTimeout(1000);
       return { output: [await heard(voiceOver, page)] };
@@ -161,6 +171,7 @@ for (const wf of workflows) {
     const transcript: Transcript = { version: 1, workflow: wf.name, url: wf.url, ranAt: new Date().toISOString(), steps: [] };
     const steps = transcript.steps;
     try {
+      if (wf.session) await applySession(page.context(), wf.session);
       await page.goto(wf.url, { waitUntil: "load" });
       await voiceOver.navigateToWebContent();
       steps.push({ step: 0, action: "start", kind: "start", url: page.url(), output: [await heard(voiceOver)] });
@@ -169,7 +180,7 @@ for (const wf of workflows) {
         const entry: TranscriptStep = { step: i + 1, action: describeStep(step), kind: stepAction(step), url: page.url(), output: [] };
         steps.push(entry);
         try {
-          const result = await runStep(step, page, voiceOver);
+          const result = await runStep(step, page, voiceOver, entry.output);
           entry.output = result.output;
           if (result.tab) entry.tab = result.tab;
         } catch (err) {
