@@ -122,6 +122,7 @@ Usage:
   bt-a11y checklist             Open the checklist GUI (a11y-audit/checklist.html) in the browser
   bt-a11y target-size [--wait <ms>]  Measure touch targets (WCAG 2.5.8) on an Android device
   bt-a11y browserstack [<file.csv>]  Add a BrowserStack App Accessibility CSV export to the audit
+  bt-a11y screen-reader [dir]   Turn VoiceOver workflow transcripts into findings for review
   bt-a11y report [options]      Build the audit from the scans + filled-in a11y-audit/checklist.md
   bt-a11y code [dir] [options]  Scan React Native source code (default: current folder)
   bt-a11y pdf-setup             Check/install what the summary PDF needs (Chrome, pikepdf, veraPDF)
@@ -160,6 +161,14 @@ Commands:
                 BrowserStack scan was; its issues pre-fill those screens'
                 checklist lines and go into report.md and the summary PDF.
                 Re-importing the same report replaces its earlier issues.
+  screen-reader Reads the transcripts saved by 'npm run sr:test' (default
+                reports/screen-reader/) and checks them for missing names and
+                states, unclear links, image alt text, heading structure, focus
+                order, keyboard traps, unreachable controls and announcements
+                the workflow expected but didn't hear. With a guided audit, the
+                findings pre-fill the matching checklist lines as "not reviewed
+                yet" for the auditor to confirm; without one, prints a report.
+                Re-running replaces the earlier screen reader findings.
   report        Reads the scans + a11y-audit/checklist.md and writes
                 a11y-audit/report.md + report.json (with the WCAG 2.2 coverage
                 matrix) and the executive-summary PDF
@@ -541,6 +550,52 @@ async function runBrowserStackCommand(args: ParsedArgs): Promise<void> {
   process.stdout.write("\nThe matching checklist lines are pre-filled as \"scan found issues · not reviewed yet\". Run npx bt-a11y report to update the report and PDF.\n");
 }
 
+async function runScreenReaderCommand(args: ParsedArgs): Promise<void> {
+  const [{ loadTranscripts, alignPages, sameUrl, TRANSCRIPT_DIR }, { SCREEN_READER_CRITERIA, SOURCE }, { writeChecklistFiles }, { loadSession, saveSession, upsertRun }, { findingsToAssessment }, { resolve }] = await Promise.all([
+    import("./screen-reader/load.js"),
+    import("./screen-reader/analyze.js"),
+    import("./wizard/index.js"),
+    import("./wizard/session.js"),
+    import("./audit.js"),
+    import("node:path"),
+  ]);
+  const cwd = process.cwd();
+  const dir = resolve(cwd, args.file ?? TRANSCRIPT_DIR);
+  const loaded = loadTranscripts(dir, cwd);
+  if (loaded.transcripts.length === 0) {
+    process.stderr.write(`No screen reader transcripts in ${dir}. Run 'npm run sr:test' first.\n`);
+    process.exitCode = 1;
+    return;
+  }
+  for (const t of loaded.transcripts) {
+    process.stdout.write(`  ${t.transcript.workflow}: ${t.findings} finding${t.findings === 1 ? "" : "s"}${t.reviewed ? " (incl. AI review)" : ""}\n`);
+  }
+
+  const session = loadSession(cwd);
+  if (!session) {
+    process.stdout.write("\nNo guided audit in ./a11y-audit, so here's a report instead. Run 'bt-a11y start' to review these on the checklist.\n\n");
+    await report(findingsToAssessment(loaded.findings, { platforms: ["web"], targetLevel: args.level }), args);
+    return;
+  }
+  const findings = alignPages(loaded.findings, session.project.urls ?? []);
+  upsertRun(session, {
+    tool: SOURCE,
+    targets: ["web"],
+    ranAt: new Date().toISOString(),
+    pages: loaded.pages.length,
+    checked: SCREEN_READER_CRITERIA,
+    findings,
+  });
+  saveSession(cwd, session);
+  writeChecklistFiles(cwd, session);
+  const outside = loaded.pages.filter((p) => !(session.project.urls ?? []).some((u) => sameUrl(u, p)));
+  process.stdout.write(
+    `\n${findings.length} screen reader finding${findings.length === 1 ? "" : "s"} added to the audit. The matching checklist lines are pre-filled as "scan found issues · not reviewed yet": ` +
+      `open them with 'bt-a11y checklist' to confirm or dismiss each one. Details and the transcript lines are in a11y-audit/scan-details.md.\n`,
+  );
+  if (outside.length) process.stdout.write(`Pages not in the audit (their findings go under the app-wide section): ${outside.join(", ")}\n`);
+}
+
 async function runCodeCommand(args: ParsedArgs): Promise<void> {
   const { scanReactNative } = await import("./code-scan/react-native.js");
   const { findingsToAssessment } = await import("./audit.js");
@@ -698,6 +753,9 @@ async function main(): Promise<void> {
       break;
     case "browserstack":
       await runBrowserStackCommand(args);
+      break;
+    case "screen-reader":
+      await runScreenReaderCommand(args);
       break;
     case "report":
       await runReportCommand(args);

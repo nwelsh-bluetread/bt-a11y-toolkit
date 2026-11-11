@@ -52,7 +52,11 @@
     "prepublishOnly": "npm run clean && npm run build",
     "quick": "tsx src/cli.ts quick",
     "docs:tool-coverage": "tsx scripts/tool-coverage.ts",
-    "sr:test": "playwright test -c screen-reader/playwright.config.ts"
+    "sr:test": "playwright test -c screen-reader/playwright.config.ts",
+    "sr:baseline": "tsx scripts/sr-baseline.ts",
+    "sr:inspect": "tsx scripts/sr-inspect.ts",
+    "sr:check": "tsx scripts/sr-check.ts",
+    "sr:findings": "tsx src/cli.ts screen-reader"
   },
   "engines": {
     "node": ">=18"

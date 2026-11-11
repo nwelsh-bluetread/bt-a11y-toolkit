@@ -20,6 +20,8 @@ export type FindTarget = keyof typeof FIND_COMMANDS;
 export type WorkflowStep = (
   | { read: "page" }
   | { next: number }
+  | { tab: "all" | number }
+  | { goto: string }
   | { find: FindTarget }
   | { focus: string }
   | { type: string; into?: string }
@@ -29,6 +31,8 @@ export type WorkflowStep = (
 ) & {
   /** Text VoiceOver should say during this step. Reported, never stops the run. */
   expect?: string;
+  /** WCAG criteria a failed `expect` maps to, e.g. ["3.3.1"]. Defaults to 4.1.3 after actions, 4.1.2 otherwise. */
+  wcag?: string[];
 };
 
 export interface Workflow {
@@ -40,13 +44,13 @@ export interface Workflow {
   id: string;
 }
 
-const ACTIONS = ["read", "next", "find", "focus", "type", "press", "activate", "wait"] as const;
+const ACTIONS = ["read", "next", "tab", "goto", "find", "focus", "type", "press", "activate", "wait"] as const;
 export type Action = (typeof ACTIONS)[number];
 
 export function stepAction(step: WorkflowStep): Action {
   const found = ACTIONS.filter((a) => a in step);
   if (found.length !== 1) throw new Error(`Each step needs exactly one of ${ACTIONS.join(", ")}; got ${JSON.stringify(step)}`);
-  return found[0];
+  return found[0]!;
 }
 
 /** A short readable label for a step, e.g. `type "a@b.com" into #email`. */
@@ -55,6 +59,8 @@ export function describeStep(step: WorkflowStep): string {
   switch (stepAction(step)) {
     case "read": return "read page";
     case "next": return `next ×${s.next}`;
+    case "tab": return s.tab === "all" ? "tab through all controls" : `tab ×${s.tab}`;
+    case "goto": return `go to ${s.goto}`;
     case "find": return `find next ${s.find}`;
     case "focus": return `focus ${s.focus}`;
     case "type": return `type "${s.type}"${s.into ? ` into ${s.into}` : ""}`;
@@ -78,6 +84,7 @@ function validate(raw: unknown, file: string): Omit<Workflow, "id"> {
         throw new Error(`"find" must be one of ${Object.keys(FIND_COMMANDS).join(", ")}`);
       }
       if ((action === "next" || action === "wait") && typeof value !== "number") throw new Error(`"${action}" needs a number`);
+      if (action === "tab" && value !== "all" && typeof value !== "number") throw new Error(`"tab" needs a number or "all"`);
     } catch (err) {
       throw new Error(`${where}, step ${i + 1}: ${err instanceof Error ? err.message : String(err)}`);
     }
