@@ -564,10 +564,10 @@ async function runBrowserStackCommand(args: ParsedArgs): Promise<void> {
 }
 
 async function runScreenReaderCommand(args: ParsedArgs): Promise<void> {
-  const [{ loadTranscripts, alignPages, sameUrl }, { screenReaderPaths, srCommand }, { SCREEN_READER_CRITERIA, SOURCE }, { writeChecklistFiles }, { loadSession, saveSession, upsertRun }, { findingsToAssessment }, { resolve }] = await Promise.all([
+  const [{ loadTranscripts }, { addScreenReaderRun }, { screenReaderPaths, srCommand }, { writeChecklistFiles }, { loadSession, saveSession }, { findingsToAssessment }, { resolve }] = await Promise.all([
     import("./screen-reader/load.js"),
+    import("./screen-reader/audit-run.js"),
     import("./screen-reader/paths.js"),
-    import("./screen-reader/analyze.js"),
     import("./wizard/index.js"),
     import("./wizard/session.js"),
     import("./audit.js"),
@@ -575,7 +575,9 @@ async function runScreenReaderCommand(args: ParsedArgs): Promise<void> {
   ]);
   const cwd = process.cwd();
   const dir = args.file ? resolve(cwd, args.file) : screenReaderPaths(cwd).transcripts;
-  const loaded = loadTranscripts(dir, cwd);
+  const session = loadSession(cwd);
+  const merged = session ? addScreenReaderRun(session, dir, cwd) : undefined;
+  const loaded = merged?.loaded ?? loadTranscripts(dir, cwd);
   if (loaded.transcripts.length === 0) {
     process.stderr.write(`No screen reader transcripts in ${dir}. Run '${srCommand("test", cwd)}' first.\n`);
     process.exitCode = 1;
@@ -585,29 +587,18 @@ async function runScreenReaderCommand(args: ParsedArgs): Promise<void> {
     process.stdout.write(`  ${t.transcript.workflow}: ${t.findings} finding${t.findings === 1 ? "" : "s"}${t.reviewed ? " (incl. AI review)" : ""}\n`);
   }
 
-  const session = loadSession(cwd);
-  if (!session) {
+  if (!session || !merged) {
     process.stdout.write("\nNo guided audit in ./a11y-audit, so here's a report instead. Run 'bt-a11y start' to review these on the checklist.\n\n");
     await report(findingsToAssessment(loaded.findings, { platforms: ["web"], targetLevel: args.level }), args);
     return;
   }
-  const findings = alignPages(loaded.findings, session.project.urls ?? []);
-  upsertRun(session, {
-    tool: SOURCE,
-    targets: ["web"],
-    ranAt: new Date().toISOString(),
-    pages: loaded.pages.length,
-    checked: SCREEN_READER_CRITERIA,
-    findings,
-  });
   saveSession(cwd, session);
   writeChecklistFiles(cwd, session);
-  const outside = loaded.pages.filter((p) => !(session.project.urls ?? []).some((u) => sameUrl(u, p)));
   process.stdout.write(
-    `\n${findings.length} screen reader finding${findings.length === 1 ? "" : "s"} added to the audit. The matching checklist lines are pre-filled as "scan found issues · not reviewed yet": ` +
+    `\n${merged.findings} screen reader finding${merged.findings === 1 ? "" : "s"} added to the audit. The matching checklist lines are pre-filled as "scan found issues · not reviewed yet": ` +
       `open them with 'bt-a11y checklist' to confirm or dismiss each one. Details and the transcript lines are in a11y-audit/scan-details.md.\n`,
   );
-  if (outside.length) process.stdout.write(`Pages not in the audit (their findings go under the app-wide section): ${outside.join(", ")}\n`);
+  if (merged.outside.length) process.stdout.write(`Pages not in the audit (their findings go under the app-wide section): ${merged.outside.join(", ")}\n`);
 }
 
 async function runCodeCommand(args: ParsedArgs): Promise<void> {
@@ -664,7 +655,7 @@ async function runReportCommand(args: ParsedArgs): Promise<void> {
     process.exitCode = 1;
     return;
   }
-  const { assessment, coverage, checklist, blocked, quickWins, markdown, json } = writeReports(process.cwd(), session);
+  const { session: reported, review, assessment, coverage, checklist, blocked, quickWins, markdown, json } = writeReports(process.cwd(), session);
   for (const w of checklist.warnings) process.stderr.write(`Checklist warning — ${w}\n`);
   const rows = checklist.rows;
   const prefilled = rows.filter((r) => r.reviewed === false).length;
@@ -675,6 +666,21 @@ async function runReportCommand(args: ParsedArgs): Promise<void> {
       (prefilled ? ` · ${prefilled} failed by the scan but not reviewed yet (delete "not reviewed yet" once tested)` : "") +
       "\n",
   );
+  if (review.dismissed) process.stdout.write(`Left out: ${review.dismissed} scan finding${review.dismissed === 1 ? "" : "s"} testers dismissed (marked Pass or N/A on the checklist).\n`);
+  const held = Object.values(review.held).reduce((a, b) => a + b, 0);
+  if (held) {
+    process.stdout.write(
+      `Waiting for review, not in the report yet: ${held} screen reader finding${held === 1 ? "" : "s"}. ` +
+        `Open 'npx bt-a11y checklist' and mark each "not reviewed yet" line Fail (confirm) or Pass/N/A (dismiss).\n`,
+    );
+  }
+  const unreviewable = Object.values(review.unreviewable).reduce((a, b) => a + b, 0);
+  if (unreviewable) {
+    process.stdout.write(
+      `Included as found: ${unreviewable} screen reader finding${unreviewable === 1 ? "" : "s"} with no checklist line to confirm ${unreviewable === 1 ? "it" : "them"} on ` +
+        `(listed as "no check covers this" in checklist.md). Check ${unreviewable === 1 ? "it" : "them"} in a11y-audit/scan-details.md.\n`,
+    );
+  }
   const { topQuickWins, quickWinTitle, effortText, impactText } = await import("./wizard/quick-wins.js");
   const top = topQuickWins(quickWins, 3);
   if (top.length) {
@@ -696,7 +702,7 @@ async function runReportCommand(args: ParsedArgs): Promise<void> {
     const dir = join(process.cwd(), "a11y-audit");
     const dataPath = join(dir, "a11y-audit-summary.json");
     const pdfPath = join(dir, summaryPdfName());
-    writeFileSync(dataPath, JSON.stringify(buildSummaryData(session, assessment, checklist, loadSummaryOverrides(dir)), null, 2) + "\n");
+    writeFileSync(dataPath, JSON.stringify(buildSummaryData(reported, assessment, checklist, loadSummaryOverrides(dir)), null, 2) + "\n");
     await buildPdf(dataPath, pdfPath);
   }
   if (args.jira) await fileJiraTickets(assessment, args);

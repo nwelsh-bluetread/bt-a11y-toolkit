@@ -231,9 +231,16 @@ const TOOL_LABEL: Record<string, string> = {
   "device-target-size": "touch target measurement on Android",
   "browserstack-ios": "BrowserStack App Accessibility (iOS)",
   "browserstack-android": "BrowserStack App Accessibility (Android)",
+  voiceover: "VoiceOver (scripted screen reader runs)",
 };
 
-const REPORTED_BY: Record<string, string> = { "rn-code-scan": "code scan", device: "measured on device", browserstack: "BrowserStack" };
+const REPORTED_BY: Record<string, string> = {
+  "rn-code-scan": "code scan",
+  device: "measured on device",
+  browserstack: "BrowserStack",
+  voiceover: "VoiceOver",
+  "voiceover-ai": "VoiceOver (AI review)",
+};
 
 function toSummaryFinding(f: Finding, screens: ScreenInfo[], targets: AuditTarget[]): SummaryFinding {
   const file = typeof f.evidence?.file === "string" ? f.evidence.file : undefined;

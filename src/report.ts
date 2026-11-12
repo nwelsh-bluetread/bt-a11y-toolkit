@@ -1,6 +1,12 @@
 import { severityGuideMarkdown } from "./severity.js";
 import type { Assessment, Finding, Platform, Severity } from "./types.js";
 
+/** Readable names for finding sources that aren't self-explanatory. */
+const SOURCE_LABEL: Record<string, string> = {
+  voiceover: "VoiceOver (scripted screen reader run)",
+  "voiceover-ai": "VoiceOver (AI review of the transcript)",
+};
+
 const SEVERITY_LABEL: Record<Severity, string> = {
   critical: "Critical",
   high: "High",
@@ -125,7 +131,7 @@ export function formatMarkdown(assessment: Assessment): string {
         lines.push(`- **Element:** ${f.nodeType ?? "unknown"}${f.nodeId ? ` (\`${f.nodeId}\`)` : ""}`);
       }
       if (f.platforms?.length) lines.push(`- **Platforms:** ${platformNames(f.platforms)}`);
-      if (f.source) lines.push(`- **Source:** ${f.source}`);
+      if (f.source) lines.push(`- **Source:** ${SOURCE_LABEL[f.source] ?? f.source}`);
       lines.push(`- **Description:** ${f.description}`);
       if (f.remediation) lines.push(`- **Remediation:** ${f.remediation}`);
       for (const key of EVIDENCE_KEYS) {

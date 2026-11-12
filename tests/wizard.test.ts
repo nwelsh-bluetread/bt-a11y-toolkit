@@ -412,3 +412,89 @@ describe("runWizard — screen reader test", () => {
     expect(d2.output.join("\n")).toContain("Not started");
   });
 });
+
+describe("runWizard — VoiceOver as part of a website audit", () => {
+  const empty = (_tool: string): Assessment => ({
+    generatedAt: "",
+    platform: "web",
+    targetLevel: "AA",
+    overallScore: 100,
+    counts: { critical: 0, high: 0, medium: 0, low: 0 },
+    wcag: { A: 100, AA: 100, AAA: 100 },
+    categories: [],
+    topIssues: [],
+    findings: [],
+  });
+  const transcript = (url: string) => ({
+    version: 1,
+    workflow: "Login: sign in",
+    url,
+    ranAt: "",
+    steps: [{ step: 1, action: "tab", kind: "tab", url, output: [{ spoken: "button", item: "", focus: { role: "button", name: "", states: [], tag: "button", domIndex: 3 } }] }],
+  });
+
+  function webAnswers(extra: Array<{ match: RegExp; answer: unknown; once?: boolean }>) {
+    return scripted([
+      { match: /What would you like to do/, answer: "new", once: true },
+      { match: /context docs/, answer: "" },
+      { match: /Project \/ client name/, answer: "Acme Web" },
+      { match: /What are you auditing/, answer: "web" },
+      { match: /Target WCAG/, answer: "AA" },
+      { match: /Pages to audit/, answer: "https://acme.test/login" },
+      ...extra,
+    ]);
+  }
+
+  it("asks for a workflow file, copies it into the audit, runs it after the scans and adds the findings", async () => {
+    mkdirSync(join(cwd, "flows"));
+    writeFileSync(join(cwd, "flows", "login.json"), JSON.stringify({ name: "Login: sign in", url: "https://acme.test/login", steps: [{ tab: "all" }] }));
+    const order: string[] = [];
+    const p = webAnswers([
+      { match: /Add screen reader testing/, answer: true },
+      { match: /Workflow file/, answer: "flows" },
+    ]);
+    await runWizard(
+      deps(cwd, p, {
+        scanAxe: async () => (order.push("axe"), empty("axe")),
+        scanLighthouse: async () => (order.push("lighthouse"), empty("lighthouse")),
+        runScreenReader: async (args) => {
+          order.push(args.join(" "));
+          const dir = join(cwd, "a11y-audit", "screen-reader", "transcripts");
+          mkdirSync(dir, { recursive: true });
+          writeFileSync(join(dir, "login.json"), JSON.stringify(transcript("https://acme.test/login")));
+          return 0;
+        },
+      }),
+    );
+
+    expect(existsSync(join(cwd, "a11y-audit", "screen-reader", "workflows", "login.json"))).toBe(true);
+    expect(order).toEqual(["axe", "lighthouse", "test -g Login: sign in"]);
+    const session = loadSession(cwd)!;
+    expect(session.screenReader).toEqual({ workflows: ["Login: sign in"] });
+    const run = session.automated.find((r) => r.tool === "voiceover")!;
+    expect(run.findings.map((f) => f.ruleId)).toEqual(["sr-no-name"]);
+    expect(read("checklist.md")).toContain("not reviewed yet");
+
+    // A re-run offers the same workflows again; "no" leaves the earlier findings in place.
+    const again = scripted([
+      { match: /What would you like to do/, answer: "rerun" },
+      { match: /Run the 1 VoiceOver workflow again/, answer: false },
+    ]);
+    let ran = false;
+    await runWizard(deps(cwd, again, { scanAxe: async () => empty("axe"), scanLighthouse: async () => empty("lighthouse"), runScreenReader: async () => ((ran = true), 0) }));
+    expect(ran).toBe(false);
+    expect(loadSession(cwd)!.automated.some((r) => r.tool === "voiceover")).toBe(true);
+  });
+
+  it("rejects a file that isn't a workflow, and is skipped when declined", async () => {
+    writeFileSync(join(cwd, "notes.json"), JSON.stringify({ hello: 1 }));
+    const p = webAnswers([{ match: /Add screen reader testing/, answer: false }]);
+    const calls: string[][] = [];
+    await runWizard(deps(cwd, p, { scanAxe: async () => empty("axe"), scanLighthouse: async () => empty("lighthouse"), runScreenReader: async (a) => (calls.push(a), 0) }));
+    expect(calls).toEqual([]);
+    expect(loadSession(cwd)!.screenReader).toBeUndefined();
+
+    const { findWorkflowFiles } = await import("../src/screen-reader/baseline.js");
+    expect(findWorkflowFiles([join(cwd, "notes.json")])).toEqual({ error: `notes.json isn't a screen reader workflow (needs "name", "url" and "steps")` });
+  });
+});

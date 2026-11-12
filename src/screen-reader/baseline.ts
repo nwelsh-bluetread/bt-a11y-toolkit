@@ -3,8 +3,8 @@
  * reload and Tab through every control) and the list of saved workflows, for
  * `bt-a11y sr baseline` and the guided audit's screen reader option.
  */
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { basename, join } from "node:path";
 
 /** `https://example.com/account/settings` → `example-com-account-settings`. */
 export function pageSlug(url: string): string {
@@ -81,6 +81,33 @@ export function listWorkflows(dir: string): Array<{ file: string; name: string }
       const name = readWorkflowName(join(dir, f));
       return name ? [{ file: f, name }] : [];
     });
+}
+
+/**
+ * Workflow files from paths the user gave (files or folders of *.json). Each must
+ * be a workflow: a name, a url and a non-empty steps list. Returns an error
+ * message instead when one isn't.
+ */
+export function findWorkflowFiles(paths: string[]): { files: Array<{ path: string; name: string }> } | { error: string } {
+  const files: Array<{ path: string; name: string }> = [];
+  for (const p of paths) {
+    if (!existsSync(p)) return { error: `Not found: ${p}` };
+    const list = statSync(p).isDirectory() ? readdirSync(p).filter((f) => f.endsWith(".json")).sort().map((f) => join(p, f)) : [p];
+    if (list.length === 0) return { error: `No .json workflow files in ${p}` };
+    for (const file of list) {
+      let wf: { name?: unknown; url?: unknown; steps?: unknown };
+      try {
+        wf = JSON.parse(readFileSync(file, "utf8")) as typeof wf;
+      } catch {
+        return { error: `${basename(file)} isn't valid JSON` };
+      }
+      if (typeof wf.name !== "string" || typeof wf.url !== "string" || !Array.isArray(wf.steps) || wf.steps.length === 0) {
+        return { error: `${basename(file)} isn't a screen reader workflow (needs "name", "url" and "steps")` };
+      }
+      files.push({ path: file, name: wf.name });
+    }
+  }
+  return { files };
 }
 
 /** Saved sign-in sessions (see `bt-a11y sr login`). */

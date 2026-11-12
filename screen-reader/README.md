@@ -23,6 +23,11 @@ Or run `npx bt-a11y` and pick **Screen reader test (VoiceOver)**: it asks
 whether to test every page in the audit, one page, or saved workflows, offers
 any saved sign-in, runs VoiceOver, then adds the findings to the checklist.
 
+When you start a new website audit, it also asks **Add screen reader testing
+with VoiceOver?** Say yes and give a workflow file (or a folder of them): they're
+copied into the audit, run after the axe and Lighthouse scans, and their
+findings go on the checklist. Re-running the audit asks whether to run them again.
+
 Files live with the audit, in `a11y-audit/screen-reader/`:
 
 | Folder | What's in it | Commit it? |
@@ -59,6 +64,13 @@ on that page as **"scan found issues · not reviewed yet"**. The auditor opens
 `bt-a11y checklist` and confirms or dismisses each one; details with the exact
 words VoiceOver said are in `a11y-audit/scan-details.md`. Without an audit, it
 prints a report. Re-running replaces the earlier screen reader findings.
+
+The report and PDF follow the review: a finding goes in once its line is marked
+**Fail**, and is left out if every line it pre-filled is marked **Pass** or
+**N/A**. Until then it's held back, and `bt-a11y report` says how many are
+waiting. (A few findings have no line of their own on a page, e.g. image alt
+text, which websites check once app-wide; those go in as found, and the report
+command counts them.) Pass/N/A also drops axe, Lighthouse and code-scan findings.
 
 For judgment calls the rules can't make (meaningless alt text, vague error
 messages, labels that don't match what's on screen), ask Claude to review the

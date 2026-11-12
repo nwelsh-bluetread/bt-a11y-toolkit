@@ -18,7 +18,8 @@ import { MANUAL_CHECKLIST, TEST_MODES, TEST_PASSES, type AuditTarget, type Check
 import { isReactNativeProject, RN_RULES, type CodeScanResult } from "../code-scan/react-native.js";
 import { FEATURE_LABEL, isFile, screensFromUrls, type ScreenDiscovery, type ScreenInfo } from "../code-scan/screens.js";
 import { runQuickScan } from "../quick-scan.js";
-import { grepFor, listSessions, listWorkflows, writeBaselines } from "../screen-reader/baseline.js";
+import { addScreenReaderRun } from "../screen-reader/audit-run.js";
+import { findWorkflowFiles, grepFor, listSessions, listWorkflows, writeBaselines } from "../screen-reader/baseline.js";
 import { screenReaderPaths } from "../screen-reader/paths.js";
 import type { Assessment, Finding, Severity, WcagLevel } from "../types.js";
 import { findingOnSection, planChecklist, renderChecklist, renderScanDetails, type ParsedChecklist, type PlannedGroup } from "./checklist-md.js";
@@ -110,12 +111,14 @@ export async function runWizard(deps: WizardDeps): Promise<void> {
   saveSession(cwd, session);
 
   const scanners = session.project.targets.includes("web") ? await webScannersToRun(deps) : [];
+  const voiceOver = await screenReaderInAudit(deps, session, fresh);
   if (fresh) await offerGitignore(deps);
   // New audits are asked; re-runs only when there's a BrowserStack export here that hasn't been imported.
   if (session.project.targets.some((t) => t !== "web") && (fresh || findBrowserStackCsvs(cwd).length) && (await browserStackStep(deps, session))) saveSession(cwd, session);
 
   // ── Everything below runs without prompts ──
   await runAutomated(deps, session, scanners);
+  if (voiceOver.length) await runVoiceOver(deps, session, voiceOver);
   saveSession(cwd, session);
 
   const { groups, previous } = writeChecklistFiles(cwd, session);
@@ -140,6 +143,64 @@ async function quickScan(deps: WizardDeps): Promise<void> {
   out(green(`✓ Report: ${result.markdown}`));
   if (result.pdf) out(green(`✓ Summary PDF: ${result.pdf}`));
   out(`\nScore ${result.assessment.overallScore}/100 · ${count(result.assessment.findings)}. Automated checks only: a full audit (${bold("npx bt-a11y")} → Full audit) adds manual testing.\n`);
+}
+
+/**
+ * Optional VoiceOver step of a website audit (macOS). A new audit asks for
+ * workflow files and copies them into a11y-audit/screen-reader/workflows/; a
+ * re-run offers to run them again. Returns the workflow names to run (none = skip).
+ */
+async function screenReaderInAudit(deps: WizardDeps, session: AuditSession, fresh: boolean): Promise<string[]> {
+  const { prompter: p, cwd, out } = deps;
+  if (!deps.runScreenReader || !session.project.targets.includes("web")) return [];
+  const paths = screenReaderPaths(cwd);
+
+  if (!fresh) {
+    const names = session.screenReader?.workflows ?? [];
+    if (names.length === 0) return [];
+    const ok = await p.confirm(`Run the ${names.length} VoiceOver workflow${names.length === 1 ? "" : "s"} again? (takes over the Mac for a few minutes per page)`, { default: false });
+    return ok ? names : [];
+  }
+
+  const add = await p.confirm("Add screen reader testing with VoiceOver? (needs a workflow file; takes over the Mac while it runs)", { default: false });
+  if (!add) return [];
+  const existing = listWorkflows(paths.workflows);
+  let found: { path: string; name: string }[] = [];
+  const raw = await p.input("Workflow file(s) or folder (comma-separated):", {
+    default: existing.length ? relative(cwd, paths.workflows) : undefined,
+    required: true,
+    validate: (v) => {
+      const r = findWorkflowFiles(splitPaths(v).map((f) => resolvePath(cwd, f)));
+      return "error" in r ? r.error : true;
+    },
+  });
+  const r = findWorkflowFiles(splitPaths(raw).map((f) => resolvePath(cwd, f)));
+  if ("error" in r) return [];
+  found = r.files;
+
+  mkdirSync(paths.workflows, { recursive: true });
+  for (const f of found) {
+    const dest = join(paths.workflows, basename(f.path));
+    if (resolvePath(cwd, f.path) !== dest) copyFileSync(f.path, dest);
+  }
+  const names = [...new Set(found.map((f) => f.name))];
+  session.screenReader = { workflows: names };
+  out(dim(`${names.length} VoiceOver workflow${names.length === 1 ? "" : "s"} in ${relative(cwd, paths.workflows)}/. They run after the other automated checks.`));
+  return names;
+}
+
+/** Run the audit's VoiceOver workflows and add what they found to the session. */
+async function runVoiceOver(deps: WizardDeps, session: AuditSession, names: string[]): Promise<void> {
+  const { cwd, out } = deps;
+  out(`\n${bold("VoiceOver")} ${dim(`— ${names.length} workflow${names.length === 1 ? "" : "s"}`)}`);
+  out(yellow("  Hands off the keyboard and mouse until it finishes: VoiceOver drives the whole Mac."));
+  await deps.runScreenReader!(["test", "-g", grepFor(names)]);
+  const merged = addScreenReaderRun(session, screenReaderPaths(cwd).transcripts, cwd);
+  if (!merged) {
+    out(red("  ✗ VoiceOver saved no transcripts. Run it on its own later: npx bt-a11y sr test, then npx bt-a11y sr findings"));
+    return;
+  }
+  out(`  ${green("✓")} ${merged.findings} finding${merged.findings === 1 ? "" : "s"} to review${merged.outside.length ? dim(` (${merged.outside.length} page${merged.outside.length === 1 ? "" : "s"} outside the audit, filed under app-wide)`) : ""}`);
 }
 
 /**

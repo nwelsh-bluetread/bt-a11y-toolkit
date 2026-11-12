@@ -18,6 +18,7 @@ import { WCAG } from "../wcag.js";
 import { emptyChecklist, parseChecklist, type ParsedChecklist } from "./checklist-md.js";
 import { buildCoverage, conformance, formatConformanceMarkdown, formatCoverageMarkdown, type Coverage } from "./coverage.js";
 import { buildQuickWins, checksClearedByFile, formatQuickWinsMarkdown, type QuickWins } from "./quick-wins.js";
+import { applyReviews, type ReviewedFindings } from "./review.js";
 import { formatSharedComponentsMarkdown, sharedComponents } from "./shared-components.js";
 import { comparePlatforms, formatPlatformMarkdown } from "./platforms.js";
 
@@ -60,6 +61,8 @@ export interface AuditSession {
   };
   screens: ScreenInfo[];
   automated: AutomatedRun[];
+  /** VoiceOver workflows that are part of the audit (names; files in a11y-audit/screen-reader/workflows/). */
+  screenReader?: { workflows: string[] };
   /** Context docs (navigation map, sitemap, notes), copied into a11y-audit/context/. Paths are relative to the audit folder. */
   context?: { files: string[] };
 }
@@ -260,8 +263,11 @@ export function buildSessionAssessment(session: AuditSession, parsed: ParsedChec
 /** Read checklist.md, then write report.md and report.json next to the session. */
 export function writeReports(
   cwd: string,
-  session: AuditSession,
+  original: AuditSession,
 ): {
+  /** The session as reported: scan findings testers dismissed, or that still need review, left out. */
+  session: AuditSession;
+  review: ReviewedFindings;
   assessment: Assessment;
   coverage: Coverage;
   checklist: ParsedChecklist;
@@ -270,7 +276,9 @@ export function writeReports(
   markdown: string;
   json: string;
 } {
-  const checklist = loadChecklist(cwd, session.screens.map((s) => s.name));
+  const checklist = loadChecklist(cwd, original.screens.map((s) => s.name));
+  const review = applyReviews(original, checklist);
+  const session = review.session;
   const assessment = buildSessionAssessment(session, checklist);
   const coverage = buildCoverage(session, checklist);
   const blocked = blockedScreens(checklist);
@@ -301,7 +309,7 @@ export function writeReports(
     "utf8",
   );
   writeFileSync(json, formatJson({ ...assessment, coverage, blockedScreens: blocked, quickWins, sharedComponents: shared, platforms } as Assessment) + "\n", "utf8");
-  return { assessment, coverage, checklist, blocked, quickWins, markdown, json };
+  return { session, review, assessment, coverage, checklist, blocked, quickWins, markdown, json };
 }
 
 function conformanceLine(coverage: Coverage): string {
