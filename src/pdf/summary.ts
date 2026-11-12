@@ -37,6 +37,8 @@ export interface SummaryFinding {
   pages: string[];
   location?: string;
   element?: string;
+  /** The component a tester logged the issue in. All logs for one component are one group. */
+  component?: string;
   description: string;
   remediation?: string;
 }
@@ -238,6 +240,7 @@ function toSummaryFinding(f: Finding, screens: ScreenInfo[], targets: AuditTarge
   const lines = Array.isArray(f.evidence?.lines) ? (f.evidence.lines as number[]) : [];
   const page = typeof f.evidence?.page === "string" && !file ? f.evidence.page : undefined;
   const screen = typeof f.evidence?.screen === "string" ? f.evidence.screen : undefined;
+  const component = f.source === "manual" && typeof f.evidence?.component === "string" ? f.evidence.component : undefined;
   // Show the platform only when the audit covers more than one and the finding doesn't apply to all of them.
   const platforms = (f.platforms ?? []).filter((p): p is AuditTarget => targets.includes(p as AuditTarget));
   const tag = platforms.length && platforms.length < targets.length ? ` (${platforms.map((p) => TARGET_LABEL[p]).join(", ")})` : "";
@@ -256,7 +259,7 @@ function toSummaryFinding(f: Finding, screens: ScreenInfo[], targets: AuditTarge
   const title = f.title.replace(/ \(\d+×\)/, "").split(" — ")[0]!;
   return {
     title,
-    group: f.source === "manual" ? `${f.ruleId}|${title}` : f.ruleId,
+    group: component ? `component|${component.toLowerCase()}` : f.source === "manual" ? `${f.ruleId}|${title}` : f.ruleId,
     rule: f.ruleId,
     severity: f.severity,
     reportedBy: REPORTED_BY[f.source ?? ""] ?? f.source ?? "manual",
@@ -264,6 +267,7 @@ function toSummaryFinding(f: Finding, screens: ScreenInfo[], targets: AuditTarge
     pages: where,
     ...(file ? { location: `${file}${lines.length ? `:${lines.slice(0, 10).join(", ")}${lines.length > 10 ? ", …" : ""}` : ""}` } : {}),
     ...((page || f.source === "browserstack") && f.nodeId && f.nodeId !== page ? { element: f.nodeId } : {}),
+    ...(component ? { component } : {}),
     description: f.description || title,
     ...(f.remediation ? { remediation: f.remediation } : {}),
   };
@@ -291,7 +295,7 @@ export function mergeManualIntoScan(findings: SummaryFinding[]): SummaryFinding[
   const better = (a: { n: number; rank: number }, b?: { n: number; rank: number }) => !b || a.rank < b.rank || (a.rank === b.rank && a.n > b.n);
   const merged = findings.map((f) => {
     const check = CHECKS.get(f.rule.replace(/^manual:/, ""));
-    if (!f.rule.startsWith("manual:") || !check || f.title !== check.failTitle) return f;
+    if (!f.rule.startsWith("manual:") || !check || f.component || f.title !== check.failTitle) return f;
     let best: string | undefined;
     for (const [group, r] of rules) if (check.wcag.includes(r.primary) && better(r, best ? rules.get(best) : undefined)) best = group;
     return best ? { ...f, group: best } : f;

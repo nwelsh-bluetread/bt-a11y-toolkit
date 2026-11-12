@@ -123,8 +123,9 @@ function groupFindings(findings) {
   for (const f of findings) {
     const key = f.group ?? f.rule ?? f.title;
     const g = map.get(key);
-    if (!g) { map.set(key, { ...f, count: 1, pages: [...f.pages], locations: f.location ? [f.location] : [] }); continue; }
+    if (!g) { map.set(key, { ...f, count: 1, pages: [...f.pages], locations: f.location ? [f.location] : [], items: [f] }); continue; }
     g.count++;
+    g.items.push(f);
     for (const p of f.pages) if (!g.pages.includes(p)) g.pages.push(p);
     if (f.location && !g.locations.includes(f.location)) g.locations.push(f.location);
     if (f.reportedBy && g.reportedBy && !g.reportedBy.split(' + ').includes(f.reportedBy)) g.reportedBy += ` + ${f.reportedBy}`;
@@ -132,6 +133,9 @@ function groupFindings(findings) {
   }
   return [...map.values()].sort((a, b) => SEV_RANK[a.severity] - SEV_RANK[b.severity] || b.count - a.count);
 }
+
+// A group of issues logged in one component reads "'Button' component (2 logs)".
+const groupLabel = (g) => (g.component ? `'${g.component}' component (${plural(g.count, 'log')})` : g.short ?? g.title);
 
 const countBy = (list) => Object.fromEntries(SEVERITIES.map((s) => [s.key, list.filter((f) => f.severity === s.key).length]));
 
@@ -172,7 +176,7 @@ function render(data) {
     const body = pass
       ? `<ul class="checks">${(data.passNotes?.[p.key] ?? p.pass).map((t) => `<li>${esc(t)}</li>`).join('')}</ul>`
       : `<ul class="issues">${groups.slice(0, 4).map((g) => `
-          <li>${badge(g.severity)}<span class="issue-title">${esc(g.short ?? g.title)}${g.count > 1 ? ` <span class="muted">(×${g.count})</span>` : ''}</span>
+          <li>${badge(g.severity)}<span class="issue-title">${esc(groupLabel(g))}${g.count > 1 && !g.component ? ` <span class="muted">(×${g.count})</span>` : ''}</span>
           <code>${esc(g.wcag[0]?.id ?? '')}${g.wcagInferred ? '*' : ''}</code></li>`).join('')}</ul>
           ${groups.length > 4 ? `<p class="more">+ ${plural(groups.length - 4, 'more issue type')} in the detailed findings</p>` : ''}`;
     return `
@@ -202,9 +206,9 @@ function render(data) {
   }).join('');
 
   const phases = data.phases ?? [
-    { title: 'Remove blockers', items: groupFindings(findings.filter((f) => f.severity === 'critical')).map((g) => g.short ?? g.title) },
-    { title: 'Fix high-impact barriers', items: groupFindings(findings.filter((f) => f.severity === 'high')).map((g) => g.short ?? g.title) },
-    { title: 'Polish and harden', items: groupFindings(findings.filter((f) => ['medium', 'low'].includes(f.severity))).map((g) => g.short ?? g.title) },
+    { title: 'Remove blockers', items: groupFindings(findings.filter((f) => f.severity === 'critical')).map(groupLabel) },
+    { title: 'Fix high-impact barriers', items: groupFindings(findings.filter((f) => f.severity === 'high')).map(groupLabel) },
+    { title: 'Polish and harden', items: groupFindings(findings.filter((f) => ['medium', 'low'].includes(f.severity))).map(groupLabel) },
   ].filter((p) => p.items.length);
 
   const topGroups = groupFindings(findings).slice(0, data.topPriorityCount ?? 5);
@@ -369,13 +373,15 @@ function render(data) {
     <h3 class="detail-h">${p.name} <span class="muted">· ${plural(byP[p.key].length, 'finding')}</span></h3>
     ${groupFindings(byP[p.key]).map((g) => `
       <article class="finding">
-        <header>${badge(g.severity)}<h4>${esc(g.title)}</h4></header>
+        <header>${badge(g.severity)}<h4>${esc(g.component ? groupLabel(g) : g.title)}</h4></header>
         <dl>
           <dt>WCAG</dt><dd>${g.wcag.map((w) => `<code>${esc(w.id)}</code>${g.wcagInferred ? '*' : ''} ${esc(w.name)} (${esc(w.level)})`).join(' · ') || '—'}</dd>
           <dt>${g.pages.length > 1 ? `${Noun}s` : Noun}</dt><dd>${g.pages.map((x) => esc(pageLabel(x))).join(', ')}</dd>
           ${g.element ? `<dt>Element</dt><dd><code>${esc(g.element)}</code></dd>` : ''}
           ${g.locations?.length ? `<dt>Location</dt><dd>${g.locations.map(esc).join('<br>')}</dd>` : ''}
-          <dt>Issue</dt><dd>${esc(g.description)}</dd>
+          <dt>Issue${g.component && g.count > 1 ? 's' : ''}</dt><dd>${g.component && g.count > 1
+            ? `<ul>${g.items.map((f) => `<li>${badge(f.severity)} ${esc(f.description)} <span class="muted">(${esc(f.pages.map(pageLabel).join(', '))})</span></li>`).join('')}</ul>`
+            : esc(g.description)}</dd>
           ${g.remediation ? `<dt>Fix</dt><dd>${isUrl(g.remediation) ? `See <a href="${esc(g.remediation)}">rule documentation</a>.` : esc(g.remediation)}</dd>` : ''}
           <dt>Source</dt><dd class="muted">${esc(g.reportedBy ?? '')}${g.rule ? ` · <code>${esc(g.rule)}</code>` : ''}${g.count > 1 ? ` · reported ${g.count}×` : ''}</dd>
         </dl>
@@ -429,7 +435,7 @@ function render(data) {
     <section class="card priorities">
       <h2>Top priorities</h2>
       <ol>${topGroups.map((g) => `
-        <li>${badge(g.severity)}<div><p class="p-title">${esc(g.short ?? g.title)}</p>
+        <li>${badge(g.severity)}<div><p class="p-title">${esc(groupLabel(g))}</p>
           <p class="p-meta">WCAG ${esc(g.wcag.map((w) => w.id).join(', '))} · ${esc(g.pages.length > 1 ? plural(g.pages.length, noun) : shortPage(g.pages[0] ?? ''))}</p></div></li>`).join('')}</ol>
     </section>
   </div>

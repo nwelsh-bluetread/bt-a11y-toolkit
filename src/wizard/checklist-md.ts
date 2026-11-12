@@ -553,6 +553,8 @@ export interface ChecklistIssue {
   severity?: Severity;
   /** Criteria the tester narrowed the issue to with [x.y.z]. */
   wcag?: string[];
+  /** The component the problem is in, written as a backticked prefix: "`Button` — Label is cut off". */
+  component?: string;
 }
 
 export interface ChecklistRow {
@@ -875,7 +877,8 @@ export function classifyIssueText(raw: string): { issue: ChecklistIssue } | { no
   return { issue: { ...issue, severity: issue.severity ?? (sev[1]!.toLowerCase() as Severity) } };
 }
 
-const issueText = (i: ChecklistIssue) => `${i.text}${i.wcag?.length ? ` [${i.wcag.join(", ")}]` : ""}${i.severity ? ` (${i.severity})` : ""}`.trim();
+const issueText = (i: ChecklistIssue) =>
+  `${[i.component && `\`${i.component}\``, i.text].filter(Boolean).join(" — ")}${i.wcag?.length ? ` [${i.wcag.join(", ")}]` : ""}${i.severity ? ` (${i.severity})` : ""}`.trim();
 
 function parseIssue(text: string): ChecklistIssue {
   const issue: ChecklistIssue = { text };
@@ -888,6 +891,12 @@ function parseIssue(text: string): ChecklistIssue {
   if (crit) {
     issue.wcag = crit[1]!.split(/\s*,\s*/).filter((id) => WCAG[id]);
     issue.text = issue.text.replace(crit[0], "").replace(/\s{2,}/g, " ").trim();
+  }
+  // Same as COMPONENT_RE in the checklist GUI.
+  const comp = /^`([^`]+)`\s*(?:[—–:-]\s*)?/.exec(issue.text);
+  if (comp && comp[1]!.trim()) {
+    issue.component = comp[1]!.trim();
+    issue.text = issue.text.slice(comp[0].length).trim();
   }
   return issue;
 }

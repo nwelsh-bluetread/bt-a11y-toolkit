@@ -153,3 +153,31 @@ describe("mergeManualIntoScan", () => {
     expect(merged.find((x) => x.rule === "manual:keyboard-operable")!.group).toBe(keyboard.group);
   });
 });
+
+describe("issues logged in a component", () => {
+  it("reads the component prefix the checklist GUI writes and groups every log for it", async () => {
+    const { checklistFindings } = await import("../src/wizard/session.js");
+    const parsed = parseChecklist(
+      [
+        "# Mobile app — iOS + Android",
+        "",
+        "## Screen: Login",
+        "",
+        "### C · `input-labels`",
+        "- [!] iOS: `Button` — Label is read twice (high)",
+        "  - `Button` — Doesn't say it's disabled",
+        "- [!] Android: `button`: No focus ring",
+        "",
+      ].join("\n"),
+    );
+    const manual = checklistFindings(parsed);
+    expect(manual.map((f) => [f.title, f.evidence?.component])).toEqual([
+      ["Label is read twice", "Button"],
+      ["Doesn't say it's disabled", "Button"],
+      ["No focus ring", "button"],
+    ]);
+    const data = buildSummaryData(session, findingsToAssessment(manual), parsed, {}, new Date("2026-11-12T12:00:00Z"));
+    expect(new Set(data.findings.map((f) => f.group))).toEqual(new Set(["component|button"]));
+    expect(data.findings.every((f) => f.component)).toBe(true);
+  });
+});

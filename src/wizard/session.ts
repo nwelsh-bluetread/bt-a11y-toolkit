@@ -194,18 +194,21 @@ export function checklistFindings(parsed: ParsedChecklist): Finding[] {
         platforms: [row.target],
         category: item.category,
         source: "manual",
-        evidence: { [row.target === "web" ? "page" : "screen"]: where },
+        evidence: { [row.target === "web" ? "page" : "screen"]: where, ...(issue.component ? { component: issue.component } : {}) },
       });
     }
   }
   for (const other of parsed.other) {
     findings.push({
       ruleId: "manual:other",
-      title: truncate(other.text, 90),
-      description: other.text,
+      title: truncate(other.text || (other.component ? `Problem in ${other.component}` : ""), 90),
+      description: other.text || (other.component ? `Problem in ${other.component}` : ""),
       severity: other.severity ?? "low",
       wcag: (other.wcag ?? []).map((id) => WCAG[id]!),
-      ...(other.screen ? { nodeId: other.screen, evidence: { screen: other.screen } } : {}),
+      ...(other.screen ? { nodeId: other.screen } : {}),
+      ...(other.screen || other.component
+        ? { evidence: { ...(other.screen ? { screen: other.screen } : {}), ...(other.component ? { component: other.component } : {}) } }
+        : {}),
       platforms: other.platforms,
       category: "Semantics",
       source: "manual",
