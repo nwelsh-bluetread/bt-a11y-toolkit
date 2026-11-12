@@ -5,6 +5,7 @@ import type { Assessment, Finding, Platform, Severity } from "./types.js";
 const SOURCE_LABEL: Record<string, string> = {
   voiceover: "VoiceOver (scripted screen reader run)",
   "voiceover-ai": "VoiceOver (AI review of the transcript)",
+  keyboard: "Keyboard test (automated)",
 };
 
 const SEVERITY_LABEL: Record<Severity, string> = {

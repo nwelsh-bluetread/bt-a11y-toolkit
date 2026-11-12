@@ -20,6 +20,32 @@ interface Control {
   role: string;
   name: string;
   candidates: string[];
+  /** What a test planner needs: expanded=false, haspopup=menu, required, invalid, checked… */
+  flags: string[];
+}
+
+/** Interactive patterns on the page that are worth a targeted workflow. */
+interface PagePatterns {
+  dialogs: number;
+  liveRegions: string[];
+  forms: number;
+  requiredFields: number;
+  tablists: number;
+  headings: string[];
+}
+
+function collectPatterns(page: Page): Promise<PagePatterns> {
+  return page.evaluate(() => ({
+    dialogs: document.querySelectorAll('dialog, [role=dialog], [role=alertdialog]').length,
+    liveRegions: Array.from(document.querySelectorAll<HTMLElement>('[aria-live]:not([aria-live=off]), [role=status], [role=alert], [role=log], output'))
+      .map((el) => `${el.getAttribute("role") ?? el.tagName.toLowerCase()}${el.id ? `#${el.id}` : ""} (aria-live=${el.getAttribute("aria-live") ?? "implicit"})`),
+    forms: document.querySelectorAll("form").length,
+    requiredFields: document.querySelectorAll("[required], [aria-required=true]").length,
+    tablists: document.querySelectorAll("[role=tablist]").length,
+    headings: Array.from(document.querySelectorAll<HTMLElement>("h1, h2, h3, [role=heading]"))
+      .slice(0, 12)
+      .map((h) => `${h.getAttribute("aria-level") ? `h${h.getAttribute("aria-level")}` : h.tagName.toLowerCase()} ${(h.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 60)}`),
+  }));
 }
 
 /** Candidate selectors for each focusable control, most stable first. */
@@ -59,7 +85,20 @@ function collectControls(page: Page): Promise<Control[]> {
       if (nameAttr) candidates.push(`${tag}[name=${quote(nameAttr)}]`);
       if (name) candidates.push(`role=${role}[name=${quote(name)}]`);
       if (type) candidates.push(`${tag}[type=${quote(type)}]`);
-      return { tag, role, name, candidates };
+
+      const flags: string[] = [];
+      const attr = (a: string) => el.getAttribute(a);
+      if (attr("aria-expanded") !== null) flags.push(`expanded=${attr("aria-expanded")}`);
+      else if (tag === "summary") flags.push(`expanded=${(el.parentElement as HTMLDetailsElement | null)?.open ? "true" : "false"}`);
+      if (attr("aria-haspopup") && attr("aria-haspopup") !== "false") flags.push(`haspopup=${attr("aria-haspopup")}`);
+      if (attr("aria-controls")) flags.push(`controls=#${attr("aria-controls")}`);
+      if ((el as HTMLInputElement).required || attr("aria-required") === "true") flags.push("required");
+      if (attr("aria-invalid") === "true") flags.push("invalid");
+      if (attr("aria-describedby")) flags.push("describedby");
+      const checked = attr("aria-checked") ?? attr("aria-pressed") ?? attr("aria-selected");
+      if (checked !== null) flags.push(`state=${checked}`);
+      if (tag === "select") flags.push("native-select");
+      return { tag, role, name, candidates, flags };
     });
   });
 }
@@ -101,9 +140,23 @@ async function main() {
           break;
         }
       }
-      console.log(`${String(i + 1).padStart(3)}. ${c.role} "${c.name || "(no name)"}"  →  ${selector || "(no unique selector)"}`);
+      const flags = c.flags.length ? `  [${c.flags.join(", ")}]` : "";
+      console.log(`${String(i + 1).padStart(3)}. ${c.role} "${c.name || "(no name)"}"  →  ${selector || "(no unique selector)"}${flags}`);
     }
     if (controls.length === 0) console.log("(none)");
+
+    // A redirect usually means the page needs a sign-in (save one with sr login).
+    if (new URL(page.url()).pathname !== new URL(url).pathname) console.log(`\n⚠ Redirected: asked for ${url}, landed on ${page.url()}`);
+
+    const p = await collectPatterns(page);
+    console.log("\n## Patterns worth a targeted workflow\n");
+    console.log(`headings: ${p.headings.join(" · ") || "(none)"}`);
+    console.log(`forms: ${p.forms} (required fields: ${p.requiredFields})`);
+    console.log(`dialogs in the page now: ${p.dialogs}`);
+    console.log(`tablists: ${p.tablists}`);
+    console.log(`live regions: ${p.liveRegions.join(", ") || "(none)"}`);
+    const expandable = controls.filter((c) => c.flags.some((f) => f.startsWith("expanded=") || f.startsWith("haspopup=")));
+    console.log(`expandable/popup controls: ${expandable.map((c) => `"${c.name || c.role}"`).join(", ") || "(none)"}`);
   } finally {
     await browser.close();
   }

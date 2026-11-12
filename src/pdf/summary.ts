@@ -232,6 +232,7 @@ const TOOL_LABEL: Record<string, string> = {
   "browserstack-ios": "BrowserStack App Accessibility (iOS)",
   "browserstack-android": "BrowserStack App Accessibility (Android)",
   voiceover: "VoiceOver (scripted screen reader runs)",
+  keyboard: "Keyboard tests (automated)",
 };
 
 const REPORTED_BY: Record<string, string> = {
@@ -240,6 +241,7 @@ const REPORTED_BY: Record<string, string> = {
   browserstack: "BrowserStack",
   voiceover: "VoiceOver",
   "voiceover-ai": "VoiceOver (AI review)",
+  keyboard: "keyboard test",
 };
 
 function toSummaryFinding(f: Finding, screens: ScreenInfo[], targets: AuditTarget[]): SummaryFinding {

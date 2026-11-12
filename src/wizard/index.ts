@@ -18,9 +18,11 @@ import { MANUAL_CHECKLIST, TEST_MODES, TEST_PASSES, type AuditTarget, type Check
 import { isReactNativeProject, RN_RULES, type CodeScanResult } from "../code-scan/react-native.js";
 import { FEATURE_LABEL, isFile, screensFromUrls, type ScreenDiscovery, type ScreenInfo } from "../code-scan/screens.js";
 import { runQuickScan } from "../quick-scan.js";
+import { addKeyboardRun } from "../keyboard/audit-run.js";
+import type { KeyboardProgress } from "../keyboard/runner.js";
 import { addScreenReaderRun } from "../screen-reader/audit-run.js";
 import { findWorkflowFiles, grepFor, listSessions, listWorkflows, writeBaselines } from "../screen-reader/baseline.js";
-import { screenReaderPaths } from "../screen-reader/paths.js";
+import { keyboardResultsDir, screenReaderPaths } from "../screen-reader/paths.js";
 import type { Assessment, Finding, Severity, WcagLevel } from "../types.js";
 import { findingOnSection, planChecklist, renderChecklist, renderScanDetails, type ParsedChecklist, type PlannedGroup } from "./checklist-md.js";
 import { browserStackStep, findBrowserStackCsvs } from "./browserstack.js";
@@ -66,6 +68,8 @@ export interface WizardDeps {
   buildPdf?: (dataPath: string, pdfPath: string) => Promise<boolean>;
   /** Run `bt-a11y sr <args>` (VoiceOver, macOS only); resolves to the exit code. Absent where it can't run. */
   runScreenReader?: (args: string[]) => Promise<number>;
+  /** Run the keyboard tests (results saved to a11y-audit/keyboard/results/); resolves to how many pages/workflows ran. */
+  runKeyboard?: (opts: { pages: string[]; workflows: "all" | string[]; signIn?: string; onProgress?: KeyboardProgress }) => Promise<number>;
 }
 
 const TARGET_LABEL: Record<AuditTarget, string> = { web: "Website", ios: "iOS", android: "Android" };
@@ -86,6 +90,9 @@ export async function runWizard(deps: WizardDeps): Promise<void> {
         ]
       : [{ name: "Full audit", value: "new", description: "Automated scans, then a per-screen manual checklist and report" }]),
     { name: "Quick scan of one web page", value: "quick", description: "Automated checks only (axe + Lighthouse) and a summary PDF. Doesn't touch the full audit" },
+    ...(deps.runKeyboard
+      ? [{ name: "Keyboard test", value: "kb", description: "Tabs through pages in a browser: focus visible, order, traps, unreachable controls. Findings go on the checklist" }]
+      : []),
     ...(deps.runScreenReader
       ? [{ name: "Screen reader test (VoiceOver)", value: "sr", description: "VoiceOver on one page, every audit page, or saved workflows; findings go on the checklist. Takes over the Mac while it runs" }]
       : []),
@@ -96,6 +103,10 @@ export async function runWizard(deps: WizardDeps): Promise<void> {
   }
   if (action === "sr") {
     await screenReaderTest(deps, session);
+    return;
+  }
+  if (action === "kb") {
+    await keyboardMenu(deps, session);
     return;
   }
   if (action === "new") session = undefined;
@@ -110,6 +121,7 @@ export async function runWizard(deps: WizardDeps): Promise<void> {
   }
   saveSession(cwd, session);
 
+  if (fresh && session.project.targets.includes("web")) await signInStep(deps, session);
   const scanners = session.project.targets.includes("web") ? await webScannersToRun(deps) : [];
   const voiceOver = await screenReaderInAudit(deps, session, fresh);
   if (fresh) await offerGitignore(deps);
@@ -143,6 +155,50 @@ async function quickScan(deps: WizardDeps): Promise<void> {
   out(green(`✓ Report: ${result.markdown}`));
   if (result.pdf) out(green(`✓ Summary PDF: ${result.pdf}`));
   out(`\nScore ${result.assessment.overallScore}/100 · ${count(result.assessment.findings)}. Automated checks only: a full audit (${bold("npx bt-a11y")} → Full audit) adds manual testing.\n`);
+}
+
+/** Sites behind a login: pick a saved sign-in for the automated page tests (only asked when some are saved). */
+async function signInStep(deps: WizardDeps, session: AuditSession): Promise<void> {
+  const saved = listSessions(screenReaderPaths(deps.cwd).sessions);
+  if (saved.length === 0) return;
+  const choice = await deps.prompter.select("Do the pages need a sign-in? (for the keyboard tests)", [
+    { name: "No, they're public", value: "" },
+    ...saved.map((s) => ({ name: `Use the saved sign-in "${s}"`, value: s })),
+  ]);
+  if (choice) session.project.signIn = choice;
+}
+
+/** Keyboard tests on their own: every audit page, one page, or saved workflows. */
+async function keyboardMenu(deps: WizardDeps, session: AuditSession | undefined): Promise<void> {
+  const { prompter: p, cwd, out } = deps;
+  const saved = listWorkflows(screenReaderPaths(cwd).workflows);
+  const auditUrls = session?.project.urls ?? [];
+  const what = await p.select("What should the keyboard tests cover?", [
+    ...(auditUrls.length ? [{ name: `Every page in this audit (${auditUrls.length}) + saved workflows`, value: "audit" }] : []),
+    { name: "One page", value: "page" },
+    ...(saved.length ? [{ name: `Saved workflows (${saved.length})`, value: "saved" }] : []),
+  ]);
+  let pages: string[] = [];
+  let workflows: "all" | string[] = [];
+  if (what === "audit") {
+    pages = auditUrls;
+    workflows = "all";
+  } else if (what === "saved") {
+    workflows = await p.checkbox("Which workflows?", saved.map((w) => ({ name: w.name, value: w.name, description: w.file })), { required: true });
+  } else {
+    const url = await p.input("Page URL:", { required: true, validate: (v) => (/^https?:\/\//.test(v.trim()) ? true : "Start with http:// or https://") });
+    pages = [url.trim()];
+  }
+  const target = session ?? newSession({ name: "", type: "web", targets: ["web"], targetLevel: "AA", urls: [] });
+  await runKeyboardTests(deps, target, pages, workflows);
+  if (!session) {
+    out(`\nNo audit here, so the results aren't on a checklist. They're saved in ${relative(cwd, keyboardResultsDir(cwd))}/; start a website audit (${bold("npx bt-a11y")}) to review them.\n`);
+    return;
+  }
+  saveSession(cwd, session);
+  writeChecklistFiles(cwd, session);
+  writeReports(cwd, session);
+  out(`\nNext: open ${bold("npx bt-a11y checklist")} and confirm (Fail) or dismiss (Pass/N/A) each "not reviewed yet" line.\n`);
 }
 
 /**
@@ -575,6 +631,33 @@ async function runAutomated(deps: WizardDeps, session: AuditSession, scanners: S
       out(red(`✗ ${SCANNERS[tool].label} failed: ${message(err)}`));
     }
   }
+
+  if (targets.includes("web") && urls?.length && deps.runKeyboard) {
+    if (await deps.hasModule("playwright")) await runKeyboardTests(deps, session, urls, "all");
+    else out(dim("\n– No keyboard tests (needs Playwright: npm install -D playwright)."));
+  }
+}
+
+/** Run the keyboard tests and add what they found to the session. */
+async function runKeyboardTests(deps: WizardDeps, session: AuditSession, pages: string[], workflows: "all" | string[]): Promise<void> {
+  const { out, cwd } = deps;
+  out(`\n${bold("Keyboard tests")} ${dim(`— ${pages.length} page${pages.length === 1 ? "" : "s"}${workflows === "all" ? " + saved workflows" : workflows.length ? ` + ${workflows.length} workflow${workflows.length === 1 ? "" : "s"}` : ""}`)}`);
+  try {
+    await deps.runKeyboard!({
+      pages,
+      workflows,
+      signIn: session.project.signIn,
+      onProgress: (e) => {
+        if (e.type === "start") out(dim(`  [${e.index + 1}/${e.total}] ${e.name}`));
+        if (e.type === "error") out(red(`  ! ${e.name}: ${e.error}`));
+      },
+    });
+  } catch (err) {
+    out(red(`✗ Keyboard tests failed: ${message(err)}`));
+    return;
+  }
+  const merged = addKeyboardRun(session, cwd);
+  if (merged) out(`${green("✓")} Keyboard tests ${dim(`— ${merged.findings.length} finding${merged.findings.length === 1 ? "" : "s"} to review`)}`);
 }
 
 function printFindingSummary(out: (t: string) => void, findings: Finding[]): void {

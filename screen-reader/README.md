@@ -86,6 +86,29 @@ dropdown to try it on.
 A failed `expect` is filed under 4.1.3 after an action (activate, press, type,
 wait, goto) and 4.1.2 otherwise. Add `"wcag": ["3.3.1"]` to the step to choose.
 
+## Keyboard tests (same workflows, no VoiceOver)
+
+`npx bt-a11y kb` runs in a headless browser, on any OS, in seconds per page,
+and also runs as part of every website audit's automated checks (or on its own:
+`npx bt-a11y` → Keyboard test). For every audit page it Tabs through each
+control and checks: a visible focus indicator (focused vs. not focused, compared
+pixel by pixel), focus not hidden behind sticky content (2.4.11), order, loops,
+controls Tab can't reach, and the skip link. The workflows in `workflows/` run
+too, minus their VoiceOver-only steps (`read`, `next`, `find`): `activate` must
+change something, a dialog that opens must take focus, and `Escape` must close
+it and return focus. Findings pre-fill the keyboard lines on the checklist as
+"not reviewed yet", like the screen reader ones. Results:
+`a11y-audit/keyboard/results/`.
+
+## Planning the tests (before the audit run)
+
+In Claude Code, `/sr-test-plan` writes the whole set from the audit's pages,
+sitemap and navigation map: a baseline per page, targeted workflows for the
+dropdowns, dialogs, forms and tabs it finds (`sr inspect` flags them), and the
+main multi-page flows. It validates them and writes
+`a11y-audit/screen-reader/test-plan.md` with assumptions to confirm and pages it
+couldn't cover. `/sr-workflow` writes a single flow.
+
 ## Writing a workflow
 
 Add a JSON file to `a11y-audit/screen-reader/workflows/`. One file = one workflow = one transcript.

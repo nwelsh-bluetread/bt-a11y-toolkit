@@ -5,6 +5,8 @@ description: Write a VoiceOver screen reader workflow (a11y-audit/screen-reader/
 
 # Screen reader workflow from a description
 
+For a whole site (every page from the sitemap, plus flows from the navigation map), use `sr-test-plan` instead; this skill is for one flow.
+
 Turn "URL + what the user does" into a workflow file that `npx bt-a11y sr test` runs with real VoiceOver. The format and step types are documented in the toolkit's `screen-reader/README.md` (in an audited repo: `node_modules/@bluetread/accessibility-toolkit/screen-reader/README.md`) — read it before writing a file.
 
 ## Where things are

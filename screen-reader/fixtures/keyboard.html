@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Keyboard</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; margin: 0; }
+  header { position: sticky; top: 0; height: 90px; background: #123; color: #fff; padding: 1rem; z-index: 2; }
+  header a { color: #fff; }
+  .skip { position: absolute; left: -999px; }
+  .skip:focus { left: 1rem; top: 1rem; background: #fff; color: #000; padding: .5rem; z-index: 3; }
+  .cookies { position: fixed; bottom: 0; left: 0; right: 0; height: 120px; background: #eee; z-index: 2; }
+  main { padding: 1rem; }
+  .no-ring:focus { outline: none; }
+  .spacer { height: 1200px; }
+  .fake { display: inline-block; border: 1px solid #555; padding: .25rem .75rem; cursor: pointer; }
+  [role=dialog] { border: 2px solid #333; padding: 1rem; margin-top: 1rem; }
+</style>
+</head>
+<body>
+  <!-- Built with keyboard problems on purpose, for the keyboard runner's tests. -->
+  <a class="skip" href="#main">Skip to main content</a>
+  <header>
+    <a href="#home">Home</a> · <a href="#about">About</a>
+  </header>
+  <main id="main" tabindex="-1">
+    <h1>Keyboard</h1>
+    <button type="button" id="ring">Has a focus ring</button>
+    <button type="button" id="noring" class="no-ring">No focus ring</button>
+    <span class="fake" role="button" id="fake" onclick="this.textContent='Clicked'">Mouse-only button</span>
+    <a href="#later" tabindex="2" id="jump">Positive tabindex</a>
+    <button type="button" id="open" aria-haspopup="dialog">Open dialog</button>
+    <button type="button" id="dead">Does nothing</button>
+    <div id="dlg" role="dialog" aria-label="Settings" hidden>
+      <button type="button" id="close">Close</button>
+    </div>
+    <div class="spacer"></div>
+    <button type="button" id="covered">Covered by the cookie banner</button>
+  </main>
+  <div class="cookies" aria-label="Cookie notice">We use cookies.</div>
+<script>
+  const dlg = document.getElementById('dlg'), opener = document.getElementById('open');
+  opener.addEventListener('click', () => { dlg.hidden = false; document.getElementById('close').focus(); });
+  const close = () => { dlg.hidden = true; opener.focus(); };
+  document.getElementById('close').addEventListener('click', close);
+  dlg.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+</script>
+</body>
+</html>

@@ -56,6 +56,8 @@ export interface AuditSession {
     targetLevel: WcagLevel;
     /** Pages scanned (web). */
     urls?: string[];
+    /** Saved sign-in (bt-a11y sr login) the automated page tests use, for sites behind a login. */
+    signIn?: string;
     /** Saved by `bt-a11y target-size`: the Android app to measure and its deep link scheme ("" = no deep links). */
     device?: { androidPackage?: string; scheme?: string };
   };

@@ -1250,6 +1250,10 @@ node dist/cli.js pdf-setup
 # when an update is available; set BT_A11Y_NO_UPDATE_CHECK=1 to turn it off.
 node dist/cli.js update
 
+# Keyboard tests (any OS, headless, seconds per page): every audit page + saved
+# workflows; findings go on the checklist for review. 'bt-a11y kb --help' for options:
+npx bt-a11y kb
+
 # VoiceOver screen reader testing, from the repo you're auditing
 # (workflows + transcripts in a11y-audit/screen-reader/; see screen-reader/README.md):
 npx bt-a11y sr test

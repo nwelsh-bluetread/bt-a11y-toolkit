@@ -498,3 +498,73 @@ describe("runWizard — VoiceOver as part of a website audit", () => {
     expect(findWorkflowFiles([join(cwd, "notes.json")])).toEqual({ error: `notes.json isn't a screen reader workflow (needs "name", "url" and "steps")` });
   });
 });
+
+describe("runWizard — keyboard tests", () => {
+  const empty = (): Assessment => ({
+    generatedAt: "",
+    platform: "web",
+    targetLevel: "AA",
+    overallScore: 100,
+    counts: { critical: 0, high: 0, medium: 0, low: 0 },
+    wcag: { A: 100, AA: 100, AAA: 100 },
+    categories: [],
+    topIssues: [],
+    findings: [],
+  });
+  /** A keyboard result with one control that shows no focus indicator. */
+  const writeResult = (url: string) => {
+    const dir = join(cwd, "a11y-audit", "keyboard", "results");
+    mkdirSync(dir, { recursive: true });
+    const stop = { role: "button", name: "Save", tag: "button", domIndex: 4, indicator: "none", obscured: false, inMain: true };
+    writeFileSync(
+      join(dir, "page-login.json"),
+      JSON.stringify({ version: 1, kind: "page", name: url, url, ranAt: "", hasMain: true, skipLink: { present: false }, steps: [{ step: 1, action: "tab", kind: "tab", url, tab: { stops: [stop], stopped: "left-page", unreached: [] } }] }),
+    );
+  };
+
+  it("run after the other scans in a website audit, with the saved sign-in picked at setup", async () => {
+    mkdirSync(join(cwd, "a11y-audit", "screen-reader", "sessions"), { recursive: true });
+    writeFileSync(join(cwd, "a11y-audit", "screen-reader", "sessions", "staging.json"), "{}");
+    const calls: Array<{ pages: string[]; workflows: unknown; signIn?: string }> = [];
+    const p = scripted([
+      { match: /What would you like to do/, answer: "new", once: true },
+      { match: /context docs/, answer: "" },
+      { match: /Project \/ client name/, answer: "Acme Web" },
+      { match: /What are you auditing/, answer: "web" },
+      { match: /Target WCAG/, answer: "AA" },
+      { match: /Pages to audit/, answer: "https://acme.test/login" },
+      { match: /need a sign-in/, answer: "staging" },
+    ]);
+    await runWizard(
+      deps(cwd, p, {
+        scanAxe: async () => empty(),
+        scanLighthouse: async () => empty(),
+        runKeyboard: async (o) => {
+          calls.push({ pages: o.pages, workflows: o.workflows, signIn: o.signIn });
+          writeResult("https://acme.test/login");
+          return 1;
+        },
+      }),
+    );
+    expect(calls).toEqual([{ pages: ["https://acme.test/login"], workflows: "all", signIn: "staging" }]);
+    const session = loadSession(cwd)!;
+    expect(session.project.signIn).toBe("staging");
+    const run = session.automated.find((r) => r.tool === "keyboard")!;
+    expect(run.findings.map((f) => f.ruleId)).toEqual(["kb-no-focus-indicator"]);
+    expect(read("checklist.md")).toMatch(/`focus-visible` — scan found issues · not reviewed yet/);
+  });
+
+  it("can run on their own from the menu", async () => {
+    const { newSession, saveSession } = await import("../src/wizard/session.js");
+    const url = "https://acme.test/login";
+    saveSession(cwd, newSession({ name: "v2", type: "web", targets: ["web"], targetLevel: "AA", urls: [url] }, [{ name: "/login", kind: "web", url }]));
+    const p = scripted([
+      { match: /What would you like to do/, answer: "kb" },
+      { match: /What should the keyboard tests cover/, answer: "audit" },
+    ]);
+    let asked: unknown;
+    await runWizard(deps(cwd, p, { runKeyboard: async (o) => ((asked = o.workflows), writeResult(url), 1) }));
+    expect(asked).toBe("all");
+    expect(loadSession(cwd)!.automated.map((r) => r.tool)).toEqual(["keyboard"]);
+  });
+});

@@ -36,6 +36,11 @@ export function srCommand(name: string, root = projectRoot()): string {
   return isToolkitRepo(root) ? `npm run sr:${name} --` : `npx bt-a11y sr ${name}`;
 }
 
+/** Where the keyboard runner saves what it found per page/workflow (a11y-audit/keyboard/results/ in an audited repo). */
+export function keyboardResultsDir(root = projectRoot()): string {
+  return isToolkitRepo(root) ? join(root, "reports", "keyboard") : join(root, "a11y-audit", "keyboard", "results");
+}
+
 export function screenReaderPaths(root = projectRoot()): ScreenReaderPaths {
   if (isToolkitRepo(root)) {
     const reports = join(root, "reports", "screen-reader");

@@ -122,6 +122,7 @@ Usage:
   bt-a11y checklist             Open the checklist GUI (a11y-audit/checklist.html) in the browser
   bt-a11y target-size [--wait <ms>]  Measure touch targets (WCAG 2.5.8) on an Android device
   bt-a11y browserstack [<file.csv>]  Add a BrowserStack App Accessibility CSV export to the audit
+  bt-a11y kb [<url> ...] [--session <name>] [--no-workflows]  Keyboard tests (focus visible, order, traps…) → audit findings
   bt-a11y sr <command>          VoiceOver screen reader testing: test, findings, login, … ('bt-a11y sr' for help)
   bt-a11y screen-reader [dir]   Turn VoiceOver workflow transcripts into findings (= 'bt-a11y sr findings')
   bt-a11y report [options]      Build the audit from the scans + filled-in a11y-audit/checklist.md
@@ -475,6 +476,10 @@ async function runStartCommand(): Promise<void> {
         const { discoverScreens } = await import("./code-scan/screens.js");
         return discoverScreens(root);
       },
+      runKeyboard: async (opts) => {
+        const { keyboardTest } = await import("./keyboard/audit-run.js");
+        return (await keyboardTest({ cwd, ...opts })).length;
+      },
       // VoiceOver automation is macOS only.
       ...(process.platform === "darwin"
         ? {
@@ -563,6 +568,12 @@ async function runBrowserStackCommand(args: ParsedArgs): Promise<void> {
   process.stdout.write("\nThe matching checklist lines are pre-filled as \"scan found issues · not reviewed yet\". Run npx bt-a11y report to update the report and PDF.\n");
 }
 
+const TOOL_NAME: Record<string, string> = { voiceover: "VoiceOver", keyboard: "keyboard tests" };
+const byTool = (counts: Record<string, number>) =>
+  Object.entries(counts)
+    .map(([tool, n]) => `${TOOL_NAME[tool] ?? tool}: ${n}`)
+    .join(", ");
+
 async function runScreenReaderCommand(args: ParsedArgs): Promise<void> {
   const [{ loadTranscripts }, { addScreenReaderRun }, { screenReaderPaths, srCommand }, { writeChecklistFiles }, { loadSession, saveSession }, { findingsToAssessment }, { resolve }] = await Promise.all([
     import("./screen-reader/load.js"),
@@ -599,6 +610,90 @@ async function runScreenReaderCommand(args: ParsedArgs): Promise<void> {
       `open them with 'bt-a11y checklist' to confirm or dismiss each one. Details and the transcript lines are in a11y-audit/scan-details.md.\n`,
   );
   if (merged.outside.length) process.stdout.write(`Pages not in the audit (their findings go under the app-wide section): ${merged.outside.join(", ")}\n`);
+}
+
+const KB_HELP = `bt-a11y kb — automated keyboard tests (any OS; no screen reader)
+
+  bt-a11y kb                      Every page in the audit, plus the saved workflows
+  bt-a11y kb <url> [<url> ...]    Just these pages
+  --session <name>                Sign in first with a saved session (bt-a11y sr login)
+  --no-workflows                  Skip the saved workflows
+
+Tabs through each page in a headless browser and checks every stop: a visible
+focus indicator, not hidden behind sticky content, order, loops, controls Tab
+can't reach, the skip link. Saved workflows (a11y-audit/screen-reader/workflows/)
+run with the keyboard too: activating must do something, dialogs must take
+focus, Escape must close them and return focus.
+
+Findings pre-fill the checklist as "not reviewed yet" and reach the report once a
+tester confirms them. Results are in a11y-audit/keyboard/results/.
+`;
+
+async function runKeyboardCommand(argv: string[]): Promise<void> {
+  if (argv.includes("-h") || argv.includes("--help")) {
+    process.stdout.write(KB_HELP);
+    return;
+  }
+  const [{ keyboardTest, addKeyboardRun, keyboardFindings }, { loadSession, saveSession }, { writeChecklistFiles }, { findingsToAssessment }] = await Promise.all([
+    import("./keyboard/audit-run.js"),
+    import("./wizard/session.js"),
+    import("./wizard/index.js"),
+    import("./audit.js"),
+  ]);
+  const cwd = process.cwd();
+  const at = argv.indexOf("--session");
+  const sessionFlag = at >= 0 ? argv[at + 1] : undefined;
+  const urls = argv.filter((a, i) => !a.startsWith("--") && argv[i - 1] !== "--session");
+  const bad = urls.filter((u) => !/^(https?|file):\/\//.test(u));
+  if (bad.length) {
+    process.stderr.write(`Each page must be a full URL (http://…): ${bad.join(", ")}\n`);
+    process.exitCode = 1;
+    return;
+  }
+  const session = loadSession(cwd);
+  const pages = urls.length ? urls : (session?.project.urls ?? []);
+  const workflows = urls.length || argv.includes("--no-workflows") ? [] : "all";
+  if (pages.length === 0 && workflows !== "all") {
+    process.stderr.write("No pages: pass URLs, or start a website audit first (bt-a11y start).\n");
+    process.exitCode = 1;
+    return;
+  }
+  const signIn = sessionFlag ?? session?.project.signIn;
+  try {
+    const results = await keyboardTest({
+      cwd,
+      pages,
+      workflows,
+      signIn,
+      onProgress: (e) => {
+        if (e.type === "start") process.stdout.write(`  [${e.index + 1}/${e.total}] ${e.name}\n`);
+        if (e.type === "error") process.stderr.write(`    ! ${e.error}\n`);
+      },
+    });
+    if (results.length === 0) {
+      process.stdout.write("Nothing to test: no pages and no saved workflows.\n");
+      return;
+    }
+  } catch (err) {
+    process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
+    process.exitCode = 1;
+    return;
+  }
+
+  if (!session) {
+    const { findings } = keyboardFindings(cwd, []);
+    process.stdout.write("\nNo guided audit in ./a11y-audit, so here's a report instead. Run 'bt-a11y start' to review these on the checklist.\n\n");
+    process.stdout.write(`${formatConsole(findingsToAssessment(findings, { platforms: ["web"] }))}\n`);
+    return;
+  }
+  const merged = addKeyboardRun(session, cwd)!;
+  saveSession(cwd, session);
+  writeChecklistFiles(cwd, session);
+  process.stdout.write(
+    `\n${merged.findings.length} keyboard finding${merged.findings.length === 1 ? "" : "s"} added to the audit, pre-filled on the checklist as "not reviewed yet". ` +
+      `Confirm (Fail) or dismiss (Pass/N/A) each one in 'npx bt-a11y checklist'; details are in a11y-audit/scan-details.md.\n`,
+  );
+  if (merged.outside.length) process.stdout.write(`Pages not in the audit (their findings go under app-wide): ${merged.outside.join(", ")}\n`);
 }
 
 async function runCodeCommand(args: ParsedArgs): Promise<void> {
@@ -670,14 +765,14 @@ async function runReportCommand(args: ParsedArgs): Promise<void> {
   const held = Object.values(review.held).reduce((a, b) => a + b, 0);
   if (held) {
     process.stdout.write(
-      `Waiting for review, not in the report yet: ${held} screen reader finding${held === 1 ? "" : "s"}. ` +
+      `Waiting for review, not in the report yet: ${held} finding${held === 1 ? "" : "s"} (${byTool(review.held)}). ` +
         `Open 'npx bt-a11y checklist' and mark each "not reviewed yet" line Fail (confirm) or Pass/N/A (dismiss).\n`,
     );
   }
   const unreviewable = Object.values(review.unreviewable).reduce((a, b) => a + b, 0);
   if (unreviewable) {
     process.stdout.write(
-      `Included as found: ${unreviewable} screen reader finding${unreviewable === 1 ? "" : "s"} with no checklist line to confirm ${unreviewable === 1 ? "it" : "them"} on ` +
+      `Included as found: ${unreviewable} finding${unreviewable === 1 ? "" : "s"} (${byTool(review.unreviewable)}) with no checklist line to confirm ${unreviewable === 1 ? "it" : "them"} on ` +
         `(listed as "no check covers this" in checklist.md). Check ${unreviewable === 1 ? "it" : "them"} in a11y-audit/scan-details.md.\n`,
     );
   }
@@ -748,6 +843,10 @@ async function main(): Promise<void> {
   loadDotEnv();
   const argv = process.argv.slice(2);
   // Passed through as-is: its subcommands have their own flags (-g, --name, --selectors…).
+  if (argv[0] === "kb" || argv[0] === "keyboard") {
+    await runKeyboardCommand(argv.slice(1));
+    return;
+  }
   if (argv[0] === "sr") {
     const { runSr } = await import("./screen-reader/run.js");
     await runSr(argv.slice(1), () => runScreenReaderCommand(parseArgs(["screen-reader"])));
