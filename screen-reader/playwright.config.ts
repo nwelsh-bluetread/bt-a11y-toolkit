@@ -2,6 +2,7 @@
 // VoiceOver takes over the Mac, so tests run one at a time in a visible browser.
 import { defineConfig, devices } from "@playwright/test";
 import { screenReaderConfig } from "@guidepup/playwright";
+import { screenReaderPaths } from "../src/screen-reader/paths.ts";
 
 export default defineConfig({
   ...screenReaderConfig,
@@ -12,6 +13,6 @@ export default defineConfig({
   timeout: 15 * 60 * 1000,
   retries: 0,
   reporter: [["list"]],
-  outputDir: "../reports/screen-reader/test-results",
+  outputDir: screenReaderPaths().testResults,
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"], headless: false } }],
 });

@@ -8,7 +8,6 @@ import type { Finding } from "../types.js";
 import { analyzeTranscript, reviewFindings } from "./analyze.js";
 import type { Transcript, TranscriptReview } from "./transcript.js";
 
-export const TRANSCRIPT_DIR = join("reports", "screen-reader");
 
 export interface LoadedTranscripts {
   transcripts: Array<{ file: string; transcript: Transcript; findings: number; reviewed: boolean }>;

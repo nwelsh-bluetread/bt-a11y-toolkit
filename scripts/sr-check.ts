@@ -8,12 +8,12 @@
  *   npm run sr:check
  *   npm run sr:check -- --selectors
  */
-import { join } from "node:path";
+import { screenReaderPaths } from "../src/screen-reader/paths.js";
 import { applySession } from "../screen-reader/session.js";
 import { describeStep, loadWorkflows, stepAction } from "../screen-reader/workflow.js";
 
 async function main() {
-  const workflows = loadWorkflows(join(import.meta.dirname, "..", "screen-reader", "workflows"));
+  const workflows = loadWorkflows(screenReaderPaths().workflows);
   console.log(`${workflows.length} workflow(s) valid.`);
   if (!process.argv.includes("--selectors")) return;
 

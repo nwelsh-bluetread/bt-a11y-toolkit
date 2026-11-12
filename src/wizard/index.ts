@@ -12,12 +12,14 @@
  */
 import { appendFileSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, isAbsolute, join } from "node:path";
+import { basename, isAbsolute, join, relative } from "node:path";
 import { applyContext, mergeContexts, parseNavigationMap, UNLISTED_GROUP, type NavigationContext } from "../context.js";
 import { MANUAL_CHECKLIST, TEST_MODES, TEST_PASSES, type AuditTarget, type ChecklistItem } from "../checklist.js";
 import { isReactNativeProject, RN_RULES, type CodeScanResult } from "../code-scan/react-native.js";
 import { FEATURE_LABEL, isFile, screensFromUrls, type ScreenDiscovery, type ScreenInfo } from "../code-scan/screens.js";
 import { runQuickScan } from "../quick-scan.js";
+import { grepFor, listSessions, listWorkflows, writeBaselines } from "../screen-reader/baseline.js";
+import { screenReaderPaths } from "../screen-reader/paths.js";
 import type { Assessment, Finding, Severity, WcagLevel } from "../types.js";
 import { findingOnSection, planChecklist, renderChecklist, renderScanDetails, type ParsedChecklist, type PlannedGroup } from "./checklist-md.js";
 import { browserStackStep, findBrowserStackCsvs } from "./browserstack.js";
@@ -61,6 +63,8 @@ export interface WizardDeps {
   runCommand: (cmd: string, args: string[]) => Promise<number>;
   /** Render a summary JSON to a PDF (quick scan); resolves to whether a PDF was written. */
   buildPdf?: (dataPath: string, pdfPath: string) => Promise<boolean>;
+  /** Run `bt-a11y sr <args>` (VoiceOver, macOS only); resolves to the exit code. Absent where it can't run. */
+  runScreenReader?: (args: string[]) => Promise<number>;
 }
 
 const TARGET_LABEL: Record<AuditTarget, string> = { web: "Website", ios: "iOS", android: "Android" };
@@ -72,7 +76,7 @@ export async function runWizard(deps: WizardDeps): Promise<void> {
 
   let session = loadSession(cwd);
   let fresh = false;
-  if (session) out(`Found an audit for ${bold(session.project.name)} (${describeProject(session)}, ${session.screens.length} screens).`);
+  if (session) out(`Found an audit for ${bold(session.project.name)} (${describeProject(session)}, ${session.screens.length} ${session.project.type === "web" ? "pages" : "screens"}).`);
   const action = await p.select("What would you like to do?", [
     ...(session
       ? [
@@ -81,9 +85,16 @@ export async function runWizard(deps: WizardDeps): Promise<void> {
         ]
       : [{ name: "Full audit", value: "new", description: "Automated scans, then a per-screen manual checklist and report" }]),
     { name: "Quick scan of one web page", value: "quick", description: "Automated checks only (axe + Lighthouse) and a summary PDF. Doesn't touch the full audit" },
+    ...(deps.runScreenReader
+      ? [{ name: "Screen reader test (VoiceOver)", value: "sr", description: "VoiceOver on one page, every audit page, or saved workflows; findings go on the checklist. Takes over the Mac while it runs" }]
+      : []),
   ]);
   if (action === "quick") {
     await quickScan(deps);
+    return;
+  }
+  if (action === "sr") {
+    await screenReaderTest(deps, session);
     return;
   }
   if (action === "new") session = undefined;
@@ -129,6 +140,71 @@ async function quickScan(deps: WizardDeps): Promise<void> {
   out(green(`✓ Report: ${result.markdown}`));
   if (result.pdf) out(green(`✓ Summary PDF: ${result.pdf}`));
   out(`\nScore ${result.assessment.overallScore}/100 · ${count(result.assessment.findings)}. Automated checks only: a full audit (${bold("npx bt-a11y")} → Full audit) adds manual testing.\n`);
+}
+
+/**
+ * Run VoiceOver on one page, the audit's pages, or saved workflows, then turn the
+ * transcripts into findings (pre-filled on the checklist when there's an audit).
+ */
+async function screenReaderTest(deps: WizardDeps, session: AuditSession | undefined): Promise<void> {
+  const { prompter: p, cwd, out } = deps;
+  const paths = screenReaderPaths(cwd);
+  const saved = listWorkflows(paths.workflows);
+  const auditUrls = session?.project.urls ?? [];
+
+  const what = await p.select("What should VoiceOver test?", [
+    ...(auditUrls.length
+      ? [{ name: `Every page in this audit (${auditUrls.length})`, value: "audit", description: "Reads each page, then Tabs through every control" }]
+      : []),
+    { name: "One page", value: "page", description: "Reads the page, then Tabs through every control" },
+    ...(saved.length
+      ? [{ name: `Saved workflows (${saved.length})`, value: "saved", description: `Scripted flows in ${relative(cwd, paths.workflows)}/, e.g. from /sr-workflow` }]
+      : []),
+  ]);
+
+  let names: string[];
+  if (what === "saved") {
+    names = await p.checkbox("Which workflows?", saved.map((w) => ({ name: w.name, value: w.name, description: w.file })), { required: true });
+  } else {
+    const pages =
+      what === "audit"
+        ? auditUrls
+        : [
+            (
+              await p.input("Page URL:", {
+                required: true,
+                validate: (v) => (/^https?:\/\//.test(v.trim()) ? true : "Start with http:// or https://"),
+              })
+            ).trim(),
+          ];
+    const sessions = listSessions(paths.sessions);
+    let signIn: string | undefined;
+    if (sessions.length) {
+      signIn =
+        (await p.select("Sign in first?", [
+          { name: "No, the pages are public", value: "" },
+          ...sessions.map((s) => ({ name: `Use the saved sign-in "${s}"`, value: s })),
+        ])) || undefined;
+    } else {
+      out(dim(`Pages behind a login: save a sign-in first with npx bt-a11y sr login <url>, then pick it here.`));
+    }
+    const written = writeBaselines(paths.workflows, pages, { session: signIn });
+    const kept = written.filter((b) => !b.written).length;
+    out(dim(`${written.length} workflow${written.length === 1 ? "" : "s"} in ${relative(cwd, paths.workflows)}/${kept ? ` (${kept} kept as they were)` : ""}.`));
+    names = written.map((b) => b.name);
+  }
+
+  out(`\nVoiceOver reads every item aloud, so this takes a few minutes per page. Make sure the site is running.`);
+  out(yellow("Keep hands off the keyboard and mouse until it finishes: VoiceOver drives the whole Mac."));
+  if (!(await p.confirm("Start VoiceOver now?", { default: true }))) {
+    out(`\nNot started. Run it later with ${bold(`npx bt-a11y sr test -g "${grepFor(names)}"`)}, then ${bold("npx bt-a11y sr findings")}.\n`);
+    return;
+  }
+  await deps.runScreenReader!(["test", "-g", grepFor(names)]);
+  // Transcripts are saved even when steps fail, so findings always run.
+  out("");
+  await deps.runScreenReader!(["findings"]);
+  if (session) out(`\nNext: open ${bold("npx bt-a11y checklist")} and confirm or dismiss each "not reviewed yet" line.\n`);
 }
 
 /** Rewrite checklist.md (keeping testers' answers) and scan-details.md from the session's screens and runs. */

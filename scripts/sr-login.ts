@@ -11,13 +11,14 @@
  *   npm run sr:login -- <url> [--name <name>]
  */
 import { chromium } from "playwright";
+import { srCommand } from "../src/screen-reader/paths.js";
 import { captureSession, defaultSessionName, sessionPath, writeSession, type SavedSession } from "../screen-reader/session.js";
 
 async function main() {
   const args = process.argv.slice(2);
   const url = args.find((a) => /^https?:\/\//.test(a));
   if (!url) {
-    console.error("Usage: npm run sr:login -- <url> [--name <name>]");
+    console.error(`Usage: ${srCommand("login")} <url> [--name <name>]`);
     process.exit(1);
   }
   const nameIdx = args.indexOf("--name");

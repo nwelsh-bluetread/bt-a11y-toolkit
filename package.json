@@ -33,7 +33,11 @@
   "files": [
     "dist",
     "assets",
-    "README.md"
+    "README.md",
+    "src",
+    "screen-reader/*.ts",
+    "screen-reader/README.md",
+    "scripts/sr-*.ts"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
@@ -82,12 +86,21 @@
   },
   "peerDependencies": {
     "@axe-core/playwright": ">=4",
+    "@guidepup/playwright": ">=0.21",
+    "@playwright/test": ">=1.40",
     "chrome-launcher": ">=1",
     "lighthouse": ">=11",
-    "playwright": ">=1.40"
+    "playwright": ">=1.40",
+    "tsx": ">=4"
   },
   "peerDependenciesMeta": {
     "@axe-core/playwright": {
+      "optional": true
+    },
+    "@guidepup/playwright": {
+      "optional": true
+    },
+    "@playwright/test": {
       "optional": true
     },
     "chrome-launcher": {
@@ -97,6 +110,9 @@
       "optional": true
     },
     "playwright": {
+      "optional": true
+    },
+    "tsx": {
       "optional": true
     }
   },

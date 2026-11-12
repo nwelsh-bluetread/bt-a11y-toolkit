@@ -1,5 +1,6 @@
-// Runs every workflow in screen-reader/workflows/ with real VoiceOver and saves
-// a transcript per workflow to reports/screen-reader/<workflow>.json.
+// Runs every workflow with real VoiceOver and saves a transcript per workflow.
+// Folders: src/screen-reader/paths.ts (a11y-audit/screen-reader/ in an audited
+// repo; screen-reader/workflows/ and reports/screen-reader/ in the toolkit).
 // `bt-a11y screen-reader` turns those transcripts into findings for review.
 //
 // `expect` checks are soft: failures are listed at the end, but every step
@@ -9,11 +10,13 @@ import { join } from "node:path";
 import { voiceOverTest as test, type VoiceOverPlaywright } from "@guidepup/playwright";
 import { expect, type Page } from "@playwright/test";
 import type { FocusedControl, Spoken, TabSummary, ToggleResult, Transcript, TranscriptStep } from "../src/screen-reader/transcript.ts";
+import { screenReaderPaths } from "../src/screen-reader/paths.ts";
 import { applySession } from "./session.ts";
 import { describeStep, FIND_COMMANDS, loadWorkflows, stepAction, stripHints, type WorkflowStep } from "./workflow.ts";
 
-const workflows = loadWorkflows(join(import.meta.dirname, "workflows"));
-const outDir = join(import.meta.dirname, "..", "reports", "screen-reader");
+const paths = screenReaderPaths();
+const workflows = loadWorkflows(paths.workflows);
+const outDir = paths.transcripts;
 const MAX_ITEMS = 200;
 
 /** Elements a keyboard user should be able to reach with Tab. */

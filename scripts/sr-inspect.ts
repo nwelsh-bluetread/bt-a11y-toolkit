@@ -12,6 +12,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { chromium, type Page } from "playwright";
+import { srCommand } from "../src/screen-reader/paths.js";
 import { applySession } from "../screen-reader/session.js";
 
 interface Control {
@@ -69,7 +70,7 @@ async function main() {
   const session = sessionIdx >= 0 ? args.splice(sessionIdx, 2)[1] : undefined;
   const target = args[0];
   if (!target) {
-    console.error("Usage: npm run sr:inspect -- <url or local html file> [--session <name>]");
+    console.error(`Usage: ${srCommand("inspect")} <url or local html file> [--session <name>]`);
     process.exit(1);
   }
   const url = /^[a-z]+:\/\//i.test(target) ? target : existsSync(target) ? pathToFileURL(resolve(target)).href : `https://${target}`;

@@ -343,3 +343,72 @@ describe("runWizard — website", () => {
     expect(existsSync(join(cwd, "a11y-audit", "report.json"))).toBe(true);
   });
 });
+
+describe("runWizard — screen reader test", () => {
+  async function setupWebAudit() {
+    const { newSession, saveSession } = await import("../src/wizard/session.js");
+    const urls = ["http://localhost:4173/login", "http://localhost:4173/users"];
+    saveSession(cwd, newSession({ name: "v2", type: "web", targets: ["web"], targetLevel: "AA", urls }, urls.map((url) => ({ name: new URL(url).pathname, kind: "web", url }))));
+    return urls;
+  }
+
+  it("isn't offered where VoiceOver can't run", async () => {
+    let choices: string[] = [];
+    const p = scripted([{ match: /What would you like to do/, answer: (_m: string, c?: Choice<unknown>[]) => ((choices = c!.map((x) => String(x.value))), "quick") }]);
+    await runWizard(deps(cwd, p, { scanAxe: async () => ({}) as Assessment, scanLighthouse: async () => ({}) as Assessment })).catch(() => {});
+    expect(choices).not.toContain("sr");
+  });
+
+  it("runs VoiceOver on every audit page, then adds the findings", async () => {
+    const urls = await setupWebAudit();
+    mkdirSync(join(cwd, "a11y-audit", "screen-reader", "sessions"), { recursive: true });
+    writeFileSync(join(cwd, "a11y-audit", "screen-reader", "sessions", "localhost-4173.json"), "{}");
+    const calls: string[][] = [];
+    const p = scripted([
+      { match: /What would you like to do/, answer: "sr" },
+      { match: /What should VoiceOver test/, answer: "audit" },
+      { match: /Sign in first/, answer: "localhost-4173" },
+      { match: /Start VoiceOver now/, answer: true },
+    ]);
+    const d = deps(cwd, p, { runScreenReader: async (a) => (calls.push(a), 0) });
+    await runWizard(d);
+
+    expect(d.output[1]).toContain("2 pages");
+    const dir = join(cwd, "a11y-audit", "screen-reader", "workflows");
+    const wf = JSON.parse(readFileSync(join(dir, "baseline-localhost-login.json"), "utf8"));
+    expect(wf).toMatchObject({ name: `Baseline: ${urls[0]}`, url: urls[0], session: "localhost-4173" });
+    expect(existsSync(join(dir, "baseline-localhost-users.json"))).toBe(true);
+    expect(calls).toEqual([["test", "-g", "Baseline: http://localhost:4173/login|Baseline: http://localhost:4173/users"], ["findings"]]);
+  });
+
+  it("runs one page, or the saved workflows picked, and doesn't start VoiceOver without a yes", async () => {
+    const dir = join(cwd, "a11y-audit", "screen-reader", "workflows");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "checkout.json"), JSON.stringify({ name: "Checkout (bad promo)", url: "https://x.test", steps: [{ read: "page" }] }));
+    let offered: string[] = [];
+    const calls: string[][] = [];
+    const p = scripted([
+      { match: /What would you like to do/, answer: "sr" },
+      { match: /What should VoiceOver test/, answer: (_m: string, c?: Choice<unknown>[]) => ((offered = c!.map((x) => String(x.value))), "saved") },
+      { match: /Which workflows/, answer: ["Checkout (bad promo)"] },
+      { match: /Start VoiceOver now/, answer: true },
+    ]);
+    await runWizard(deps(cwd, p, { runScreenReader: async (a) => (calls.push(a), 0) }));
+    // No audit: no "every page" option.
+    expect(offered).toEqual(["page", "saved"]);
+    expect(calls[0]).toEqual(["test", "-g", "Checkout \\(bad promo\\)"]);
+
+    const p2 = scripted([
+      { match: /What would you like to do/, answer: "sr" },
+      { match: /What should VoiceOver test/, answer: "page" },
+      { match: /Page URL/, answer: " https://acme.test/pricing " },
+      { match: /Start VoiceOver now/, answer: false },
+    ]);
+    const calls2: string[][] = [];
+    const d2 = deps(cwd, p2, { runScreenReader: async (a) => (calls2.push(a), 0) });
+    await runWizard(d2);
+    expect(existsSync(join(dir, "baseline-acme-test-pricing.json"))).toBe(true);
+    expect(calls2).toEqual([]);
+    expect(d2.output.join("\n")).toContain("Not started");
+  });
+});

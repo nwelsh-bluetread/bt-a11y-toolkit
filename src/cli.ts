@@ -122,7 +122,8 @@ Usage:
   bt-a11y checklist             Open the checklist GUI (a11y-audit/checklist.html) in the browser
   bt-a11y target-size [--wait <ms>]  Measure touch targets (WCAG 2.5.8) on an Android device
   bt-a11y browserstack [<file.csv>]  Add a BrowserStack App Accessibility CSV export to the audit
-  bt-a11y screen-reader [dir]   Turn VoiceOver workflow transcripts into findings for review
+  bt-a11y sr <command>          VoiceOver screen reader testing: test, findings, login, … ('bt-a11y sr' for help)
+  bt-a11y screen-reader [dir]   Turn VoiceOver workflow transcripts into findings (= 'bt-a11y sr findings')
   bt-a11y report [options]      Build the audit from the scans + filled-in a11y-audit/checklist.md
   bt-a11y code [dir] [options]  Scan React Native source code (default: current folder)
   bt-a11y pdf-setup             Check/install what the summary PDF needs (Chrome, pikepdf, veraPDF)
@@ -161,8 +162,8 @@ Commands:
                 BrowserStack scan was; its issues pre-fill those screens'
                 checklist lines and go into report.md and the summary PDF.
                 Re-importing the same report replaces its earlier issues.
-  screen-reader Reads the transcripts saved by 'npm run sr:test' (default
-                reports/screen-reader/) and checks them for missing names and
+  screen-reader Reads the transcripts saved by 'bt-a11y sr test' (default
+                a11y-audit/screen-reader/transcripts/) and checks them for missing names and
                 states, unclear links, image alt text, heading structure, focus
                 order, keyboard traps, unreachable controls and announcements
                 the workflow expected but didn't hear. With a guided audit, the
@@ -474,6 +475,18 @@ async function runStartCommand(): Promise<void> {
         const { discoverScreens } = await import("./code-scan/screens.js");
         return discoverScreens(root);
       },
+      // VoiceOver automation is macOS only.
+      ...(process.platform === "darwin"
+        ? {
+            runScreenReader: async (srArgs: string[]) => {
+              const { runSr } = await import("./screen-reader/run.js");
+              await runSr(srArgs, () => runScreenReaderCommand(parseArgs(["screen-reader"])));
+              const code = Number(process.exitCode ?? 0);
+              process.exitCode = 0;
+              return code;
+            },
+          }
+        : {}),
     });
   } catch (err) {
     if (!isPromptExit(err)) throw err;
@@ -551,8 +564,9 @@ async function runBrowserStackCommand(args: ParsedArgs): Promise<void> {
 }
 
 async function runScreenReaderCommand(args: ParsedArgs): Promise<void> {
-  const [{ loadTranscripts, alignPages, sameUrl, TRANSCRIPT_DIR }, { SCREEN_READER_CRITERIA, SOURCE }, { writeChecklistFiles }, { loadSession, saveSession, upsertRun }, { findingsToAssessment }, { resolve }] = await Promise.all([
+  const [{ loadTranscripts, alignPages, sameUrl }, { screenReaderPaths, srCommand }, { SCREEN_READER_CRITERIA, SOURCE }, { writeChecklistFiles }, { loadSession, saveSession, upsertRun }, { findingsToAssessment }, { resolve }] = await Promise.all([
     import("./screen-reader/load.js"),
+    import("./screen-reader/paths.js"),
     import("./screen-reader/analyze.js"),
     import("./wizard/index.js"),
     import("./wizard/session.js"),
@@ -560,10 +574,10 @@ async function runScreenReaderCommand(args: ParsedArgs): Promise<void> {
     import("node:path"),
   ]);
   const cwd = process.cwd();
-  const dir = resolve(cwd, args.file ?? TRANSCRIPT_DIR);
+  const dir = args.file ? resolve(cwd, args.file) : screenReaderPaths(cwd).transcripts;
   const loaded = loadTranscripts(dir, cwd);
   if (loaded.transcripts.length === 0) {
-    process.stderr.write(`No screen reader transcripts in ${dir}. Run 'npm run sr:test' first.\n`);
+    process.stderr.write(`No screen reader transcripts in ${dir}. Run '${srCommand("test", cwd)}' first.\n`);
     process.exitCode = 1;
     return;
   }
@@ -727,6 +741,12 @@ function loadDotEnv(): void {
 async function main(): Promise<void> {
   loadDotEnv();
   const argv = process.argv.slice(2);
+  // Passed through as-is: its subcommands have their own flags (-g, --name, --selectors…).
+  if (argv[0] === "sr") {
+    const { runSr } = await import("./screen-reader/run.js");
+    await runSr(argv.slice(1), () => runScreenReaderCommand(parseArgs(["screen-reader"])));
+    return;
+  }
   if (argv.includes("-h") || argv.includes("--help")) {
     process.stdout.write(HELP);
     return;

@@ -1250,6 +1250,11 @@ node dist/cli.js pdf-setup
 # when an update is available; set BT_A11Y_NO_UPDATE_CHECK=1 to turn it off.
 node dist/cli.js update
 
+# VoiceOver screen reader testing, from the repo you're auditing
+# (workflows + transcripts in a11y-audit/screen-reader/; see screen-reader/README.md):
+npx bt-a11y sr test
+npx bt-a11y sr findings
+
 # Scan a React Native project's source code:
 node dist/cli.js code ./path/to/rn-app --format markdown --out code-scan.md
 

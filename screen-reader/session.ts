@@ -5,9 +5,10 @@
 // sessionStorage, which is where apps using MSAL (and many SPAs) keep tokens.
 // A workflow with `"session": "<name>"` gets them back before the page loads.
 //
-// Session files hold live tokens. They live under reports/ (gitignored).
+// Session files hold live tokens. Their folder gets a .gitignore that ignores everything.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { screenReaderPaths, srCommand } from "../src/screen-reader/paths.js";
 import type { BrowserContext, Cookie, Page } from "playwright";
 
 export interface SavedSession {
@@ -18,10 +19,8 @@ export interface SavedSession {
   sessionStorage: Record<string, string>;
 }
 
-const SESSIONS_DIR = join(import.meta.dirname, "..", "reports", "screen-reader", "sessions");
-
 export function sessionPath(name: string): string {
-  return join(SESSIONS_DIR, `${name}.json`);
+  return join(screenReaderPaths().sessions, `${name}.json`);
 }
 
 /** Session name from a URL, e.g. http://localhost:5173/x → "localhost-5173". */
@@ -45,13 +44,16 @@ export async function captureSession(page: Page): Promise<SavedSession | undefin
 export function writeSession(name: string, session: SavedSession): void {
   const file = sessionPath(name);
   mkdirSync(dirname(file), { recursive: true });
+  // The audit folder may be committed; session files hold live tokens.
+  const ignore = join(dirname(file), ".gitignore");
+  if (!existsSync(ignore)) writeFileSync(ignore, "# Saved sign-in sessions hold live tokens: never commit them.\n*\n");
   writeFileSync(file, JSON.stringify(session, null, 2), { mode: 0o600 });
 }
 
 export function loadSession(name: string): SavedSession {
   const file = sessionPath(name);
   if (!existsSync(file)) {
-    throw new Error(`No saved session "${name}". Sign in first: npm run sr:login -- <url> --name ${name}`);
+    throw new Error(`No saved session "${name}". Sign in first: ${srCommand("login")} <url> --name ${name}`);
   }
   return JSON.parse(readFileSync(file, "utf8")) as SavedSession;
 }

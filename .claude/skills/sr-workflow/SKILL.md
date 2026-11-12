@@ -1,11 +1,23 @@
 ---
 name: sr-workflow
-description: Write a VoiceOver screen reader workflow (screen-reader/workflows/*.json) from a URL and a plain-language description of a user flow, then validate it; and review run transcripts for judgment-call issues. Use when the user asks to create, generate, or add a screen reader / VoiceOver test or workflow for a page or flow, or to review VoiceOver transcripts / record screen reader issues.
+description: Write a VoiceOver screen reader workflow (a11y-audit/screen-reader/workflows/*.json) from a URL and a plain-language description of a user flow, then validate it; and review run transcripts for judgment-call issues. Use when the user asks to create, generate, or add a screen reader / VoiceOver test or workflow for a page or flow, or to review VoiceOver transcripts / record screen reader issues.
 ---
 
 # Screen reader workflow from a description
 
-Turn "URL + what the user does" into a workflow file that `npm run sr:test` runs with real VoiceOver. The format and step types are documented in `screen-reader/README.md` — read it before writing a file.
+Turn "URL + what the user does" into a workflow file that `npx bt-a11y sr test` runs with real VoiceOver. The format and step types are documented in the toolkit's `screen-reader/README.md` (in an audited repo: `node_modules/@bluetread/accessibility-toolkit/screen-reader/README.md`) — read it before writing a file.
+
+## Where things are
+
+Work from the repo being audited. Files live with the audit:
+
+- workflows: `a11y-audit/screen-reader/workflows/`
+- transcripts: `a11y-audit/screen-reader/transcripts/`
+- commands: `npx bt-a11y sr <command>` (`npx bt-a11y sr` lists them)
+
+Inside the toolkit repo itself (it has `screen-reader/workflows.sr.ts`), the demo layout is used instead: workflows in `screen-reader/workflows/`, transcripts in `reports/screen-reader/`, and each command is `npm run sr:<command> --`. Below, read the paths and commands accordingly.
+
+If `npx bt-a11y sr` says packages are missing, tell the user to run `npm install -D @guidepup/playwright @playwright/test playwright tsx` (and, once per Mac, `npx @guidepup/setup`).
 
 ## Inputs
 
@@ -19,7 +31,7 @@ If either is missing, ask for it. If the page needs a login first, ask for the l
 ### 1. Inspect the page
 
 ```bash
-npm run sr:inspect -- <url>
+npx bt-a11y sr inspect <url>
 ```
 
 This prints the accessibility tree (roughly what VoiceOver will read) and every focusable control with a selector that matches exactly one element. Use only these selectors. Never guess a selector. If a control shows `(no unique selector)`, that is itself an accessibility signal worth mentioning; target it with `press: "Tab"` from a known neighbour instead.
@@ -28,7 +40,7 @@ If the flow moves to another page (e.g. after submitting), inspect that page too
 
 ### 2. Write the workflow
 
-Create `screen-reader/workflows/<short-kebab-name>.json`. Do not overwrite an existing file without asking.
+Create `a11y-audit/screen-reader/workflows/<short-kebab-name>.json`. Do not overwrite an existing file without asking.
 
 Rules:
 - **Navigate like a screen reader user.** Prefer `find` (heading, link, control), `next`, and `press: "Tab"` for moving around; use `focus`/`activate`/`type` with selectors when the flow needs a specific control. Start with `{ "read": "page" }` when the user wants the whole page heard.
@@ -40,7 +52,7 @@ Rules:
 ### 3. Validate
 
 ```bash
-npm run sr:check -- --selectors
+npx bt-a11y sr check --selectors
 ```
 
 Fix any schema errors. A selector reported as matching 0 elements is only acceptable if the element appears after an earlier step (a dialog, an error message); say so to the user.
@@ -50,15 +62,15 @@ Fix any schema errors. A selector reported as matching 0 elements is only accept
 Tell the user:
 - the file path and a one-line summary of each step,
 - which `expect` checks are assumptions rather than taken from the page,
-- how to run it: `npm run sr:test -- -g "<workflow name>"` (hands off the keyboard and mouse while it runs).
+- how to run it: `npx bt-a11y sr test -g "<workflow name>"` (hands off the keyboard and mouse while it runs).
 
-Do not run `sr:test` yourself unless the user asks: it takes over the Mac with VoiceOver.
+Do not run `sr test` yourself unless the user asks: it takes over the Mac with VoiceOver.
 
-If the user later pastes a failed run, read `reports/screen-reader/<file>.json`. Fix steps that failed because of the workflow (wrong selector, missing wait). Report steps that failed because of the page (missing label, nothing announced) as accessibility findings, and don't edit the workflow to hide them.
+If the user later pastes a failed run, read `a11y-audit/screen-reader/transcripts/<file>.json`. Fix steps that failed because of the workflow (wrong selector, missing wait). Report steps that failed because of the page (missing label, nothing announced) as accessibility findings, and don't edit the workflow to hide them.
 
 ## Reviewing a run (when asked to review transcripts or record issues)
 
-After `npm run sr:test`, each workflow has a transcript in `reports/screen-reader/<workflow>.json`. `bt-a11y screen-reader` (`npm run sr:findings`) already turns the clear-cut problems into findings: missing names and states, unclear link text, file-name or unlabelled images, heading skips, focus order, traps, unreachable controls and missed `expect`s. Do not repeat those.
+After `npx bt-a11y sr test`, each workflow has a transcript in `a11y-audit/screen-reader/transcripts/<workflow>.json`. `npx bt-a11y sr findings` already turns the clear-cut problems into findings: missing names and states, unclear link text, file-name or unlabelled images, heading skips, focus order, traps, unreachable controls and missed `expect`s. Do not repeat those.
 
 Your job is the judgment calls the rules can't make. Read every step's `spoken` text, and the focused control's `role`/`name`, and look for:
 
@@ -69,7 +81,7 @@ Your job is the judgment calls the rules can't make. Read every step's `spoken` 
 - **4.1.3:** content that obviously changed after a step (results, cart count, toast) with nothing announced, where the workflow had no `expect`.
 - **2.4.2:** a page title that doesn't identify the page, if the start step announces it.
 
-Write what you find to `reports/screen-reader/<workflow>.review.json`, next to its transcript (replace the file if it exists):
+Write what you find to `a11y-audit/screen-reader/transcripts/<workflow>.review.json`, next to its transcript (replace the file if it exists):
 
 ```json
 {
@@ -90,4 +102,4 @@ Write what you find to `reports/screen-reader/<workflow>.review.json`, next to i
 - Severity: `high` blocks or seriously misleads a screen reader user, `medium` makes a task harder, `low` is a minor annoyance.
 - Only report what the transcript shows. If something can't be judged from the transcript, leave it out rather than guess. Write `{ "findings": [] }` when there is nothing to add.
 
-Then run `npm run sr:findings`. It merges the rule findings and your review into the audit: every finding lands on its checklist line as "scan found issues · not reviewed yet", and AI findings are marked as such (source `voiceover-ai`), for the auditor to confirm or dismiss in `bt-a11y checklist`. Tell the user how many findings you added and which ones you're least sure of.
+Then run `npx bt-a11y sr findings`. It merges the rule findings and your review into the audit: every finding lands on its checklist line as "scan found issues · not reviewed yet", and AI findings are marked as such (source `voiceover-ai`), for the auditor to confirm or dismiss in `bt-a11y checklist`. Tell the user how many findings you added and which ones you're least sure of.
