@@ -8,7 +8,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { voiceOverTest as test, type VoiceOverPlaywright } from "@guidepup/playwright";
 import { expect, type Page } from "@playwright/test";
-import type { FocusedControl, Spoken, TabSummary, Transcript, TranscriptStep } from "../src/screen-reader/transcript.ts";
+import type { FocusedControl, Spoken, TabSummary, ToggleResult, Transcript, TranscriptStep } from "../src/screen-reader/transcript.ts";
 import { applySession } from "./session.ts";
 import { describeStep, FIND_COMMANDS, loadWorkflows, stepAction, stripHints, type WorkflowStep } from "./workflow.ts";
 
@@ -26,6 +26,7 @@ test.use({ voiceOverStartOptions: { capture: true } });
 interface StepResult {
   output: Spoken[];
   tab?: TabSummary;
+  toggle?: ToggleResult;
 }
 
 /** Role, name and states of an element, from the accessibility tree Playwright computes. */
@@ -39,6 +40,11 @@ async function describeElement(page: Page, selector: string): Promise<FocusedCon
     href: node instanceof HTMLAnchorElement ? node.href : undefined,
     tabindex: node.hasAttribute("tabindex") ? Number(node.getAttribute("tabindex")) : undefined,
     domIndex: Array.prototype.indexOf.call(document.querySelectorAll("*"), node),
+    expanded: node.hasAttribute("aria-expanded")
+      ? node.getAttribute("aria-expanded") === "true"
+      : node.tagName === "SUMMARY" && node.parentElement instanceof HTMLDetailsElement
+        ? node.parentElement.open
+        : undefined,
   }));
   return {
     role: m?.[1] ?? info.tag,
@@ -155,11 +161,20 @@ async function runStep(step: WorkflowStep, page: Page, voiceOver: VoiceOverPlayw
     case "press":
       await voiceOver.press(s.press as string);
       return { output: [await heard(voiceOver, page)] };
-    case "activate":
+    case "activate": {
       if (s.activate !== true) await focusWithCursor(page, voiceOver, s.activate as string);
+      // An expandable control (dropdown, menu button, accordion) is checked for opening/closing.
+      const id = await markFocus(page).catch(() => null);
+      const target = id ? await describeElement(page, `[data-sr-tab="${id}"]`).catch(() => undefined) : undefined;
       await voiceOver.act();
       await page.waitForTimeout(1000);
-      return { output: [await heard(voiceOver, page)] };
+      const result: StepResult = { output: [await heard(voiceOver, page)] };
+      if (target?.expanded !== undefined) {
+        const after = await describeElement(page, `[data-sr-tab="${id}"]`).catch(() => undefined);
+        result.toggle = { control: target, before: target.expanded, ...(after?.expanded !== undefined ? { after: after.expanded } : {}) };
+      }
+      return result;
+    }
     case "wait":
       await page.waitForTimeout(s.wait as number);
       return { output: [await heard(voiceOver)] };
@@ -183,6 +198,7 @@ for (const wf of workflows) {
           const result = await runStep(step, page, voiceOver, entry.output);
           entry.output = result.output;
           if (result.tab) entry.tab = result.tab;
+          if (result.toggle) entry.toggle = result.toggle;
         } catch (err) {
           // Note the failure and carry on with the next step.
           entry.error = err instanceof Error ? err.message.split("\n")[0] : String(err);
@@ -208,6 +224,10 @@ function printStep(s: TranscriptStep): string {
   const head = `${String(s.step).padStart(2)}. [${s.action}]`;
   const lines = s.output.map((o) => `      ${o.spoken || "(silent)"}`);
   if (s.expect !== undefined) lines.push(`      ${s.passed ? "✓" : "✗"} expected "${s.expect}"`);
+  if (s.toggle) {
+    const word = (open: boolean | undefined) => (open === undefined ? "gone" : open ? "expanded" : "collapsed");
+    lines.push(`      ${s.toggle.after === s.toggle.before ? "⚠" : "↕"} ${word(s.toggle.before)} → ${word(s.toggle.after)}`);
+  }
   if (s.tab?.unreached.length) lines.push(`      ⚠ ${s.tab.unreached.length} control(s) never reached by Tab`);
   if (s.error) lines.push(`      ⚠ ${s.error}`);
   return [head, ...lines].join("\n");

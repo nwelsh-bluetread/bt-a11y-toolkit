@@ -1,0 +1,10 @@
+{
+  "name": "Dropdowns: open a working and a broken dropdown",
+  "url": "../fixtures/dropdowns.html",
+  "steps": [
+    { "focus": "#good", "expect": "collapsed" },
+    { "activate": true, "expect": "expanded" },
+    { "focus": "#broken" },
+    { "activate": true }
+  ]
+}

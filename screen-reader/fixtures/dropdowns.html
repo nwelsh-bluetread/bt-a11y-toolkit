@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Dropdowns</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; margin: 2rem; }
+  ul { border: 1px solid #ccc; padding: .5rem 1.5rem; margin: .25rem 0 1.5rem; }
+  .menu-btn { display: inline-block; border: 1px solid #555; padding: .25rem .75rem; cursor: pointer; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Dropdowns</h1>
+
+  <!-- Works: a real button whose aria-expanded follows the list. -->
+  <h2>Good</h2>
+  <button type="button" id="good" aria-expanded="false" aria-controls="good-list">Country</button>
+  <ul id="good-list" hidden><li>Canada</li><li>Mexico</li></ul>
+
+  <!-- Broken on purpose: opens on click, but aria-expanded never changes and Enter/Space do nothing. -->
+  <h2>Broken</h2>
+  <div class="menu-btn" id="broken" role="button" tabindex="0" aria-expanded="false">Language</div>
+  <ul id="broken-list" hidden><li>English</li><li>French</li></ul>
+</main>
+<script>
+  const good = document.getElementById('good');
+  good.addEventListener('click', () => {
+    const open = good.getAttribute('aria-expanded') !== 'true';
+    good.setAttribute('aria-expanded', String(open));
+    document.getElementById('good-list').hidden = !open;
+  });
+  document.getElementById('broken').addEventListener('mousedown', () => {
+    const list = document.getElementById('broken-list');
+    list.hidden = !list.hidden;
+  });
+</script>
+</body>
+</html>

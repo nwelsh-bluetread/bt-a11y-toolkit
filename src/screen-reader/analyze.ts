@@ -18,6 +18,7 @@ export const SCREEN_READER_CRITERIA = ["1.1.1", "1.3.1", "2.1.1", "2.1.2", "2.4.
 const FORM_ROLES = new Set(["textbox", "searchbox", "combobox", "listbox", "spinbutton", "slider", "checkbox", "radio", "switch"]);
 const STATEFUL_ROLES = new Set(["checkbox", "radio", "switch", "menuitemcheckbox", "menuitemradio"]);
 const STATE_WORDS = /\b(checked|unchecked|not checked|selected|not selected|on|off|mixed|pressed)\b/i;
+const EXPANDED_WORDS = /\b(expanded|collapsed)\b/i;
 const GENERIC_LINK = /^(click here|here|read more|more|learn more|see more|details|more info|link|this|go|continue)$/i;
 const IMAGE_FILE = /\b[\w-]+\.(png|jpe?g|gif|svg|webp|avif)\b/i;
 const UNLABELED_IMAGE = /\bunlabell?ed (image|graphic)\b/i;
@@ -104,6 +105,16 @@ function focusFindings(at: Place): Finding[] {
       ));
     }
 
+    if (c.expanded !== undefined && o.spoken.trim() && !EXPANDED_WORDS.test(o.spoken)) {
+      out.push(make(
+        "sr-missing-expanded", "high", ["4.1.2"],
+        "Expanded/collapsed state not announced",
+        `${control(c)} opens and closes (it is ${c.expanded ? "open" : "closed"}), but VoiceOver didn't say “expanded” or “collapsed”, so users can't tell whether it is open. ${said}`,
+        "Put aria-expanded on the element that has focus (the button or combobox itself, not a wrapper) and keep it in sync with whether the panel is shown.",
+        at, { node: c, spoken: o.spoken },
+      ));
+    }
+
     if (c.role === "link" && GENERIC_LINK.test(c.name.trim())) {
       out.push(make(
         "sr-generic-link", "medium", ["2.4.4"],
@@ -169,6 +180,35 @@ function headingFindings(at: Place): Finding[] {
     }
   }
   return out;
+}
+
+/** An `activate` step on a dropdown, menu button or accordion: did it open or close, and was that announced? */
+function toggleFindings(at: Place): Finding[] {
+  const t = at.step.toggle;
+  if (!t || at.step.error || t.after === undefined) return [];
+  const word = (open: boolean) => (open ? "expanded" : "collapsed");
+  const said = at.step.output.map((o) => o.spoken).filter(Boolean).join(" / ");
+  if (t.after === t.before) {
+    return [make(
+      "sr-expanded-unchanged", "high", ["4.1.2", "2.1.1"],
+      `Activating it didn't ${t.before ? "close" : "open"} it`,
+      `${control(t.control)} was ${word(t.before)} and was still ${word(t.after)} after VoiceOver activated it (VO+Space). Either it doesn't respond to keyboard/screen reader activation, or it opens visually without updating aria-expanded. VoiceOver said: “${said || "(nothing)"}”.`,
+      "Make it respond to Enter/Space (a native <button> does), and set aria-expanded to match whether the panel is shown.",
+      at, { node: t.control, spoken: said },
+    )];
+  }
+  // Focus moving into the opened panel announces the panel instead, which is fine.
+  const stayed = at.step.output.some((o) => o.focus?.domIndex === t.control.domIndex);
+  if (stayed && !new RegExp(`\\b${word(t.after)}\\b`, "i").test(said)) {
+    return [make(
+      "sr-expanded-change-silent", "medium", ["4.1.2"],
+      `Opening or closing it isn't announced`,
+      `${control(t.control)} changed from ${word(t.before)} to ${word(t.after)} when activated, but VoiceOver didn't say “${word(t.after)}”. VoiceOver said: “${said || "(nothing)"}”. This can be a timing glitch in the run; confirm by activating it manually.`,
+      "Keep aria-expanded on the focused element and update it in the same event that shows or hides the panel.",
+      at, { node: t.control, spoken: said },
+    )];
+  }
+  return [];
 }
 
 /** Focus order, traps and unreachable controls from a `tab` step. */
@@ -267,7 +307,7 @@ export function analyzeTranscript(transcript: Transcript, file?: string): Findin
   const findings: Finding[] = [];
   for (const step of transcript.steps) {
     const at = { transcript, step, file };
-    findings.push(...focusFindings(at), ...imageFindings(at), ...headingFindings(at), ...tabFindings(at), ...expectFindings(at));
+    findings.push(...focusFindings(at), ...imageFindings(at), ...headingFindings(at), ...tabFindings(at), ...toggleFindings(at), ...expectFindings(at));
   }
   findings.push(...ambiguousLinkFindings(transcript, file));
   return dedupe(findings);

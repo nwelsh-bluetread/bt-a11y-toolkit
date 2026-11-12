@@ -19,8 +19,9 @@ npm run sr:findings    # turn the transcripts into findings (bt-a11y screen-read
 ```
 
 `sr:findings` checks every transcript for: controls with no accessible name or
-that say nothing on focus, checkbox/switch state not announced, unclear or
-duplicate link text, images read as a file name or "unlabelled", skipped or
+that say nothing on focus, checkbox/switch state not announced, dropdowns,
+menu buttons and accordions that don't say "expanded"/"collapsed" or don't
+open or close when activated, unclear or duplicate link text, images read as a file name or "unlabelled", skipped or
 missing headings, Tab order going backwards, positive tabindex, focus cycling
 inside the page, controls Tab never reaches, and `expect`s that weren't heard.
 
@@ -35,6 +36,11 @@ messages, labels that don't match what's on screen), ask Claude to review the
 transcripts, e.g. `/sr-workflow review the latest run`. It writes
 `<workflow>.review.json` next to each transcript, and `sr:findings` adds those
 too, marked as AI findings.
+
+An `activate` step on anything with `aria-expanded` (or a `<details>` summary)
+records whether it was open before and after; the console shows it as
+`collapsed → expanded`. `fixtures/dropdowns.html` has a working and a broken
+dropdown to try it on.
 
 A failed `expect` is filed under 4.1.3 after an action (activate, press, type,
 wait, goto) and 4.1.2 otherwise. Add `"wcag": ["3.3.1"]` to the step to choose.

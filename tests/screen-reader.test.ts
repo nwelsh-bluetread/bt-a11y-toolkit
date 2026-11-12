@@ -55,6 +55,33 @@ describe("analyzeTranscript", () => {
     expect(rules(transcript(step("tab", [said("Dark mode switch on", ctl("switch", "Dark mode"))])))).toEqual([]);
   });
 
+  it("flags a dropdown or accordion announced without expanded/collapsed", () => {
+    const menu = ctl("button", "Country", { expanded: false });
+    expect(rules(transcript(step("tab", [said("Country, pop up button", menu)])))).toEqual(["sr-missing-expanded"]);
+    expect(rules(transcript(step("tab", [said("Country, collapsed, pop up button", menu)])))).toEqual([]);
+    // Not expandable: no expanded state to announce.
+    expect(rules(transcript(step("tab", [said("Sign in button", ctl("button", "Sign in"))])))).toEqual([]);
+  });
+
+  it("checks that activating a dropdown opens it and that the change is announced", () => {
+    const menu = ctl("button", "Country", { expanded: false });
+    const open = { ...menu, expanded: true };
+    const activate = (spoken: string, focus: FocusedControl | undefined, after: boolean | undefined) =>
+      rules(transcript(step("activate", [said(spoken, focus)], { toggle: { control: menu, before: false, ...(after !== undefined ? { after } : {}) } })));
+
+    expect(activate("Country, collapsed, pop up button", menu, false)).toEqual(["sr-expanded-unchanged"]);
+    expect(activate("expanded", open, true)).toEqual([]);
+    expect(activate("Country, pop up button", open, true)).toEqual(["sr-missing-expanded", "sr-expanded-change-silent"]);
+    // Focus moved into the opened list: VoiceOver reads the first option instead, which is fine.
+    expect(activate("Canada, menu item", ctl("menuitem", "Canada"), true)).toEqual([]);
+    // The control went away (e.g. replaced on open): nothing to compare.
+    expect(activate("Canada, menu item", ctl("menuitem", "Canada"), undefined)).toEqual([]);
+
+    const [f] = analyzeTranscript(transcript(step("activate", [said("Country, collapsed, pop up button", menu)], { toggle: { control: menu, before: false, after: false } })));
+    expect(f!.title).toBe("Activating it didn't open it");
+    expect(f!.wcag.map((c) => c.id)).toEqual(["4.1.2", "2.1.1"]);
+  });
+
   it("flags generic link text and same-named links to different places", () => {
     const t = transcript(step("tab", [
       said("link Read more", ctl("link", "Read more", { href: "/a" })),

@@ -16,6 +16,11 @@ export interface FocusedControl {
   tabindex?: number;
   /** Position in document order, to compare focus order with reading order. */
   domIndex: number;
+  /**
+   * Open or closed, for controls that expand (aria-expanded, a <details> summary); absent otherwise.
+   * Read from the DOM: the accessibility snapshot only marks open controls, so closed looks like "not expandable".
+   */
+  expanded?: boolean;
 }
 
 export interface Spoken {
@@ -25,6 +30,14 @@ export interface Spoken {
   item: string;
   /** The element with keyboard focus, for steps that move focus. */
   focus?: FocusedControl;
+}
+
+/** An `activate` step on an expandable control: its state before and after. */
+export interface ToggleResult {
+  control: FocusedControl;
+  before: boolean;
+  /** Absent when the control was gone (or no longer expandable) after the action. */
+  after?: boolean;
 }
 
 export interface TabSummary {
@@ -49,6 +62,7 @@ export interface TranscriptStep {
   /** WCAG criteria the workflow author tied to this step's `expect`. */
   wcag?: string[];
   tab?: TabSummary;
+  toggle?: ToggleResult;
   error?: string;
 }
 
