@@ -126,6 +126,35 @@ export const CHECKS: CheckDef[] = [
   },
 ];
 
+/**
+ * Signs a run didn't test the real page, so its passes and fails can't be trusted:
+ * it didn't load, it was redirected (usually to a login), or Tab found almost
+ * nothing (the app didn't render, or something like a dev-tools overlay has focus).
+ */
+export function runWarnings(r: KbResult): string[] {
+  if (r.error && r.steps.length === 0) return [`Couldn't load the page: ${r.error}`];
+  const out: string[] = [];
+  if (r.kind === "page") {
+    const path = (u: string) => {
+      try {
+        return new URL(u).pathname.replace(/\/+$/, "") || "/";
+      } catch {
+        return u;
+      }
+    };
+    if (path(r.name) !== path(r.url)) out.push(`Redirected from ${path(r.name)} to ${path(r.url)}: the page probably needs a sign-in (--session <name>; save one with bt-a11y sr login <url>)`);
+    const tab = r.steps[0]?.tab;
+    const own = tab?.stops.filter((s) => s.tag !== "iframe") ?? [];
+    if (tab && own.length <= 1) {
+      out.push(
+        `Tab found ${own.length === 0 ? "no controls" : "only 1 control"} on the page${tab.stops.length > own.length ? " (plus an iframe)" : ""}: ` +
+          "the app may not have rendered (needs a sign-in?), or something else has focus, like a dev-tools overlay (test the production build, e.g. npm run preview)",
+      );
+    }
+  }
+  return out;
+}
+
 /** Every check for one page or workflow run. */
 export function checkResults(result: KbResult, findings: Finding[] = analyzeKeyboard([{ result }])): CheckResult[] {
   const steps = result.steps;
@@ -187,6 +216,7 @@ export function formatKeyboardSummary(results: Array<{ result: KbResult; file?: 
   const count = (s: CheckStatus) => all.filter((c) => c.status === s).length;
   const pages = rows.filter((r) => r.result.kind === "page").length;
   const ran = rows.map((r) => r.result.ranAt).sort().at(-1);
+  const warned = rows.filter((r) => runWarnings(r.result).length).length;
 
   const out = [
     `# Keyboard test results${project ? ` — ${project}` : ""}`,
@@ -195,6 +225,7 @@ export function formatKeyboardSummary(results: Array<{ result: KbResult; file?: 
     "",
     `**${count("pass")} passed · ${count("fail")} failed · ${count("not-checked")} not checked**`,
     "",
+    ...(warned ? [`> ⚠ ${warned} of ${rows.length} runs probably didn't test the real page (see the ⚠ under each). Fix that and run again before trusting their results.`, ""] : []),
     "Automated keyboard checks (headless browser, no screen reader). A **Fail** is a lead to confirm on the checklist: " +
       "mark the line Fail to keep it in the report, Pass/N/A to dismiss it. A **Pass** means the automated check found nothing; " +
       "it doesn't replace testing by hand (whether the order makes sense, whether the focus indicator has enough contrast).",
@@ -212,7 +243,9 @@ export function formatKeyboardSummary(results: Array<{ result: KbResult; file?: 
 
   for (const { result, file, checks } of rows) {
     out.push("", `## ${label(result)}`, "", result.url + (file ? ` · results: \`${file}\`` : ""));
-    if (result.error) out.push("", `> ⚠ The run hit an error: ${result.error}`);
+    const warnings = runWarnings(result);
+    for (const w of warnings) out.push("", `> ⚠ ${w}`);
+    if (result.error && !warnings.some((w) => w.includes(result.error!))) out.push("", `> ⚠ The run hit an error: ${result.error}`);
     out.push("", "| Check | WCAG | Result | Details |", "| --- | --- | --- | --- |");
     for (const c of checks) out.push(`| ${c.title} | ${c.wcag} | ${ICON[c.status]} | ${cell(c.detail)} |`);
   }

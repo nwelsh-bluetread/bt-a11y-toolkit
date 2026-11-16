@@ -112,3 +112,30 @@ describe("analyzeKeyboard", () => {
     expect(f[0]!.wcag.map((c) => c.id)).toEqual(["2.4.7"]);
   });
 });
+
+describe("matching results to audit pages, and spotting runs that didn't test the page", () => {
+  it("matches the same path on another port, but not another host or an ambiguous path", async () => {
+    const { matchAuditUrl } = await import("../src/screen-reader/load.js");
+    const audit = ["http://localhost:4173/login", "http://localhost:4173/branches/"];
+    expect(matchAuditUrl("http://localhost:4173/login#top", audit)).toBe("http://localhost:4173/login");
+    expect(matchAuditUrl("http://localhost:5173/branches", audit)).toBe("http://localhost:4173/branches/");
+    expect(matchAuditUrl("https://staging.acme.test/login", audit)).toBeUndefined();
+    expect(matchAuditUrl("http://localhost:5173/login", [...audit, "http://localhost:3000/login"])).toBeUndefined();
+  });
+
+  it("warns about failed loads, redirects, and pages where Tab found almost nothing", async () => {
+    const { runWarnings } = await import("../src/keyboard/summary.js");
+    const base = { version: 1 as const, kind: "page" as const, ranAt: "" };
+    const iframe = { role: "iframe", name: "", tag: "iframe", domIndex: 54, indicator: "unknown" as const, obscured: false, inMain: false };
+    const tab = (stops: KbStop[]) => [{ step: 1, action: "tab", kind: "tab", url: "", tab: { stops, stopped: "left-page" as const, unreached: [] } }];
+
+    expect(runWarnings({ ...base, name: "http://localhost:4173/x", url: "http://localhost:4173/x", steps: [], error: "net::ERR_CONNECTION_REFUSED" })[0]).toMatch(/^Couldn't load the page/);
+    expect(runWarnings({ ...base, name: "http://localhost:4173/users", url: "http://localhost:4173/login", steps: tab([]) }).join(" ")).toMatch(/Redirected from \/users to \/login/);
+    // What the dev server gave: only the dev-tools iframe.
+    expect(runWarnings({ ...base, name: "http://localhost:5173/branches", url: "http://localhost:5173/branches", steps: tab([iframe]) })).toEqual([
+      expect.stringMatching(/^Tab found no controls on the page \(plus an iframe\)/),
+    ]);
+    const fine = ["A", "B", "C"].map((n, i) => ({ ...iframe, role: "button", tag: "button", name: n, domIndex: i, indicator: "visible" as const, inMain: true }));
+    expect(runWarnings({ ...base, name: "http://a.test/", url: "http://a.test/", steps: tab(fine) })).toEqual([]);
+  });
+});

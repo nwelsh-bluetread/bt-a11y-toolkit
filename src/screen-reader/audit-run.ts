@@ -7,7 +7,7 @@
 import type { AuditSession } from "../wizard/session.js";
 import { upsertRun } from "../wizard/session.js";
 import { SCREEN_READER_CRITERIA, SOURCE } from "./analyze.js";
-import { alignPages, loadTranscripts, sameUrl, type LoadedTranscripts } from "./load.js";
+import { alignPages, loadTranscripts, matchAuditUrl, type LoadedTranscripts } from "./load.js";
 
 export interface ScreenReaderMerge {
   loaded: LoadedTranscripts;
@@ -31,5 +31,5 @@ export function addScreenReaderRun(session: AuditSession, dir: string, cwd: stri
     checked: SCREEN_READER_CRITERIA,
     findings,
   });
-  return { loaded, findings: findings.length, outside: loaded.pages.filter((p) => !urls.some((u) => sameUrl(u, p))) };
+  return { loaded, findings: findings.length, outside: loaded.pages.filter((p) => !matchAuditUrl(p, urls)) };
 }

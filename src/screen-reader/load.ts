@@ -46,11 +46,36 @@ export function sameUrl(a: string, b: string): boolean {
   return norm(a) === norm(b);
 }
 
+/**
+ * The audit URL a tested page belongs to: the same URL, or the same host and path
+ * on another port (a dev server on :5173 for an audit of :4173). Undefined when
+ * none, or when the path matches more than one audit page.
+ */
+export function matchAuditUrl(page: string, auditUrls: string[]): string | undefined {
+  const exact = auditUrls.find((u) => sameUrl(u, page));
+  if (exact) return exact;
+  const parts = (u: string) => {
+    try {
+      const x = new URL(u);
+      return { host: x.hostname.toLowerCase(), path: `${x.pathname.replace(/\/+$/, "") || "/"}${x.search}`.toLowerCase() };
+    } catch {
+      return undefined;
+    }
+  };
+  const p = parts(page);
+  if (!p) return undefined;
+  const same = auditUrls.filter((u) => {
+    const a = parts(u);
+    return a && a.host === p.host && a.path === p.path;
+  });
+  return same.length === 1 ? same[0] : undefined;
+}
+
 /** Point each finding's page at the audit's own spelling of that URL, so it lands on the right checklist screen. */
 export function alignPages(findings: Finding[], auditUrls: string[]): Finding[] {
   return findings.map((f) => {
     const page = typeof f.evidence?.page === "string" ? f.evidence.page : undefined;
-    const match = page ? auditUrls.find((u) => sameUrl(u, page)) : undefined;
+    const match = page ? matchAuditUrl(page, auditUrls) : undefined;
     return match && match !== page ? { ...f, evidence: { ...f.evidence, page: match } } : f;
   });
 }

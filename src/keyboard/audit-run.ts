@@ -5,7 +5,7 @@
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
-import { alignPages, sameUrl } from "../screen-reader/load.js";
+import { alignPages, matchAuditUrl } from "../screen-reader/load.js";
 import { keyboardResultsDir, keyboardSummaryPath, screenReaderPaths } from "../screen-reader/paths.js";
 import { loadWorkflows } from "../screen-reader/workflow.js";
 import type { Finding } from "../types.js";
@@ -77,7 +77,7 @@ export function keyboardFindings(cwd: string, auditUrls: string[]): KeyboardMerg
   const results = loadKeyboardResults(cwd);
   const findings = alignPages(analyzeKeyboard(results), auditUrls);
   const pages = [...new Set(results.flatMap(({ result }) => [result.url, ...result.steps.map((s) => s.url)]))];
-  return { findings, pages, outside: pages.filter((p) => !auditUrls.some((u) => sameUrl(u, p))) };
+  return { findings, pages, outside: pages.filter((p) => !matchAuditUrl(p, auditUrls)) };
 }
 
 /** Add the saved keyboard results to the audit. Undefined when there are none. */

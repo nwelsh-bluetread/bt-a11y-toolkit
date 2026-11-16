@@ -18,7 +18,8 @@ import { MANUAL_CHECKLIST, TEST_MODES, TEST_PASSES, type AuditTarget, type Check
 import { isReactNativeProject, RN_RULES, type CodeScanResult } from "../code-scan/react-native.js";
 import { FEATURE_LABEL, isFile, screensFromUrls, type ScreenDiscovery, type ScreenInfo } from "../code-scan/screens.js";
 import { runQuickScan } from "../quick-scan.js";
-import { addKeyboardRun, writeKeyboardSummary } from "../keyboard/audit-run.js";
+import { addKeyboardRun, loadKeyboardResults, writeKeyboardSummary } from "../keyboard/audit-run.js";
+import { runWarnings } from "../keyboard/summary.js";
 import type { KeyboardProgress } from "../keyboard/runner.js";
 import { addScreenReaderRun } from "../screen-reader/audit-run.js";
 import { findWorkflowFiles, grepFor, listSessions, listWorkflows, writeBaselines } from "../screen-reader/baseline.js";
@@ -655,6 +656,9 @@ async function runKeyboardTests(deps: WizardDeps, session: AuditSession, pages: 
   } catch (err) {
     out(red(`✗ Keyboard tests failed: ${message(err)}`));
     return;
+  }
+  for (const { result } of loadKeyboardResults(cwd).filter(({ result }) => pages.includes(result.name))) {
+    for (const w of runWarnings(result)) out(yellow(`  ⚠ ${result.name}: ${w}`));
   }
   const merged = addKeyboardRun(session, cwd);
   const summary = writeKeyboardSummary(cwd, session.project.name || undefined);

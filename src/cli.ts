@@ -685,7 +685,8 @@ async function runKeyboardCommand(argv: string[]): Promise<void> {
       return;
     }
     const { keyboardSummaryPath } = await import("./screen-reader/paths.js");
-    const { checkResults } = await import("./keyboard/summary.js");
+    const { checkResults, runWarnings } = await import("./keyboard/summary.js");
+    for (const r of results) for (const w of runWarnings(r)) process.stderr.write(`  ⚠ ${r.name}: ${w}\n`);
     const checks = results.flatMap((r) => checkResults(r));
     const n = (s: string) => checks.filter((c) => c.status === s).length;
     process.stdout.write(`\nChecks: ${n("pass")} passed · ${n("fail")} failed · ${n("not-checked")} not checked. Every check, per page: ${relative(cwd, keyboardSummaryPath(cwd))}\n`);
@@ -708,7 +709,12 @@ async function runKeyboardCommand(argv: string[]): Promise<void> {
     `\n${merged.findings.length} keyboard finding${merged.findings.length === 1 ? "" : "s"} added to the audit, pre-filled on the checklist as "not reviewed yet". ` +
       `Confirm (Fail) or dismiss (Pass/N/A) each one in 'npx bt-a11y checklist'; details are in a11y-audit/scan-details.md.\n`,
   );
-  if (merged.outside.length) process.stdout.write(`Pages not in the audit (their findings go under app-wide): ${merged.outside.join(", ")}\n`);
+  if (merged.outside.length) {
+    process.stdout.write(
+      `⚠ ${merged.outside.length} tested page${merged.outside.length === 1 ? " isn't" : "s aren't"} in the audit, so ${merged.outside.length === 1 ? "its" : "their"} findings aren't on a page's checklist lines: ${merged.outside.join(", ")}\n` +
+        `  The audit's pages are e.g. ${(session.project.urls ?? []).slice(0, 2).join(", ")}. Test those (run 'npx bt-a11y kb' with no URLs to use them).\n`,
+    );
+  }
 }
 
 async function runCodeCommand(args: ParsedArgs): Promise<void> {
