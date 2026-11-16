@@ -6,6 +6,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { analyzeKeyboard } from "../src/keyboard/analyze.js";
 import type { KbElement, KbResult, KbStop } from "../src/keyboard/results.js";
 import { runKeyboard } from "../src/keyboard/runner.js";
+import { checkResults, formatKeyboardSummary } from "../src/keyboard/summary.js";
 import type { Workflow } from "../src/screen-reader/workflow.js";
 
 const FIXTURE = pathToFileURL(resolve("screen-reader/fixtures/keyboard.html")).href;
@@ -40,6 +41,26 @@ describe("keyboard runner (real browser)", () => {
     );
     expect(findings.every((f) => f.evidence?.needsReview === true && f.source === "keyboard")).toBe(true);
     expect(findings.find((f) => f.ruleId === "kb-no-focus-indicator")!.nodeId).toBe('button "No focus ring"');
+
+    // The summary lists every check: what failed matches the findings, the rest passed or didn't apply.
+    const status = (r: KbResult) => Object.fromEntries(checkResults(r).map((c) => [c.id, c.status]));
+    expect(status(page!)).toEqual({
+      "focus-indicator": "fail",
+      "focus-not-obscured": "fail",
+      "focus-order": "fail",
+      "no-trap": "pass",
+      "all-reachable": "fail",
+      bypass: "pass",
+      activate: "not-checked",
+      "dialog-focus": "not-checked",
+      "dialog-return": "not-checked",
+    });
+    expect(status(flow!)).toMatchObject({ activate: "fail", "dialog-focus": "pass", "dialog-return": "pass", "no-trap": "pass", "focus-indicator": "not-checked" });
+    const md = formatKeyboardSummary(results.map((result) => ({ result })), "Acme");
+    expect(md).toContain("# Keyboard test results — Acme");
+    expect(md).toContain("| Visible focus indicator | 2.4.7 | ❌ Fail | No visible focus indicator: button “No focus ring” |");
+    expect(md).toContain("| Skip link or landmark to bypass repeated content | 2.4.1 | ✅ Pass | Skip link “Skip to main content” works (but it's Tab stop 2, not the first) |");
+    expect(md).toContain("## Workflow: Keyboard: dialog");
   }, 60_000);
 });
 
@@ -70,6 +91,8 @@ describe("analyzeKeyboard", () => {
     expect(rules(page({ skipLink: { present: true, name: "Skip", works: false }, hasMain: true }))).toEqual(["kb-skip-link-broken"]);
     const header = ["Home", "About", "Blog", "Shop", "Help"].map((n) => stop(n, { inMain: false }));
     expect(rules(page({ skipLink: { present: false }, hasMain: false }, [...header, stop("Content")]))).toEqual(["kb-no-bypass"]);
+    // No main landmark at all: every stop counts as before the content.
+    expect(rules(page({ skipLink: { present: false }, hasMain: false }, ["Home", "About", "Blog", "Shop", "Help"].map((n) => stop(n, { inMain: false }))))).toEqual(["kb-no-bypass"]);
     // A main landmark is an accepted way to bypass blocks.
     expect(rules(page({ skipLink: { present: false }, hasMain: true }, [...header, stop("Content")]))).toEqual([]);
   });

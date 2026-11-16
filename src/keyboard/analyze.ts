@@ -185,7 +185,8 @@ function skipLinkFindings(at: Place): Finding[] {
     )];
   }
   // Landmarks are another accepted way to bypass blocks, so only flag a page with neither.
-  const stopsBeforeMain = at.result.steps[0]?.tab?.stops.findIndex((s) => s.inMain) ?? -1;
+  // With no main landmark, every stop counts: nothing marks where the content starts.
+  const stopsBeforeMain = hasMain ? (at.result.steps[0]?.tab?.stops.findIndex((s) => s.inMain) ?? -1) : (at.result.steps[0]?.tab?.stops.length ?? 0);
   if (!skipLink.present && !hasMain && stopsBeforeMain >= 5) {
     return [make(
       "kb-no-bypass", "medium", ["2.4.1"],

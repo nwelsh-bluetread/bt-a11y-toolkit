@@ -23,7 +23,7 @@
  */
 import { spawn } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { runAudit } from "./audit.js";
 import { formatConsole, formatJson, formatMarkdown } from "./report.js";
 import { createJiraTickets } from "./integrations/jira.js";
@@ -453,6 +453,15 @@ async function runQuickCommand(args: ParsedArgs): Promise<void> {
   }
 }
 
+/** The guided audit's project name, for titles (undefined before an audit exists). */
+function loadSessionName(cwd: string): string | undefined {
+  try {
+    return (JSON.parse(readFileSync(join(cwd, "a11y-audit", "session.json"), "utf8")) as { project?: { name?: string } }).project?.name;
+  } catch {
+    return undefined;
+  }
+}
+
 async function runStartCommand(): Promise<void> {
   await notifyIfOutdated();
   const [{ runWizard }, { inquirerPrompter, isPromptExit }, lighthouseRunner] = await Promise.all([
@@ -478,7 +487,7 @@ async function runStartCommand(): Promise<void> {
       },
       runKeyboard: async (opts) => {
         const { keyboardTest } = await import("./keyboard/audit-run.js");
-        return (await keyboardTest({ cwd, ...opts })).length;
+        return (await keyboardTest({ cwd, project: loadSessionName(cwd), ...opts })).length;
       },
       // VoiceOver automation is macOS only.
       ...(process.platform === "darwin"
@@ -665,6 +674,7 @@ async function runKeyboardCommand(argv: string[]): Promise<void> {
       pages,
       workflows,
       signIn,
+      project: session?.project.name,
       onProgress: (e) => {
         if (e.type === "start") process.stdout.write(`  [${e.index + 1}/${e.total}] ${e.name}\n`);
         if (e.type === "error") process.stderr.write(`    ! ${e.error}\n`);
@@ -674,6 +684,11 @@ async function runKeyboardCommand(argv: string[]): Promise<void> {
       process.stdout.write("Nothing to test: no pages and no saved workflows.\n");
       return;
     }
+    const { keyboardSummaryPath } = await import("./screen-reader/paths.js");
+    const { checkResults } = await import("./keyboard/summary.js");
+    const checks = results.flatMap((r) => checkResults(r));
+    const n = (s: string) => checks.filter((c) => c.status === s).length;
+    process.stdout.write(`\nChecks: ${n("pass")} passed · ${n("fail")} failed · ${n("not-checked")} not checked. Every check, per page: ${relative(cwd, keyboardSummaryPath(cwd))}\n`);
   } catch (err) {
     process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
     process.exitCode = 1;

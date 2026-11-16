@@ -3,10 +3,10 @@
  * audit (one automated run, replacing the previous keyboard run). Shared by
  * `bt-a11y kb` and the guided audit.
  */
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join, relative } from "node:path";
 import { alignPages, sameUrl } from "../screen-reader/load.js";
-import { keyboardResultsDir, screenReaderPaths } from "../screen-reader/paths.js";
+import { keyboardResultsDir, keyboardSummaryPath, screenReaderPaths } from "../screen-reader/paths.js";
 import { loadWorkflows } from "../screen-reader/workflow.js";
 import type { Finding } from "../types.js";
 import type { AuditSession } from "../wizard/session.js";
@@ -14,6 +14,7 @@ import { upsertRun } from "../wizard/session.js";
 import { analyzeKeyboard, KEYBOARD_CRITERIA, SOURCE } from "./analyze.js";
 import type { KbResult } from "./results.js";
 import { runKeyboard, type KeyboardProgress } from "./runner.js";
+import { formatKeyboardSummary } from "./summary.js";
 
 export interface KeyboardTestOptions {
   cwd: string;
@@ -22,6 +23,8 @@ export interface KeyboardTestOptions {
   workflows: "all" | string[];
   signIn?: string;
   onProgress?: KeyboardProgress;
+  /** Project name for the summary's title. */
+  project?: string;
 }
 
 /** Run the pages and workflows; results are saved to the keyboard results folder. */
@@ -29,7 +32,19 @@ export async function keyboardTest(opts: KeyboardTestOptions): Promise<KbResult[
   const dir = screenReaderPaths(opts.cwd).workflows;
   const saved = existsSync(dir) ? loadWorkflows(dir) : [];
   const workflows = opts.workflows === "all" ? saved : saved.filter((w) => opts.workflows.includes(w.name));
-  return runKeyboard({ pages: opts.pages, workflows, signIn: opts.signIn, outDir: keyboardResultsDir(opts.cwd), onProgress: opts.onProgress });
+  const results = await runKeyboard({ pages: opts.pages, workflows, signIn: opts.signIn, outDir: keyboardResultsDir(opts.cwd), onProgress: opts.onProgress });
+  writeKeyboardSummary(opts.cwd, opts.project);
+  return results;
+}
+
+/** Rewrite keyboard-summary.md from every saved result; returns its path (undefined when there are none). */
+export function writeKeyboardSummary(cwd: string, project?: string): string | undefined {
+  const results = loadKeyboardResults(cwd);
+  if (results.length === 0) return undefined;
+  const path = keyboardSummaryPath(cwd);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, formatKeyboardSummary(results, project));
+  return path;
 }
 
 /** Every saved result in the project's keyboard results folder. */

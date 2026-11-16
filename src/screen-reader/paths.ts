@@ -41,6 +41,11 @@ export function keyboardResultsDir(root = projectRoot()): string {
   return isToolkitRepo(root) ? join(root, "reports", "keyboard") : join(root, "a11y-audit", "keyboard", "results");
 }
 
+/** Every keyboard check, Pass / Fail / Not checked, per page and workflow (rewritten after each run). */
+export function keyboardSummaryPath(root = projectRoot()): string {
+  return isToolkitRepo(root) ? join(root, "reports", "keyboard-summary.md") : join(root, "a11y-audit", "keyboard", "keyboard-summary.md");
+}
+
 export function screenReaderPaths(root = projectRoot()): ScreenReaderPaths {
   if (isToolkitRepo(root)) {
     const reports = join(root, "reports", "screen-reader");
