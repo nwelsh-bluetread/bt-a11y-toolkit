@@ -38,6 +38,17 @@ Files live with the audit, in `a11y-audit/screen-reader/`:
 
 Keep hands off the keyboard and mouse while it runs: VoiceOver drives the whole Mac.
 
+**Speed.** Moving through a page (`read`, `next`, `tab`, `find`, `focus`) runs at
+a fast pace: each item is recorded as soon as VoiceOver's output settles (~0.4s),
+instead of Guidepup's default wait for the whole phrase to be spoken (4-10s per
+item). Actions (`activate`, `press`, `type`, `wait`, `goto`) keep the full wait,
+so late announcements like alerts and live regions are still heard. For the full
+wait everywhere: `BT_SR_PACE=thorough npx bt-a11y sr test`.
+
+**Tables.** A `read` step reads a table's header and first two data rows, then
+skips the rest of its cells; the transcript notes "(table: read rows 1–3 of 20,
+skipped the rest)". Use `next` steps to hear more of a specific table.
+
 ## Inside the toolkit repo
 
 The same commands also run as `npm run sr:<command>` in the toolkit itself, on

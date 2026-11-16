@@ -6,11 +6,13 @@
 // `expect` checks are soft: failures are listed at the end, but every step
 // still runs and the transcript always covers the whole workflow.
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { join } from "node:path";
 import { voiceOverTest as test, type VoiceOverPlaywright } from "@guidepup/playwright";
 import { expect, type Page } from "@playwright/test";
 import type { FocusedControl, Spoken, TabSummary, ToggleResult, Transcript, TranscriptStep } from "../src/screen-reader/transcript.ts";
 import { screenReaderPaths } from "../src/screen-reader/paths.ts";
+import { cellsToSkip, TABLE_ROWS_READ, tablePosition } from "../src/screen-reader/table.ts";
 import { applySession } from "./session.ts";
 import { describeStep, FIND_COMMANDS, loadWorkflows, stepAction, stripHints, type WorkflowStep } from "./workflow.ts";
 
@@ -74,6 +76,32 @@ const INTERACTIVE =
 
 // Capture full announcements so late ones (role="alert", live regions) are recorded.
 test.use({ voiceOverStartOptions: { capture: true } });
+
+// ── Pace ─────────────────────────────────────────────────────────────────────
+// Guidepup waits for VoiceOver's output to stop changing for ~1.25s after every
+// move, plus time to "speak" the words: 4-10s per item. Moving through the page
+// (read, next, tab, find, focus) only needs the item's own announcement, so it
+// runs at a fast pace: ~0.4s of stable output and no speaking time. Actions
+// (activate, press, type, wait, goto) keep Guidepup's full wait, because that's
+// when late announcements (alerts, live regions) come.
+// BT_SR_PACE=thorough uses the full wait everywhere.
+type GuidepupTiming = { SPOKEN_PHRASES_RETRY_COUNT: number; MAX_SPOKEN_PHRASES_POLL_COUNT: number; APPROX_WORDS_PER_SECOND: number };
+const timing: GuidepupTiming | undefined = (() => {
+  try {
+    // Guidepup reads these on every poll, so changing them takes effect on the next command.
+    return createRequire(import.meta.url)("@guidepup/guidepup/lib/macOS/VoiceOver/constants.js") as GuidepupTiming;
+  } catch {
+    return undefined;
+  }
+})();
+const THOROUGH = timing && { ...timing };
+const FAST: GuidepupTiming = { SPOKEN_PHRASES_RETRY_COUNT: 8, MAX_SPOKEN_PHRASES_POLL_COUNT: 32, APPROX_WORDS_PER_SECOND: 1000 };
+const MOVES = new Set(["read", "next", "tab", "find", "focus"]);
+
+function setPace(kind: string): void {
+  if (!timing || !THOROUGH) return;
+  Object.assign(timing, process.env.BT_SR_PACE === "thorough" || !MOVES.has(kind) ? THOROUGH : FAST);
+}
 
 interface StepResult {
   output: Spoken[];
@@ -162,14 +190,29 @@ async function runStep(step: WorkflowStep, page: Page, voiceOver: VoiceOverPlayw
   const s = step as Record<string, unknown>;
   switch (stepAction(step)) {
     case "read": {
-      // Move until VoiceOver stops advancing (the end of the page).
+      // Move until VoiceOver stops advancing (the end of the page). Tables: the
+      // header and two data rows are read; the rest of the cells are skipped.
       let repeats = 0;
       for (let i = 0; i < MAX_ITEMS && repeats < 2; i++) {
         const before = await voiceOver.itemText();
         await voiceOver.next();
         const now = await heard(voiceOver);
         repeats = now.item === before ? repeats + 1 : 0;
-        if (repeats === 0) output.push(now);
+        if (repeats !== 0) continue;
+        const pos = tablePosition(now.spoken);
+        const skip = pos ? cellsToSkip(pos) : 0;
+        if (pos && skip > 0) {
+          // Moves without capturing: no waiting for VoiceOver's output.
+          for (let k = 0; k < skip; k++) await voiceOver.next({ capture: false });
+          // A table can take two jumps to leave (cells with links take extra moves): note it once.
+          const note = `(table: read rows 1–${TABLE_ROWS_READ} of ${pos.rows}, skipped the rest)`;
+          if (output.at(-1)?.spoken !== note) {
+            output.push({ spoken: note, item: "" });
+            log(`    table: read ${TABLE_ROWS_READ} of ${pos.rows} rows, skipping the rest`);
+          }
+          continue;
+        }
+        output.push(now);
       }
       return { output };
     }
@@ -242,6 +285,9 @@ for (const wf of workflows) {
     log(`▶ Workflow ${started} of ${selected.length}: ${wf.name}${started > 1 ? ` (run so far ${took(runStart)})` : ""}`);
     log(`  page ${where(wf.url)}${wf.session ? ` · signed in as "${wf.session}"` : ""}`);
     let lastUrl = wf.url;
+    // Loading the page and its first announcement get the full wait.
+    setPace("start");
+    if (started === 1 && !timing) log("  (couldn't change Guidepup's pace: every item gets the full wait)");
     try {
       if (wf.session) await applySession(page.context(), wf.session);
       await page.goto(wf.url, { waitUntil: "load" });
@@ -254,6 +300,7 @@ for (const wf of workflows) {
         const entry: TranscriptStep = { step: i + 1, action: describeStep(step), kind: stepAction(step), url: page.url(), output: [] };
         steps.push(entry);
         log(`  step ${i + 1}/${wf.steps.length}: ${entry.action}`);
+        setPace(entry.kind);
         try {
           const result = await runStep(step, page, voiceOver, entry.output);
           entry.output = result.output;
