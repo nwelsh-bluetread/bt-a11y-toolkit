@@ -19,7 +19,7 @@ Work from the repo being audited. Files live with the audit:
 
 Inside the toolkit repo itself (it has `screen-reader/workflows.sr.ts`), the demo layout is used instead: workflows in `screen-reader/workflows/`, transcripts in `reports/screen-reader/`, and each command is `npm run sr:<command> --`. Below, read the paths and commands accordingly.
 
-If `npx bt-a11y sr` says packages are missing, tell the user to run `npm install -D @guidepup/playwright @playwright/test playwright tsx` (and, once per Mac, `npx @guidepup/setup`).
+If `npx bt-a11y sr` says packages are missing, tell the user to run `npm install -D @guidepup/guidepup @guidepup/playwright @playwright/test playwright tsx` (and, once per Mac, `npx @guidepup/setup`).
 
 ## Inputs
 

@@ -5,7 +5,7 @@
 //
 // `expect` checks are soft: failures are listed at the end, but every step
 // still runs and the transcript always covers the whole workflow.
-import { mkdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { voiceOverTest as test, type VoiceOverPlaywright } from "@guidepup/playwright";
 import { expect, type Page } from "@playwright/test";
@@ -18,6 +18,55 @@ const paths = screenReaderPaths();
 const workflows = loadWorkflows(paths.workflows);
 const outDir = paths.transcripts;
 const MAX_ITEMS = 200;
+
+// ── Live log: which workflow and page is running, and when ──────────────────
+// Printed as it happens and appended to run.log next to the transcripts, since
+// VoiceOver covers the screen while it runs. `bt-a11y sr test` clears the file
+// and passes its -g pattern, so "2 of 5" counts only the workflows being run.
+const LOG = join(outDir, "run.log");
+const grep = process.env.BT_SR_GREP;
+const selected = grep
+  ? workflows.filter((w) => {
+      try {
+        return new RegExp(grep, "i").test(w.name);
+      } catch {
+        return true;
+      }
+    })
+  : workflows;
+const runStart = Date.now();
+let started = 0;
+
+function log(line: string): void {
+  const text = `[${new Date().toTimeString().slice(0, 8)}] ${line}`;
+  console.log(text);
+  try {
+    mkdirSync(outDir, { recursive: true });
+    appendFileSync(LOG, text + "\n");
+  } catch {
+    // The terminal still has it.
+  }
+}
+
+/** "8s", "1m 05s". */
+function took(since: number): string {
+  const sec = Math.round((Date.now() - since) / 1000);
+  return sec < 60 ? `${sec}s` : `${Math.floor(sec / 60)}m ${String(sec % 60).padStart(2, "0")}s`;
+}
+
+/** Path and query, for a short "on /users" (full URL when it isn't http). */
+function where(url: string): string {
+  try {
+    const u = new URL(url);
+    return /^https?:$/.test(u.protocol) ? `${u.pathname}${u.search}` : url;
+  } catch {
+    return url;
+  }
+}
+
+test.afterAll(() => {
+  if (started) log(`■ Finished ${started} workflow${started === 1 ? "" : "s"} in ${took(runStart)}. Transcripts: ${outDir}`);
+});
 
 /** Elements a keyboard user should be able to reach with Tab. */
 const INTERACTIVE =
@@ -188,15 +237,23 @@ for (const wf of workflows) {
   test(wf.name, async ({ page, voiceOver }) => {
     const transcript: Transcript = { version: 1, workflow: wf.name, url: wf.url, ranAt: new Date().toISOString(), steps: [] };
     const steps = transcript.steps;
+    const wfStart = Date.now();
+    started++;
+    log(`▶ Workflow ${started} of ${selected.length}: ${wf.name}${started > 1 ? ` (run so far ${took(runStart)})` : ""}`);
+    log(`  page ${where(wf.url)}${wf.session ? ` · signed in as "${wf.session}"` : ""}`);
+    let lastUrl = wf.url;
     try {
       if (wf.session) await applySession(page.context(), wf.session);
       await page.goto(wf.url, { waitUntil: "load" });
+      if (where(page.url()) !== where(wf.url)) log(`  ⚠ landed on ${where(page.url())} instead (redirected: needs a sign-in?)`);
+      lastUrl = page.url();
       await voiceOver.navigateToWebContent();
       steps.push({ step: 0, action: "start", kind: "start", url: page.url(), output: [await heard(voiceOver)] });
 
       for (const [i, step] of wf.steps.entries()) {
         const entry: TranscriptStep = { step: i + 1, action: describeStep(step), kind: stepAction(step), url: page.url(), output: [] };
         steps.push(entry);
+        log(`  step ${i + 1}/${wf.steps.length}: ${entry.action}`);
         try {
           const result = await runStep(step, page, voiceOver, entry.output);
           entry.output = result.output;
@@ -214,8 +271,19 @@ for (const wf of workflows) {
           expect.soft(said, `step ${i + 1} (${entry.action}) should announce "${step.expect}"`).toContain(step.expect);
         }
         if (entry.error) expect.soft(entry.error, `step ${i + 1} (${entry.action}) failed`).toBe("");
+        if (entry.passed === false) log(`    ✗ didn't hear "${step.expect}"`);
+        if (entry.error) log(`    ⚠ ${entry.error}`);
+        const now = page.url();
+        if (now !== lastUrl) log(`  → now on page ${where(now)}`);
+        lastUrl = now;
       }
+    } catch (err) {
+      log(`  ⚠ stopped: ${err instanceof Error ? err.message.split("\n")[0] : String(err)}`);
+      throw err;
     } finally {
+      const missed = steps.filter((x) => x.passed === false).length;
+      const errors = steps.filter((x) => x.error).length;
+      log(`✓ ${wf.name}: done in ${took(wfStart)}${missed ? ` · ${missed} expected announcement${missed === 1 ? "" : "s"} not heard` : ""}${errors ? ` · ${errors} step${errors === 1 ? "" : "s"} failed` : ""}`);
       mkdirSync(outDir, { recursive: true });
       writeFileSync(join(outDir, `${wf.id}.json`), JSON.stringify(transcript, null, 2));
       console.log(`\n${wf.name}\n` + steps.map(printStep).join("\n"));

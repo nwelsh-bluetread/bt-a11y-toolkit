@@ -86,6 +86,7 @@
   },
   "peerDependencies": {
     "@axe-core/playwright": ">=4",
+    "@guidepup/guidepup": ">=0.38",
     "@guidepup/playwright": ">=0.21",
     "@playwright/test": ">=1.40",
     "chrome-launcher": ">=1",
@@ -95,6 +96,9 @@
   },
   "peerDependenciesMeta": {
     "@axe-core/playwright": {
+      "optional": true
+    },
+    "@guidepup/guidepup": {
       "optional": true
     },
     "@guidepup/playwright": {

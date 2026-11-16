@@ -28,10 +28,40 @@ const SCRIPTS: Record<string, string> = {
   baseline: "sr-baseline.ts",
 };
 
-const INSTALL_HINT =
-  "The screen reader tools need these in the repo you're auditing (one time):\n" +
-  "  npm install -D @guidepup/playwright @playwright/test playwright tsx\n" +
-  "and VoiceOver set up for automation on this Mac (one time): npx @guidepup/setup\n";
+/**
+ * Packages the screen reader tools load from the audited repo. @guidepup/guidepup is
+ * a peer dependency of @guidepup/playwright, so npm doesn't install it on its own.
+ */
+export const SR_PACKAGES = ["@guidepup/guidepup", "@guidepup/playwright", "@playwright/test", "playwright", "tsx"] as const;
+/** What each command needs. */
+const NEEDS: Record<string, readonly string[]> = {
+  test: ["@guidepup/guidepup", "@guidepup/playwright", "@playwright/test", "playwright"],
+  script: ["playwright", "tsx"],
+};
+
+/** Whether a package is installed where the audited repo (or the toolkit) can load it: node_modules/<name>/package.json up the tree. */
+export function hasPackage(name: string, from: string[]): boolean {
+  for (const start of from) {
+    for (let dir = start; ; dir = dirname(dir)) {
+      if (existsSync(join(dir, "node_modules", name, "package.json"))) return true;
+      if (dirname(dir) === dir) break;
+    }
+  }
+  return false;
+}
+
+/** The install message for whatever's missing, or undefined when everything is there. */
+export function missingPackagesHint(needed: readonly string[], from: string[]): string | undefined {
+  const missing = needed.filter((name) => !hasPackage(name, from));
+  if (missing.length === 0) return undefined;
+  return (
+    `Missing ${missing.length === 1 ? "a package" : "packages"} the screen reader tools need: ${missing.join(", ")}\n` +
+    `Install ${missing.length === 1 ? "it" : "them"} in the repo you're auditing:\n` +
+    `  npm install -D ${missing.join(" ")}\n` +
+    `(Everything they use, if you're setting up from scratch: npm install -D ${SR_PACKAGES.join(" ")})\n` +
+    "VoiceOver also needs setting up for automation once per Mac: npx @guidepup/setup\n"
+  );
+}
 
 export const SR_HELP = `bt-a11y sr <command> — VoiceOver screen reader testing (macOS)
 
@@ -62,9 +92,9 @@ function resolveFrom(id: string, cwd: string): string | undefined {
   return undefined;
 }
 
-function run(cmd: string, args: string[], cwd: string): Promise<number> {
+function run(cmd: string, args: string[], cwd: string, env: Record<string, string> = {}): Promise<number> {
   return new Promise((done) => {
-    const child = spawn(cmd, args, { cwd, stdio: "inherit", env: { ...process.env, BT_A11Y_PROJECT: cwd } });
+    const child = spawn(cmd, args, { cwd, stdio: "inherit", env: { ...process.env, BT_A11Y_PROJECT: cwd, ...env } });
     child.on("error", (err) => {
       process.stderr.write(`${err.message}\n`);
       done(1);
@@ -113,16 +143,30 @@ export async function runSr(argv: string[], findings: () => Promise<void>): Prom
   if (command === "findings") return findings();
 
   if (command === "test") {
-    const cli = resolveFrom("@playwright/test/cli", cwd);
-    if (!cli || !resolveFrom("@guidepup/playwright", cwd)) {
-      process.stderr.write(INSTALL_HINT);
+    // Checked up front: a missing one otherwise surfaces as a "Cannot find module" stack trace from inside Playwright.
+    const hint = missingPackagesHint(NEEDS.test!, [cwd, PKG_ROOT]);
+    const cli = hint ? undefined : resolveFrom("@playwright/test/cli", cwd);
+    if (hint || !cli) {
+      process.stderr.write(hint ?? missingPackagesHint(["@playwright/test"], [])!);
       process.exitCode = 1;
       return;
     }
     const paths = prepare(cwd);
     const config = join(runnerDir(dirname(paths.workflows)), "playwright.config.ts");
-    if (!rest.includes("--list")) process.stdout.write(`Workflows: ${paths.workflows}\nTranscripts: ${paths.transcripts}\nVoiceOver is about to take over the Mac: keep hands off the keyboard and mouse.\n\n`);
-    process.exitCode = await run(process.execPath, [cli, "test", "-c", config, ...rest], cwd);
+    const log = join(paths.transcripts, "run.log");
+    if (!rest.includes("--list")) {
+      mkdirSync(paths.transcripts, { recursive: true });
+      writeFileSync(log, "");
+      process.stdout.write(
+        `Workflows: ${paths.workflows}\nTranscripts: ${paths.transcripts}\n` +
+          `Live log (which workflow and page is running, and when): ${log}\n` +
+          "  Follow it from another device or after the run: tail -f on that file.\n" +
+          "VoiceOver is about to take over the Mac: keep hands off the keyboard and mouse.\n\n",
+      );
+    }
+    // The -g pattern, so the runner can count "workflow 2 of 5" among the ones selected.
+    const g = rest.indexOf("-g") >= 0 ? rest[rest.indexOf("-g") + 1] : rest.find((a) => a.startsWith("--grep="))?.slice(7);
+    process.exitCode = await run(process.execPath, [cli, "test", "-c", config, ...rest], cwd, g ? { BT_SR_GREP: g } : {});
     if (process.exitCode !== 0) process.stdout.write(`\nSome steps failed or expected announcements weren't heard (listed above). Transcripts are saved either way.\n`);
     process.stdout.write(`Next: npx bt-a11y sr findings\n`);
     return;
@@ -134,9 +178,10 @@ export async function runSr(argv: string[], findings: () => Promise<void>): Prom
     process.exitCode = 1;
     return;
   }
-  const tsx = resolveFrom("tsx/cli", cwd);
-  if (!tsx || !resolveFrom("playwright", cwd)) {
-    process.stderr.write(INSTALL_HINT);
+  const hint = missingPackagesHint(NEEDS.script!, [cwd, PKG_ROOT]);
+  const tsx = hint ? undefined : resolveFrom("tsx/cli", cwd);
+  if (hint || !tsx) {
+    process.stderr.write(hint ?? missingPackagesHint(["tsx"], [])!);
     process.exitCode = 1;
     return;
   }

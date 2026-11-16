@@ -9,7 +9,7 @@ Run everything from the client repo; no need to `cd` into the toolkit.
 
 ```bash
 # One time per repo, and one time per Mac:
-npm install -D @guidepup/playwright @playwright/test playwright tsx
+npm install -D @guidepup/guidepup @guidepup/playwright @playwright/test playwright tsx
 npx @guidepup/setup
 
 npx bt-a11y sr baseline            # a read + Tab-through workflow for each audit page
