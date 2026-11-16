@@ -69,6 +69,8 @@ export interface WizardDeps {
   buildPdf?: (dataPath: string, pdfPath: string) => Promise<boolean>;
   /** Run `bt-a11y sr <args>` (VoiceOver, macOS only); resolves to the exit code. Absent where it can't run. */
   runScreenReader?: (args: string[]) => Promise<number>;
+  /** Milliseconds clock for the run timers (tests pass a fake one). Defaults to Date.now. */
+  now?: () => number;
   /** Run the keyboard tests (results saved to a11y-audit/keyboard/results/); resolves to how many pages/workflows ran. */
   runKeyboard?: (opts: { pages: string[]; workflows: "all" | string[]; signIn?: string; onProgress?: KeyboardProgress }) => Promise<number>;
 }
@@ -78,6 +80,7 @@ const MAX_PAGES = 25;
 
 export async function runWizard(deps: WizardDeps): Promise<void> {
   const { prompter: p, cwd, out } = deps;
+  const whole = stopwatch(deps);
   out(`\n${bold("BlueTread Accessibility Audit")}\n`);
 
   let session = loadSession(cwd);
@@ -130,8 +133,10 @@ export async function runWizard(deps: WizardDeps): Promise<void> {
   if (session.project.targets.some((t) => t !== "web") && (fresh || findBrowserStackCsvs(cwd).length) && (await browserStackStep(deps, session))) saveSession(cwd, session);
 
   // ── Everything below runs without prompts ──
+  const automated = stopwatch(deps);
   await runAutomated(deps, session, scanners);
   if (voiceOver.length) await runVoiceOver(deps, session, voiceOver);
+  const automatedTime = automated.total();
   saveSession(cwd, session);
 
   const { groups, previous } = writeChecklistFiles(cwd, session);
@@ -145,6 +150,7 @@ export async function runWizard(deps: WizardDeps): Promise<void> {
   out(green(`✓ Checklist: ${checklistPath(cwd)}`) + (answered ? dim(` (kept ${answered} answers)`) : ""));
   out(green(`✓ Checklist app: ${checklistUi}`) + dim(" (open it in Chrome or Edge to fill in checklist.md: npx bt-a11y checklist)"));
   out(green(`✓ Report so far (automated results): ${markdown}`));
+  out(dim(`\n⏱ Automated checks took ${automatedTime} · whole run ${whole.total()} (including the setup questions)`));
   out(`\nNext: test each screen and mark the checklist, then run ${bold("npx bt-a11y report")} to build the report and summary PDF.\n`);
 }
 
@@ -251,13 +257,14 @@ async function runVoiceOver(deps: WizardDeps, session: AuditSession, names: stri
   const { cwd, out } = deps;
   out(`\n${bold("VoiceOver")} ${dim(`— ${names.length} workflow${names.length === 1 ? "" : "s"}`)}`);
   out(yellow("  Hands off the keyboard and mouse until it finishes: VoiceOver drives the whole Mac."));
+  const timer = stopwatch(deps);
   await deps.runScreenReader!(["test", "-g", grepFor(names)]);
   const merged = addScreenReaderRun(session, screenReaderPaths(cwd).transcripts, cwd);
   if (!merged) {
     out(red("  ✗ VoiceOver saved no transcripts. Run it on its own later: npx bt-a11y sr test, then npx bt-a11y sr findings"));
     return;
   }
-  out(`  ${green("✓")} ${merged.findings} finding${merged.findings === 1 ? "" : "s"} to review${merged.outside.length ? dim(` (${merged.outside.length} page${merged.outside.length === 1 ? "" : "s"} outside the audit, filed under app-wide)`) : ""}`);
+  out(`  ${green("✓")} ${merged.findings} finding${merged.findings === 1 ? "" : "s"} to review · ${timer.total()}${merged.outside.length ? dim(` (${merged.outside.length} page${merged.outside.length === 1 ? "" : "s"} outside the audit, filed under app-wide)`) : ""}`);
 }
 
 /**
@@ -590,6 +597,7 @@ async function runAutomated(deps: WizardDeps, session: AuditSession, scanners: S
   out(bold("\nRunning automated checks…"));
 
   if (mobile.length > 0 && (stack === "react-native" || isReactNativeProject(cwd))) {
+    const timer = stopwatch(deps);
     try {
       const result = await deps.scanCode(cwd, targetLevel, mobile);
       upsertRun(session, {
@@ -601,7 +609,7 @@ async function runAutomated(deps: WizardDeps, session: AuditSession, scanners: S
         signals: result.signals,
         findings: result.findings,
       });
-      out(`\n${green("✓")} React Native code scan ${dim(`— ${result.filesScanned} files · ${result.checked.length} WCAG criteria checked`)}`);
+      out(`\n${green("✓")} React Native code scan ${dim(`— ${result.filesScanned} files · ${result.checked.length} WCAG criteria checked · ${timer.total()}`)}`);
       printFindingSummary(out, result.findings);
     } catch (err) {
       out(red(`\n✗ Code scan failed: ${message(err)}`));
@@ -613,9 +621,10 @@ async function runAutomated(deps: WizardDeps, session: AuditSession, scanners: S
   for (const tool of scanners) {
     out(`\n${bold(SCANNERS[tool].label)} ${dim(`— ${urls!.length} page(s)`)}`);
     const scan = tool === "axe" ? deps.scanAxe : deps.scanLighthouse;
+    const timer = stopwatch(deps);
     try {
       const assessment = await scan(urls!, targetLevel, (e) => {
-        if (e.type === "page") out(dim(`  [${e.index + 1}/${e.total}] ${e.url}`));
+        if (e.type === "page") out(dim(`  [${e.index + 1}/${e.total}] ${e.url}${timer.progress(e.index, e.total)}`));
         else if (e.type === "skip") out(red(`  ! skipped ${e.url} (${e.error})`));
       });
       upsertRun(session, {
@@ -627,9 +636,9 @@ async function runAutomated(deps: WizardDeps, session: AuditSession, scanners: S
         checked: WEB_CHECKED[tool],
         findings: assessment.findings,
       });
-      out(`${green("✓")} ${SCANNERS[tool].label} ${dim(`— ${count(assessment.findings)}`)}`);
+      out(`${green("✓")} ${SCANNERS[tool].label} ${dim(`— ${count(assessment.findings)} · ${timer.total()}`)}`);
     } catch (err) {
-      out(red(`✗ ${SCANNERS[tool].label} failed: ${message(err)}`));
+      out(red(`✗ ${SCANNERS[tool].label} failed after ${timer.total()}: ${message(err)}`));
     }
   }
 
@@ -643,18 +652,19 @@ async function runAutomated(deps: WizardDeps, session: AuditSession, scanners: S
 async function runKeyboardTests(deps: WizardDeps, session: AuditSession, pages: string[], workflows: "all" | string[]): Promise<void> {
   const { out, cwd } = deps;
   out(`\n${bold("Keyboard tests")} ${dim(`— ${pages.length} page${pages.length === 1 ? "" : "s"}${workflows === "all" ? " + saved workflows" : workflows.length ? ` + ${workflows.length} workflow${workflows.length === 1 ? "" : "s"}` : ""}`)}`);
+  const timer = stopwatch(deps);
   try {
     await deps.runKeyboard!({
       pages,
       workflows,
       signIn: session.project.signIn,
       onProgress: (e) => {
-        if (e.type === "start") out(dim(`  [${e.index + 1}/${e.total}] ${e.name}`));
+        if (e.type === "start") out(dim(`  [${e.index + 1}/${e.total}] ${e.name}${timer.progress(e.index, e.total)}`));
         if (e.type === "error") out(red(`  ! ${e.name}: ${e.error}`));
       },
     });
   } catch (err) {
-    out(red(`✗ Keyboard tests failed: ${message(err)}`));
+    out(red(`✗ Keyboard tests failed after ${timer.total()}: ${message(err)}`));
     return;
   }
   for (const { result } of loadKeyboardResults(cwd).filter(({ result }) => pages.includes(result.name))) {
@@ -662,7 +672,7 @@ async function runKeyboardTests(deps: WizardDeps, session: AuditSession, pages: 
   }
   const merged = addKeyboardRun(session, cwd);
   const summary = writeKeyboardSummary(cwd, session.project.name || undefined);
-  if (merged) out(`${green("✓")} Keyboard tests ${dim(`— ${merged.findings.length} finding${merged.findings.length === 1 ? "" : "s"} to review`)}`);
+  if (merged) out(`${green("✓")} Keyboard tests ${dim(`— ${merged.findings.length} finding${merged.findings.length === 1 ? "" : "s"} to review · ${timer.total()}`)}`);
   if (summary) out(dim(`  Every check, pass or fail, per page: ${relative(cwd, summary)}`));
 }
 
@@ -776,6 +786,30 @@ function count(findings: Finding[]): string {
 
 function message(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/** "8s", "1m 05s", "1h 02m". */
+export function formatDuration(ms: number): string {
+  const sec = Math.max(0, Math.round(ms / 1000));
+  if (sec < 60) return `${sec}s`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ${String(sec % 60).padStart(2, "0")}s`;
+  return `${Math.floor(min / 60)}h ${String(min % 60).padStart(2, "0")}m`;
+}
+
+/** A step's stopwatch: time so far, an estimate of what's left, and the total at the end. */
+function stopwatch(deps: WizardDeps) {
+  const now = deps.now ?? Date.now;
+  const start = now();
+  return {
+    /** ` · 1m 05s, ~3m left` for item `index` (0-based, about to start) of `total`. */
+    progress: (index: number, total: number) => {
+      const ms = now() - start;
+      const left = index > 0 && index < total ? `, ~${formatDuration((ms / index) * (total - index))} left` : "";
+      return ` · ${formatDuration(ms)}${left}`;
+    },
+    total: () => formatDuration(now() - start),
+  };
 }
 
 const color = process.stdout.isTTY && !process.env.NO_COLOR;

@@ -59,6 +59,7 @@
   #sidebar .tools { display: grid; gap: 8px; margin-bottom: 8px; font-size: 14px; }
   #sidebar input[type=search] { width: 100%; padding: 6px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); }
   #sidebar h2 { margin: 16px 0 4px 8px; }
+  #sidebar h2 .count { font-weight: 400; letter-spacing: 0.04em; }
   #sidebar ul { list-style: none; margin: 0; padding: 0; }
   #sidebar a { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 6px; text-decoration: none; color: var(--ink); font-size: 14px; }
   #sidebar a:hover { background: var(--track); }
@@ -740,6 +741,15 @@ function renderSidebar() {
   let html = '';
   let lastSection = null;
   const currentPage = doc.screens[state.current].page;
+  // Per heading: how many pages it has, and how many still need checking (not finished, not blocked).
+  const counts = new Map();
+  for (const page of doc.pages) {
+    const c = counts.get(page.section) ?? { total: 0, left: 0 };
+    const st = pageStatus(page);
+    c.total++;
+    if (!st.done && !st.blocked) c.left++;
+    counts.set(page.section, c);
+  }
   for (const page of doc.pages) {
     const st = pageStatus(page);
     const isCurrent = page === currentPage;
@@ -747,7 +757,9 @@ function renderSidebar() {
     if (hideDone && (st.done || st.blocked) && !isCurrent) continue;
     if (page.section !== lastSection) {
       if (lastSection !== null) html += '</ul>';
-      html += `<h2>${esc(page.section || (webOnly() ? 'Pages' : 'Screens'))}</h2><ul>`;
+      const c = counts.get(page.section);
+      const left = c.left === 0 ? 'all checked' : `${c.left} to check`;
+      html += `<h2>${esc(page.section || (webOnly() ? 'Pages' : 'Screens'))} <span class="count">(${c.total}) · ${left}</span></h2><ul>`;
       lastSection = page.section;
     }
     html += `<li><a href="#${screenOn(page).anchor}"${isCurrent ? ' aria-current="page"' : ''}><span>${esc(page.name)}</span>${badge(st)}</a></li>`;
@@ -779,7 +791,7 @@ function renderProgress() {
   const perPlatform = doc.platforms.length > 1 ? ` (${doc.platforms.map(p => `${PLATFORM_LABEL[p]} ${done[p].done}/${done[p].total}`).join(' · ')})` : '';
   const pct = n => `${total ? ((n / total) * 100).toFixed(2) : 0}%`;
   $('#progress').innerHTML = `
-    <div><strong>${total - open} of ${total}</strong> checks done${perPlatform} · Screens: ${sPass} passed, ${sFail} failed, ${sBlocked ? `${sBlocked} blocked, ` : ''}${doc.pages.length - sPass - sFail - sBlocked} to go</div>
+    <div><strong>${total - open} of ${total}</strong> checks done${perPlatform} · ${webOnly() ? 'Pages' : 'Screens'}: ${sPass} passed, ${sFail} failed, ${sBlocked ? `${sBlocked} blocked, ` : ''}${doc.pages.length - sPass - sFail - sBlocked} to go</div>
     <div class="bar" role="img" aria-label="${pass} pass, ${fail} fail, ${na} not applicable, ${open} not checked or not reviewed">
       <span class="b-pass" style="width:${pct(pass)}"></span><span class="b-fail" style="width:${pct(fail)}"></span><span class="b-na" style="width:${pct(na)}"></span>
     </div>`;

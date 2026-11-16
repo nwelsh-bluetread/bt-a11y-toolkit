@@ -568,3 +568,51 @@ describe("runWizard — keyboard tests", () => {
     expect(loadSession(cwd)!.automated.map((r) => r.tool)).toEqual(["keyboard"]);
   });
 });
+
+describe("runWizard — timing", () => {
+  it("formats durations", async () => {
+    const { formatDuration } = await import("../src/wizard/index.js");
+    expect([800, 42_000, 65_000, 3_725_000].map(formatDuration)).toEqual(["1s", "42s", "1m 05s", "1h 02m"]);
+  });
+
+  it("shows time so far and time left per page, each step's time, and the totals", async () => {
+    let clock = 0;
+    const result = (): Assessment => ({
+      generatedAt: "",
+      platform: "web",
+      targetLevel: "AA",
+      overallScore: 100,
+      counts: { critical: 0, high: 0, medium: 0, low: 0 },
+      wcag: { A: 100, AA: 100, AAA: 100 },
+      categories: [],
+      topIssues: [],
+      findings: [],
+    });
+    const p = scripted([
+      { match: /What would you like to do/, answer: "new", once: true },
+      { match: /context docs/, answer: () => ((clock += 30_000), "") }, // 30s answering questions
+      { match: /Project \/ client name/, answer: "Acme Web" },
+      { match: /What are you auditing/, answer: "web" },
+      { match: /Target WCAG/, answer: "AA" },
+      { match: /Pages to audit/, answer: "https://acme.test/a https://acme.test/b https://acme.test/c" },
+    ]);
+    const d = deps(cwd, p, {
+      now: () => clock,
+      // axe: 20s per page.
+      scanAxe: async (urls, _level, onProgress) => {
+        urls.forEach((url, index) => {
+          onProgress({ type: "page", url, index, total: urls.length });
+          clock += 20_000;
+        });
+        return result();
+      },
+      scanLighthouse: async () => ((clock += 5_000), result()),
+    });
+    await runWizard(d);
+    const text = d.output.join("\n");
+    expect(text).toContain("[1/3] https://acme.test/a · 0s");
+    expect(text).toContain("[3/3] https://acme.test/c · 40s, ~20s left");
+    expect(text).toMatch(/axe-core .*· 1m 00s/);
+    expect(text).toContain("⏱ Automated checks took 1m 05s · whole run 1m 35s (including the setup questions)");
+  });
+});
