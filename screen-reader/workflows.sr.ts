@@ -5,13 +5,13 @@
 //
 // `expect` checks are soft: failures are listed at the end, but every step
 // still runs and the transcript always covers the whole workflow.
-import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { voiceOverTest as test, type VoiceOverPlaywright } from "@guidepup/playwright";
 import { expect, type Page } from "@playwright/test";
 import type { FocusedControl, Spoken, TabSummary, ToggleResult, Transcript, TranscriptStep } from "../src/screen-reader/transcript.ts";
-import { screenReaderPaths } from "../src/screen-reader/paths.ts";
+import { screenReaderPaths, skipRequestPath } from "../src/screen-reader/paths.ts";
 import { cellsToSkip, TABLE_ROWS_READ, tablePosition } from "../src/screen-reader/table.ts";
 import { applySession } from "./session.ts";
 import { describeStep, FIND_COMMANDS, loadWorkflows, stepAction, stripHints, type WorkflowStep } from "./workflow.ts";
@@ -66,6 +66,73 @@ function where(url: string): string {
   }
 }
 
+// ── Skipping during a run ────────────────────────────────────────────────────
+// Two ways in: the Skip buttons the runner adds to the page (click with the
+// mouse; the browser stays in front), or `bt-a11y sr skip [workflow]`, which
+// writes a request file. Loops check between items; "step" ends the current
+// step, "workflow" ends the workflow.
+type Skip = "step" | "workflow";
+const SKIP_FILE = skipRequestPath();
+let skipRequest: Skip | undefined;
+/** The request came from the command line: the Terminal may be in front now, so refocus the browser. */
+let skipFromFile = false;
+
+function requestSkip(kind: Skip): void {
+  skipRequest = kind === "workflow" || skipRequest === "workflow" ? "workflow" : "step";
+}
+
+function pendingSkip(): Skip | undefined {
+  if (existsSync(SKIP_FILE)) {
+    try {
+      requestSkip(readFileSync(SKIP_FILE, "utf8").trim() === "workflow" ? "workflow" : "step");
+      skipFromFile = true;
+      rmSync(SKIP_FILE, { force: true });
+    } catch {
+      // Being written right now: next check.
+    }
+  }
+  return skipRequest;
+}
+
+/**
+ * The Skip buttons: fixed in the bottom-right corner, hidden from VoiceOver
+ * (aria-hidden) and from Tab (tabindex -1), and they don't take focus when
+ * clicked, so transcripts and focus order are untouched.
+ */
+const SKIP_BUTTONS = `(() => {
+  const add = () => {
+    if (document.getElementById("__bt-sr-skip")) return;
+    const box = document.createElement("div");
+    box.id = "__bt-sr-skip";
+    box.setAttribute("aria-hidden", "true");
+    box.style.cssText = "position:fixed;right:8px;bottom:8px;z-index:2147483647;display:flex;gap:6px;font:12px/1.2 system-ui,sans-serif;opacity:.9";
+    for (const [kind, label] of [["step", "Skip ▸ rest of step"], ["workflow", "Skip ▸▸ workflow"]]) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.tabIndex = -1;
+      b.textContent = label;
+      b.style.cssText = "padding:6px 10px;border:1px solid #333;border-radius:6px;background:#fff;color:#111;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.25)";
+      b.addEventListener("mousedown", (e) => e.preventDefault());
+      b.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (window.__btSrSkip) window.__btSrSkip(kind);
+        b.textContent = "Skipping…";
+        setTimeout(() => (b.textContent = label), 2000);
+      });
+      box.append(b);
+    }
+    document.documentElement.append(box);
+  };
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", add);
+  else add();
+  // Single-page apps can replace the page: put them back.
+  setInterval(add, 1000);
+})();`;
+
+// A request left over from an earlier run doesn't apply to this one.
+rmSync(SKIP_FILE, { force: true });
+
 test.afterAll(() => {
   if (started) log(`■ Finished ${started} workflow${started === 1 ? "" : "s"} in ${took(runStart)}. Transcripts: ${outDir}`);
 });
@@ -89,7 +156,12 @@ type GuidepupTiming = { SPOKEN_PHRASES_RETRY_COUNT: number; MAX_SPOKEN_PHRASES_P
 const timing: GuidepupTiming | undefined = (() => {
   try {
     // Guidepup reads these on every poll, so changing them takes effect on the next command.
-    return createRequire(import.meta.url)("@guidepup/guidepup/lib/macOS/VoiceOver/constants.js") as GuidepupTiming;
+    // Resolve through @guidepup/playwright so we get the same Guidepup copy it drives.
+    // No import.meta here: audited repos are often "type": "commonjs", and Playwright
+    // then compiles this file as CommonJS, where import.meta is a syntax error.
+    const project = createRequire(join(process.env.BT_A11Y_PROJECT ?? process.cwd(), "noop.js"));
+    const fromPlaywright = createRequire(project.resolve("@guidepup/playwright"));
+    return fromPlaywright("@guidepup/guidepup/lib/macOS/VoiceOver/constants.js") as GuidepupTiming;
   } catch {
     return undefined;
   }
@@ -107,6 +179,8 @@ interface StepResult {
   output: Spoken[];
   tab?: TabSummary;
   toggle?: ToggleResult;
+  /** Ended early on request. */
+  cut?: boolean;
 }
 
 /** Role, name and states of an element, from the accessibility tree Playwright computes. */
@@ -194,6 +268,7 @@ async function runStep(step: WorkflowStep, page: Page, voiceOver: VoiceOverPlayw
       // header and two data rows are read; the rest of the cells are skipped.
       let repeats = 0;
       for (let i = 0; i < MAX_ITEMS && repeats < 2; i++) {
+        if (pendingSkip()) return { output, cut: true };
         const before = await voiceOver.itemText();
         await voiceOver.next();
         const now = await heard(voiceOver);
@@ -218,6 +293,7 @@ async function runStep(step: WorkflowStep, page: Page, voiceOver: VoiceOverPlayw
     }
     case "next": {
       for (let i = 0; i < (s.next as number); i++) {
+        if (pendingSkip()) return { output, cut: true };
         await voiceOver.next();
         output.push(await heard(voiceOver));
       }
@@ -230,6 +306,8 @@ async function runStep(step: WorkflowStep, page: Page, voiceOver: VoiceOverPlayw
       const seen = new Set<string>();
       let stopped: TabSummary["stopped"] = all ? "limit" : "count";
       for (let i = 0; i < limit; i++) {
+        // Cut short: not a full Tab-through, so no unreached controls or loop to judge.
+        if (pendingSkip()) return { output, tab: { stopped: "count", unreached: [] }, cut: true };
         await voiceOver.press("Tab");
         const id = await markFocus(page);
         if (all && id === null) { stopped = "left-page"; break; }
@@ -285,6 +363,13 @@ for (const wf of workflows) {
     log(`▶ Workflow ${started} of ${selected.length}: ${wf.name}${started > 1 ? ` (run so far ${took(runStart)})` : ""}`);
     log(`  page ${where(wf.url)}${wf.session ? ` · signed in as "${wf.session}"` : ""}`);
     let lastUrl = wf.url;
+    skipRequest = undefined;
+    skipFromFile = false;
+    await page.exposeFunction("__btSrSkip", (kind: string) => {
+      requestSkip(kind === "workflow" ? "workflow" : "step");
+      log(`  ⏭ Skip clicked: ${kind === "workflow" ? "the rest of this workflow" : "the rest of this step"}`);
+    });
+    await page.addInitScript(SKIP_BUTTONS);
     // Loading the page and its first announcement get the full wait.
     setPace("start");
     if (started === 1 && !timing) log("  (couldn't change Guidepup's pace: every item gets the full wait)");
@@ -299,18 +384,35 @@ for (const wf of workflows) {
       for (const [i, step] of wf.steps.entries()) {
         const entry: TranscriptStep = { step: i + 1, action: describeStep(step), kind: stepAction(step), url: page.url(), output: [] };
         steps.push(entry);
+        // A step skip asked for while an earlier step was finishing has nothing left to skip.
+        if (pendingSkip() === "step") skipRequest = undefined;
+        if (skipRequest === "workflow") {
+          log(`  ⏭ skipped steps ${i + 1}–${wf.steps.length} (rest of the workflow)`);
+          break;
+        }
         log(`  step ${i + 1}/${wf.steps.length}: ${entry.action}`);
         setPace(entry.kind);
         try {
           const result = await runStep(step, page, voiceOver, entry.output);
           entry.output = result.output;
+          if (result.cut) {
+            entry.cut = true;
+            entry.output.push({ spoken: "(skipped the rest of this step on request)", item: "" });
+            log(`    ⏭ skipped the rest of step ${i + 1}`);
+            if (skipRequest === "step") skipRequest = undefined;
+            // Typed in a Terminal: put VoiceOver back on the page before the next step.
+            if (skipFromFile) {
+              skipFromFile = false;
+              await voiceOver.navigateToWebContent().catch(() => {});
+            }
+          }
           if (result.tab) entry.tab = result.tab;
           if (result.toggle) entry.toggle = result.toggle;
         } catch (err) {
           // Note the failure and carry on with the next step.
           entry.error = err instanceof Error ? err.message.split("\n")[0] : String(err);
         }
-        if (step.expect !== undefined) {
+        if (step.expect !== undefined && !entry.cut) {
           const said = entry.output.map((o) => o.spoken).join(" ");
           entry.expect = step.expect;
           entry.passed = said.toLowerCase().includes(step.expect.toLowerCase());

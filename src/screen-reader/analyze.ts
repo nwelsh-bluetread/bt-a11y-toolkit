@@ -153,7 +153,8 @@ function imageFindings(at: Place): Finding[] {
 
 /** Heading structure from a full read of the page. */
 function headingFindings(at: Place): Finding[] {
-  if (at.step.kind !== "read") return [];
+  // A read cut short didn't hear the whole page, so missing headings can't be judged.
+  if (at.step.kind !== "read" || at.step.cut) return [];
   const levels = at.step.output.map((o) => /heading level (\d)/i.exec(o.spoken)?.[1]).filter((l): l is string => Boolean(l)).map(Number);
   if (levels.length === 0) {
     return at.step.output.length >= 10
@@ -278,7 +279,7 @@ function ambiguousLinkFindings(transcript: Transcript, file?: string): Finding[]
 /** A workflow `expect` that VoiceOver didn't say. */
 function expectFindings(at: Place): Finding[] {
   const { step } = at;
-  if (step.expect === undefined || step.passed !== false || step.error) return [];
+  if (step.expect === undefined || step.passed !== false || step.error || step.cut) return [];
   const criteria = step.wcag?.filter((c) => WCAG[c]).length ? step.wcag.filter((c) => WCAG[c]) : DYNAMIC_STEPS.has(step.kind) ? ["4.1.3"] : ["4.1.2"];
   const said = step.output.map((o) => o.spoken).filter(Boolean).join(" / ");
   return [make(

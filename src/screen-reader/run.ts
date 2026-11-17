@@ -16,7 +16,7 @@ import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { basename, dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { screenReaderPaths } from "./paths.js";
+import { screenReaderPaths, skipRequestPath } from "./paths.js";
 
 /** The toolkit package: two levels up from src/screen-reader/ or dist/screen-reader/. */
 const PKG_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -70,6 +70,8 @@ workflows/ (what to do on each page), transcripts/ (what VoiceOver said),
 sessions/ (saved sign-ins, never committed).
 
   bt-a11y sr test [-g <name>]          Run every workflow with VoiceOver (hands off the Mac)
+  bt-a11y sr skip [workflow]           During a run: skip the rest of the current step
+                                       (or workflow). Or click Skip in the browser's corner.
   bt-a11y sr findings                  Turn the transcripts into audit findings
   bt-a11y sr login <url> [--name <n>]  Sign in by hand, save the session for workflows
   bt-a11y sr inspect <url> [--session <n>]  List the page's controls and selectors
@@ -142,6 +144,15 @@ export async function runSr(argv: string[], findings: () => Promise<void>): Prom
   }
   if (command === "findings") return findings();
 
+  if (command === "skip") {
+    const what = rest[0] === "workflow" ? "workflow" : "step";
+    const file = skipRequestPath(cwd);
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, what);
+    process.stdout.write(`Asked the VoiceOver run to skip the rest of the current ${what}. It moves on at its next item and brings the browser back to the front.\n`);
+    return;
+  }
+
   if (command === "test") {
     // Checked up front: a missing one otherwise surfaces as a "Cannot find module" stack trace from inside Playwright.
     const hint = missingPackagesHint(NEEDS.test!, [cwd, PKG_ROOT]);
@@ -157,10 +168,13 @@ export async function runSr(argv: string[], findings: () => Promise<void>): Prom
     if (!rest.includes("--list")) {
       mkdirSync(paths.transcripts, { recursive: true });
       writeFileSync(log, "");
+      rmSync(skipRequestPath(cwd), { force: true });
       process.stdout.write(
         `Workflows: ${paths.workflows}\nTranscripts: ${paths.transcripts}\n` +
           `Live log (which workflow and page is running, and when): ${log}\n` +
           "  Follow it from another device or after the run: tail -f on that file.\n" +
+          "To skip the rest of a step (e.g. a long page read): click Skip in the bottom-right of the browser,\n" +
+          "  or run 'npx bt-a11y sr skip' (add 'workflow' to skip the whole workflow).\n" +
           "VoiceOver is about to take over the Mac: keep hands off the keyboard and mouse.\n\n",
       );
     }

@@ -63,6 +63,8 @@ export interface TranscriptStep {
   wcag?: string[];
   tab?: TabSummary;
   toggle?: ToggleResult;
+  /** The step was cut short on request (bt-a11y sr skip, or the Skip button), so it doesn't cover the whole page. */
+  cut?: true;
   error?: string;
 }
 

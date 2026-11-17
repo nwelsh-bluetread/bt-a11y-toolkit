@@ -82,6 +82,15 @@ describe("analyzeTranscript", () => {
     expect(f!.wcag.map((c) => c.id)).toEqual(["4.1.2", "2.1.1"]);
   });
 
+  it("doesn't judge a step that was skipped partway", () => {
+    const items = Array.from({ length: 12 }, (_, i) => said(`Item ${i}`));
+    // A full read with no headings is flagged; the same read cut short isn't.
+    expect(rules(transcript(step("read", items)))).toEqual(["sr-no-headings"]);
+    expect(rules(transcript(step("read", items, { cut: true })))).toEqual([]);
+    // Nor is an expect it never got to.
+    expect(rules(transcript(step("read", items.slice(0, 2), { cut: true, expect: "Footer", passed: false })))).toEqual([]);
+  });
+
   it("flags generic link text and same-named links to different places", () => {
     const t = transcript(step("tab", [
       said("link Read more", ctl("link", "Read more", { href: "/a" })),

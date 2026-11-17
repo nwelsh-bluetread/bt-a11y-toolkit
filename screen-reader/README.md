@@ -45,6 +45,15 @@ item). Actions (`activate`, `press`, `type`, `wait`, `goto`) keep the full wait,
 so late announcements like alerts and live regions are still heard. For the full
 wait everywhere: `BT_SR_PACE=thorough npx bt-a11y sr test`.
 
+**Skipping during a run.** If a step drags on (reading a long dashboard), click
+**Skip ▸ rest of step** in the bottom-right corner of the browser to move on to the
+next step, or **Skip ▸▸ workflow** to end that workflow. The buttons are hidden
+from VoiceOver and Tab and don't take focus, so the run isn't affected. Or, from
+another terminal (or another computer over SSH): `npx bt-a11y sr skip` /
+`npx bt-a11y sr skip workflow`; the runner then brings the browser back to the
+front. A skipped step is marked in the transcript and isn't judged on what it
+didn't reach (no "no headings" or missed `expect` findings).
+
 **Tables.** A `read` step reads a table's header and first two data rows, then
 skips the rest of its cells; the transcript notes "(table: read rows 1–3 of 20,
 skipped the rest)". Use `next` steps to hear more of a specific table.
