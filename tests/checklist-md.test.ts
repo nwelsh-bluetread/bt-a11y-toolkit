@@ -120,10 +120,10 @@ describe("renderChecklist", () => {
   it("puts automated findings and signals under the check they belong to on that screen", () => {
     // A scan finding pre-marks the line as failing; a "Verify" signal leaves it for the tester.
     expect(screenIn(ios, "Login")).toContain(
-      "- [!] **3.3.2** Every input has a label or instructions (not just placeholder text) · `input-labels` — scan found issues · not reviewed yet\n  ⚑ High · Text input has no accessible label — Login.tsx:12",
+      "- [!] **3.3.2** Every input has a label or instructions (not just placeholder text) · `input-labels` — scan found issues · not reviewed yet\n  ⚑ Text input has no accessible label — Login.tsx:12 (high)",
     );
     expect(screenIn(ios, "Inbox")).toMatch(/- \[ \] \*\*2\.5\.1\*\* [^\n]*`pointer-gestures`\n {2}⚑ Verify · Gesture or drag: needs a single-tap alternative — Inbox\.tsx:7/);
-    expect(screenIn(ios, APP_WIDE)).toMatch(/- \[!\] \*\*1\.3\.4\*\* [^\n]*`orientation` — scan found issues · not reviewed yet\n {2}⚑ Medium · Screen orientation is locked — app\.json:4/);
+    expect(screenIn(ios, APP_WIDE)).toMatch(/- \[!\] \*\*1\.3\.4\*\* [^\n]*`orientation` — scan found issues · not reviewed yet\n {2}⚑ Screen orientation is locked — app\.json:4 \(medium\)/);
   });
 
   it("collapses one issue across many files into a single line with severity, short paths, and +N more", () => {
@@ -145,7 +145,7 @@ describe("renderChecklist", () => {
       },
     ];
     const out = renderChecklist({ projectName: "Acme", targetLevel: "AA", groups: planChecklist([shared], ["ios"], "AA"), runs: many });
-    expect(out).toMatch(/### Scheduling\n\n#### Screen reader\n\n- \[!\] \*\*4\.1\.2\*\* [^\n]*`sr-name-role-value` — scan found issues · not reviewed yet\n {2}⚑ Medium · Touchable has no accessibility role — A\.js:1, B\.js:2, C\.js:3, D\.js:4, E\.js:5 \+2 more\n/);
+    expect(out).toMatch(/### Scheduling\n\n#### Screen reader\n\n- \[!\] \*\*4\.1\.2\*\* [^\n]*`sr-name-role-value` — scan found issues · not reviewed yet\n {2}⚑ Touchable has no accessibility role — A\.js:1, B\.js:2, C\.js:3, D\.js:4, E\.js:5 \+2 more \(medium\)\n/);
     const details = renderScanDetails({ projectName: "Acme", groups: planChecklist([shared], ["ios"], "AA"), runs: many });
     expect(details).toContain("  - `src/components/Card/index.js` line 6");
     expect(details).toContain("  - `src/components/G.js` line 7");
@@ -238,7 +238,7 @@ Issues that don't fit a check above — one per line.
     expect(android).toMatch(/### Login\n[\s\S]*?- \[!\] \*\*3\.3\.2\*\* [^\n]*`input-labels`: Email field is read as "edit box" \(critical\)\n {2}- Password field has no label either \[3\.3\.2\]/);
     expect(regenerated).toContain("- [!] iOS, Android · Inbox · 1.4.3 · Unread badge text is too light (medium)");
     const answered = (p: typeof parsed) =>
-      p.rows.filter((r) => r.status !== "open").map((r) => `${r.target}|${r.itemId}|${r.screen ?? ""}|${r.status}|${JSON.stringify(r.issues)}`).sort();
+      p.rows.filter((r) => r.status !== "open" && r.reviewed !== false).map((r) => `${r.target}|${r.itemId}|${r.screen ?? ""}|${r.status}|${JSON.stringify(r.issues)}`).sort();
     const reparsed = parseChecklist(regenerated);
     expect(answered(reparsed)).toEqual(answered(parsed));
     expect(reparsed.other).toHaveLength(1);
@@ -317,7 +317,7 @@ Issues that don't fit a check above — one per line.
     const before = parseChecklist(checkFirst);
     const two: ScreenInfo[] = ["Login", "Signup"].map((name) => ({ name, kind: "mobile", file: `src/${name}.tsx`, files: [`src/${name}.tsx`], features: ["inputs"] }));
     const after = parseChecklist(renderChecklist({ projectName: "A", targetLevel: "AA", groups: planChecklist(two, ["ios"], "AA"), runs: [], previous: before }));
-    const answered = (p: typeof before) => p.rows.filter((r) => r.status !== "open").map((r) => [r.screen, r.itemId, r.status, r.issues.map((i) => i.text)]);
+    const answered = (p: typeof before) => p.rows.filter((r) => r.status !== "open" && r.reviewed !== false).map((r) => [r.screen, r.itemId, r.status, r.issues.map((i) => i.text)]);
     expect(answered(after)).toEqual(
       expect.arrayContaining([
         ["Login", "input-labels", "pass", []],

@@ -124,7 +124,7 @@ describe("runWizard — React Native app", () => {
     const md = read("checklist.md");
     expect(md).toContain("# iOS");
     expect(md).toContain("## All checks, screen by screen");
-    expect(md).toMatch(/### Login\n[\s\S]*?`input-labels` — scan found issues · not reviewed yet\n {2}⚑ High · Text input has no accessible label — Login\.tsx:12/);
+    expect(md).toMatch(/### Login\n[\s\S]*?`input-labels` — scan found issues · not reviewed yet\n {2}⚑ Text input has no accessible label — Login\.tsx:12 \(high\)/);
     expect(md).toMatch(/### Inbox\n[\s\S]*?- \[ \] [^\n]*`pointer-gestures`\n {2}⚑ Verify · Gesture or drag: needs a single-tap alternative — Inbox\.tsx:9/);
     expect(read("scan-details.md")).toContain("### High · Text input has no accessible label\n\n- **WCAG:** 3.3.2 Labels or Instructions (A), 4.1.2 Name, Role, Value (A)\n- **Where:**\n  - `src/Login.tsx` line 12");
     expect(read("report.md")).toContain("## WCAG 2.2 criteria coverage");
@@ -337,7 +337,7 @@ describe("runWizard — website", () => {
     const md = read("checklist.md");
     // Alt-text checks are app-wide for websites (page contents aren't known), so the finding is listed in the index.
     expect(md).toContain("- **/about** — https://acme.test/about · ⚑ 2 automated findings");
-    expect(md).toContain("  - ⚑ High · x (1.1.1; no check covers this)");
+    expect(md).toContain("  - ⚑ x (high) (1.1.1; no check covers this)");
     expect(md).toContain("# Website");
     expect(md).toContain("### /about\n");
     expect(existsSync(join(cwd, "a11y-audit", "report.json"))).toBe(true);

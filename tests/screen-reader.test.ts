@@ -5,7 +5,9 @@ import { describe, expect, it } from "vitest";
 import { analyzeTranscript, reviewFindings } from "../src/screen-reader/analyze.js";
 import { alignPages, loadTranscripts, sameUrl } from "../src/screen-reader/load.js";
 import type { FocusedControl, Spoken, Transcript, TranscriptStep } from "../src/screen-reader/transcript.js";
-import { planChecklist, renderChecklist } from "../src/wizard/checklist-md.js";
+import { parseChecklist, planChecklist, renderChecklist } from "../src/wizard/checklist-md.js";
+import type { Finding } from "../src/types.js";
+import { wcag } from "../src/wcag.js";
 
 const PAGE = "https://acme.test/login";
 let dom = 0;
@@ -183,6 +185,22 @@ describe("on the checklist", () => {
     const findings = analyzeTranscript(transcript(step("tab", [said("edit text", ctl("textbox", ""))])));
     const md = renderChecklist({ projectName: "Acme", targetLevel: "AA", groups, runs: [{ tool: "voiceover", targets: ["web"], ranAt: "", findings }] });
     const login = md.slice(md.indexOf("### Login"), md.indexOf("### App-wide"));
-    expect(login).toContain("- [!] **4.1.2** Screen reader announces the name, role, and state of every control · `sr-name-role-value` — scan found issues · not reviewed yet\n  ⚑ High · Form field has no accessible name — textbox (no name)");
+    expect(login).toContain("- [!] **4.1.2** Screen reader announces the name, role, and state of every control · `sr-name-role-value` — scan found issues · not reviewed yet\n  ⚑ `Textbox` — Form field has no accessible name (high)");
+  });
+
+  it("writes findings as component issues, and turns a blank [ ] line into [!] when a later scan finds something", () => {
+    const groups = planChecklist([{ name: "Login", kind: "web", url: PAGE }], ["web"], "AA");
+    const before = renderChecklist({ projectName: "Acme", targetLevel: "AA", groups, runs: [] });
+    expect(before).toContain("- [ ] **4.1.2** Screen reader announces the name, role, and state of every control · `sr-name-role-value`\n");
+    const findings: Finding[] = [
+      { ruleId: "a", title: "Iframe has no accessible name", description: "", severity: "high", wcag: wcag("4.1.2"), nodeId: "iframe (no name)", nodeType: "iframe", evidence: { page: PAGE } },
+      { ruleId: "b", title: "Interactive element can't be reached with Tab", description: "", severity: "high", wcag: wcag("4.1.2"), nodeId: 'button "Element Selector"', nodeType: "button", evidence: { page: PAGE } },
+    ];
+    const md = renderChecklist({ projectName: "Acme", targetLevel: "AA", groups, runs: [{ tool: "voiceover", targets: ["web"], ranAt: "", findings }], previous: parseChecklist(before) });
+    expect(md).toContain(
+      "- [!] **4.1.2** Screen reader announces the name, role, and state of every control · `sr-name-role-value` — scan found issues · not reviewed yet\n" +
+        "  ⚑ `Iframe` — Iframe has no accessible name (high)\n" +
+        '  ⚑ `Button` — Interactive element can\'t be reached with Tab, "Element Selector" (high)',
+    );
   });
 });

@@ -123,7 +123,7 @@ describe("runTargetSize", () => {
     const md = readFileSync(join(cwd, "a11y-audit", "checklist.md"), "utf8");
     const android = md.slice(md.indexOf("# Android"));
     expect(android).toMatch(/- \[x\] \*\*2\.5\.8\*\* .*`target-size` — measured on device \(1 target, all at least 24×24 dp or spaced apart\)/);
-    expect(android).toMatch(/- \[!\] \*\*2\.5\.8\*\* .*`target-size` — measured on device \(2 of 5 targets too small\)\n {2}⚑ Medium · Touch target smaller than 24×24 dp — "Bold" 18×18dp, "Italic" 18×18dp/);
+    expect(android).toMatch(/- \[!\] \*\*2\.5\.8\*\* .*`target-size` — measured on device \(2 of 5 targets too small\)\n {2}⚑ Touch target smaller than 24×24 dp — "Bold" 18×18dp, "Italic" 18×18dp \(medium\)/);
     const rows = parseChecklist(md).rows.filter((r) => r.itemId === "target-size");
     expect(rows.filter((r) => r.target === "android" && r.auto).map((r) => [r.screen, r.status])).toEqual([["Home", "pass"], ["Billing", "fail"]]);
     expect(rows.filter((r) => r.target === "ios").every((r) => r.status === "open")).toBe(true);

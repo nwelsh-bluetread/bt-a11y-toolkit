@@ -238,7 +238,9 @@ export function renderChecklist({ projectName, targetLevel, groups, runs, previo
               const previousRow = kept.get(answerKey(target, item.id, screen));
               const measured = screen ? verifiedOn(runs, target, screen, item) : undefined;
               // A measurement fills in lines nobody has answered yet; a tester's answer always wins.
-              const unanswered = previousRow?.reviewed === false || previousRow?.auto || (measured && previousRow?.status === "open");
+              // A blank "[ ]" line isn't an answer either, so a later scan can still pre-fill it as [!].
+              const blank = previousRow?.status === "open" && previousRow.issues.length === 0 && !previousRow.notes?.length;
+              const unanswered = previousRow?.reviewed === false || previousRow?.auto || blank;
               const row = unanswered ? undefined : previousRow;
               const notes = scanNotes(item, section, runs, allScreens, [target]);
               // A scan finding here means the check already fails on this screen: start it as [!], marked as not reviewed.
@@ -434,23 +436,47 @@ function shortPlace(f: Finding, section: PlannedSection): string | undefined {
   return undefined;
 }
 
-/** One line per issue: severity, what's wrong, and where (capped, with "+N more"). */
+/**
+ * The component a finding on a running page is about, from the control it was
+ * found on: `button "Element Selector"` → { component: "Button", name: "Element Selector" }.
+ */
+function componentOf(f: Finding): { component: string; name?: string } | undefined {
+  if (typeof f.evidence?.file === "string" || !f.nodeType || !f.nodeId) return undefined;
+  const role = f.nodeType.trim();
+  if (!role) return undefined;
+  const name = /^[^"]*"(.*)"$/.exec(f.nodeId)?.[1];
+  return { component: role[0]!.toUpperCase() + role.slice(1), ...(name ? { name } : {}) };
+}
+
+/**
+ * One line per issue (and component), written like a tester's issue so it reads
+ * as a failure: "⚑ `Button` — Can't be reached with Tab, "Element Selector" (high)",
+ * or "⚑ Text input has no label — Login.tsx:12 (high)" when there's no component.
+ * The ⚑ marks it as a scan line, so it's rebuilt on each run and not counted twice.
+ */
 function compactFindings(findings: Finding[], section: PlannedSection): string[] {
-  const byIssue = new Map<string, { severity: Severity; places: string[] }>();
+  const byIssue = new Map<string, { title: string; component?: string; severity: Severity; places: string[]; unnamed: number }>();
   for (const f of findings) {
-    const key = issueTitle(f);
-    const entry = byIssue.get(key) ?? { severity: f.severity, places: [] };
+    const title = issueTitle(f);
+    const comp = componentOf(f);
+    const key = `${title}|${comp?.component ?? ""}`;
+    const entry = byIssue.get(key) ?? { title, component: comp?.component, severity: f.severity, places: [], unnamed: 0 };
     if (SEVERITY_ORDER[f.severity] < SEVERITY_ORDER[entry.severity]) entry.severity = f.severity;
-    const place = shortPlace(f, section);
+    const place = comp ? (comp.name ? `"${comp.name}"` : undefined) : shortPlace(f, section);
     if (place && !entry.places.includes(place)) entry.places.push(place);
+    else if (comp && !comp.name) entry.unnamed++;
     byIssue.set(key, entry);
   }
-  return [...byIssue]
-    .sort((a, b) => SEVERITY_ORDER[a[1].severity] - SEVERITY_ORDER[b[1].severity])
-    .map(([title, { severity, places }]) => {
-      const shown = places.slice(0, MAX_PLACES).join(", ");
+  return [...byIssue.values()]
+    .sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity])
+    .map(({ title, component, severity, places, unnamed }) => {
       const more = places.length > MAX_PLACES ? ` +${places.length - MAX_PLACES} more` : "";
-      return `⚑ ${SEVERITY_WORD[severity]} · ${title}${shown ? ` — ${shown}${more}` : ""}`;
+      const noName = component && unnamed && places.length ? ` +${unnamed} with no name` : "";
+      const shown = places.slice(0, MAX_PLACES).join(", ") + more + noName;
+      const sev = ` (${severity})`;
+      return component
+        ? `⚑ \`${component}\` — ${title}${shown ? `, ${shown}` : ""}${sev}`
+        : `⚑ ${title}${shown ? ` — ${shown}` : ""}${sev}`;
     });
 }
 
